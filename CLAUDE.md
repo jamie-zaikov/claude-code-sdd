@@ -37,16 +37,26 @@ No agent modifies another agent's artifact.
 
 ### Knowledge-Vault Isolation
 
-When a project keeps a curated knowledge vault (Obsidian/markdown), it is never read or written
-directly by the orchestrator or specialists — that would flood the main session. All vault access
-is brokered by the orchestrator through two leaf subagents:
+When a project keeps a curated knowledge vault (Obsidian/markdown), the vault is never read into
+context directly by anyone — not the main session, the orchestrator, or the specialists. That
+would flood whichever context did the reading. All access is brokered through two leaf subagents:
 
 - Reads go through **vault-reader**, which distills its findings to a report file and returns only
   a summary plus the path. Raw notes stay in the subagent's context and are discarded.
 - Writes go through **vault-writer**, the single audited choke-point for vault mutations.
-- The default vault path lives in steering (`tech.md`); the orchestrator may override it per call.
-- A specialist that needs vault facts emits `VAULT REQUEST: <need>`; the orchestrator fulfils it
-  via vault-reader and re-invokes the specialist with the report path.
+- The default vault path lives in steering (`tech.md`); the invoker may override it per call.
+
+There are two ways a vault read is triggered, by two different invokers:
+
+- **Manual (main session).** Any time the user asks to consult a vault — e.g. "consult the lynx
+  vault for the worktable variable rules" — the main session invokes vault-reader directly (it
+  has the Agent tool). Resolve the named vault from steering's `Knowledge Vault` entry; if it is
+  ambiguous or unset, ask. During scoping, fold the returned facts into `scope.md` (under *Open
+  questions resolved* / *Sources consulted*) and cite the report path so the whole pipeline
+  inherits them. Outside scoping, just surface the tl;dr and keep the report path on hand.
+- **On-demand (orchestrator).** A specialist (requirements/design/tasks) that needs vault facts
+  not present in its inputs does NOT guess — it halts and returns `VAULT REQUEST: <need>`. The
+  orchestrator fulfils it via vault-reader and re-invokes the specialist with the report path.
 
 ### Key Commands
 
