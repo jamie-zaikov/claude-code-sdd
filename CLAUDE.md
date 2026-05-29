@@ -30,8 +30,23 @@ Never start implementation if any prior phase is unconfirmed.
 - task-executor: implements one task at a time, worktree-isolated
 - task-tester: writes tests for one task, never modifies implementation
 - task-validator: validates against requirements, read-only, returns pass/fail
+- vault-reader: read-only knowledge-vault interface; reads in isolation, returns a distilled report
+- vault-writer: the only component that writes to the knowledge vault; a scribe, never an author
 
 No agent modifies another agent's artifact.
+
+### Knowledge-Vault Isolation
+
+When a project keeps a curated knowledge vault (Obsidian/markdown), it is never read or written
+directly by the orchestrator or specialists — that would flood the main session. All vault access
+is brokered by the orchestrator through two leaf subagents:
+
+- Reads go through **vault-reader**, which distills its findings to a report file and returns only
+  a summary plus the path. Raw notes stay in the subagent's context and are discarded.
+- Writes go through **vault-writer**, the single audited choke-point for vault mutations.
+- The default vault path lives in steering (`tech.md`); the orchestrator may override it per call.
+- A specialist that needs vault facts emits `VAULT REQUEST: <need>`; the orchestrator fulfils it
+  via vault-reader and re-invokes the specialist with the report path.
 
 ### Key Commands
 

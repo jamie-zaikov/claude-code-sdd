@@ -14,6 +14,8 @@ agents/
   task-executor.md            # Implements one task, worktree-isolated
   task-tester.md              # Writes tests for one task
   task-validator.md           # Validates implementation + tests, pass/fail
+  vault-reader.md             # Read-only knowledge-vault interface, distills to a report
+  vault-writer.md             # The only writer to the knowledge vault, audited choke-point
 
 commands/
   sdd-init.md             # /sdd-init — scaffold .specs/ in any project
@@ -57,7 +59,7 @@ chmod +x install.sh
 
 The installer will:
 
-1. Copy all 8 agents to `~/.claude/agents/`
+1. Copy all 10 agents to `~/.claude/agents/`
 2. Copy all 4 slash commands to `~/.claude/commands/`
 3. Install the global CLAUDE.md to `~/.claude/CLAUDE.md`
    - If you already have one, it offers to overwrite, append, or skip
@@ -171,7 +173,9 @@ Everything installs to `~/.claude/`:
 │   ├── spec-consistency-checker.md
 │   ├── task-executor.md
 │   ├── task-tester.md
-│   └── task-validator.md
+│   ├── task-validator.md
+│   ├── vault-reader.md
+│   └── vault-writer.md
 └── commands/        # Global — available in every project
     ├── sdd-init.md
     ├── sdd-feature.md
@@ -215,3 +219,4 @@ Removes agents and commands. Leaves `~/.claude/CLAUDE.md` intact (remove SDD sec
 - **Use `/compact` aggressively.** When context fills past 50%, compress.
 - **Opus for planning, Sonnet for execution.** Model tiering ships in each agent's `model:` frontmatter: Opus for requirements/design, Sonnet for tasks/execution/validation. The task-executor auto-escalates to Opus on a retry after a validator failure. Override per agent by editing its frontmatter.
 - **Worktrees for parallel tasks.** The task-executor has `isolation: worktree`. For manual parallel work: `claude --worktree task-3-api`.
+- **Keep the knowledge vault out of the main session.** If your project has a large curated Obsidian/markdown vault, never read it into the orchestrator. Set its root under "Knowledge Vault" in `.specs/steering/tech.md`; the orchestrator brokers all access through `vault-reader` (reads → distilled report on disk) and `vault-writer` (the only writer). The bulk content lives and dies in the subagent's context, so the main session never bloats.

@@ -122,6 +122,37 @@ Do NOT pass planning conversation context. The checker reads files independently
 ### `complete`
 - All tasks are done. Report final status: total tasks, all requirements addressed.
 
+## Vault Access (knowledge-vault isolation)
+
+Some projects keep a curated knowledge vault (Obsidian/markdown) that can run to hundreds of
+thousands of tokens. You and the specialist agents must **never read or write that vault
+directly** — doing so would flood the main session and defeat the whole point. All vault access
+goes through two leaf subagents, each of which works in its own throwaway context and hands back
+something small.
+
+**Resolve the vault path once.** Look in `.specs/steering/` (e.g. a "Knowledge Vault" entry in
+`tech.md`) for the default vault root. Pass it explicitly on every invocation; allow a per-call
+override if the user names a different vault.
+
+**Reading — `vault-reader`.** When a specialist needs domain facts, or when scoping a feature:
+- Invoke **vault-reader** with `{ need, vault_path, output_path: .specs/features/<feature>/vault/<slug>.md }`.
+- It writes a distilled report to `output_path` and returns only a tl;dr + the path + any gaps.
+- Pass the report **path** (not its contents) to the specialist on its next invocation. Read the
+  report file yourself only if you must validate it — prefer forwarding the path to keep your own
+  context lean.
+- To get more, send another `vault-reader` request. Each call is a fresh subagent, so vault
+  content never accumulates in your context. This is how you "validate, then ask again."
+
+**Writing — `vault-writer`.** When the process needs to persist something into the vault:
+- Invoke **vault-writer** with `{ vault_path, operation, target, content, intent }`. The
+  `content` must be authored by you or a specialist — the writer is a scribe, it never invents.
+- It returns a short confirmation (or a conflict to resolve). Never let a specialist write to
+  the vault; route every vault mutation through vault-writer.
+
+**Specialist vault requests.** A specialist may return a line like `VAULT REQUEST: <need>` when
+it discovers it needs vault facts mid-task. When you see one, fulfil it with vault-reader, then
+re-invoke the specialist with the report path appended to its input.
+
 ## After Every Agent Completes
 
 Always report to the user:
@@ -167,6 +198,8 @@ Update the state file after every phase transition and every task completion/fai
 
 - NEVER write to `requirements.md`, `design.md`, or `tasks.md` yourself. Only specialist agents write those.
 - NEVER write or modify application code. Only the task-executor does that.
+- NEVER read knowledge-vault notes directly — always go through the vault-reader subagent.
+- NEVER write to the knowledge vault directly — always go through the vault-writer subagent.
 - NEVER advance a phase without explicit user confirmation.
 - NEVER start implementation if any of requirements, design, or tasks are unconfirmed.
 - If context is getting long after multiple phases, suggest the user start a new session and resume. The state file preserves all progress.

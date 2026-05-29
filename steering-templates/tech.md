@@ -17,3 +17,11 @@
 
 ## Build and Run
 <!-- How to build, run, lint, format the project -->
+
+## Knowledge Vault
+<!-- Optional. If this project has a curated Obsidian/markdown knowledge vault, give its
+     absolute root path here. The orchestrator passes this to the vault-reader / vault-writer
+     agents as the default; it is never read into the main session directly. -->
+<!-- Example: "Vault root: /Users/you/Projects/lynx-manager/vault (MOC: workspace-management.md)" -->
+<!-- Vault root: -->
+
