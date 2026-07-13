@@ -167,6 +167,91 @@ fi
 echo ""
 
 # --------------------------------------------------------------------------
+# Secret-handling hooks + deny rules (machine config in ~/.claude/settings.json)
+# --------------------------------------------------------------------------
+
+info "Secret-handling safeguards (deny secret reads + guard/redact hooks)..."
+
+if ! command -v python3 &>/dev/null; then
+  warn "python3 not found — skipping secret-handling setup."
+  warn "The hooks require python3. Enable them later per hooks/README.md."
+else
+  echo ""
+  echo "  This blocks reading known secret stores (.env, ~/.aws, ~/.ssh, keys, …)"
+  echo "  and installs Bash hooks that stop secret dumps and redact leaked tokens."
+  echo "  It edits ~/.claude/settings.json (a backup is written) and is idempotent."
+  echo ""
+  read -rp "  Enable secret handling now? (y/N) " reply
+  if [[ "$reply" =~ ^[Yy]$ ]]; then
+    mkdir -p "${CLAUDE_HOME}/hooks"
+    HOOK_COUNT=0
+    for hook_file in "${SCRIPT_DIR}/hooks/"secret-*.py; do
+      [ -f "$hook_file" ] || continue
+      name=$(basename "$hook_file")
+      cp "$hook_file" "${CLAUDE_HOME}/hooks/${name}"
+      chmod +x "${CLAUDE_HOME}/hooks/${name}"
+      HOOK_COUNT=$((HOOK_COUNT + 1))
+    done
+    ok "${HOOK_COUNT} hook script(s) copied to ${CLAUDE_HOME}/hooks/."
+
+    if python3 - "${CLAUDE_HOME}/settings.json" <<'PYEOF'
+import json, os, sys, shutil
+
+path = sys.argv[1]
+deny = [
+    "Read(**/.env)", "Read(**/.env.*)", "Read(**/*.pem)", "Read(**/*.key)",
+    "Read(**/id_rsa*)", "Read(**/id_ed25519*)", "Read(**/*.p12)", "Read(**/*.pfx)",
+    "Read(**/credentials)", "Read(**/service-account*.json)", "Read(**/*.tfvars)",
+    "Read(**/kubeconfig)", "Read(**/.netrc)",
+    "Read(~/.aws/**)", "Read(~/.ssh/**)", "Read(~/.kube/**)", "Read(~/.config/gcloud/**)",
+]
+
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            settings = json.load(f)
+    except Exception as e:
+        print(f"__ERROR__ existing settings.json is not valid JSON ({e}); not modifying it.")
+        sys.exit(3)
+    shutil.copyfile(path, path + ".bak")
+else:
+    settings = {}
+
+perms = settings.setdefault("permissions", {})
+existing_deny = perms.setdefault("deny", [])
+for rule in deny:
+    if rule not in existing_deny:
+        existing_deny.append(rule)
+
+hooks = settings.setdefault("hooks", {})
+
+def ensure_hook(event, command):
+    groups = hooks.setdefault(event, [])
+    if any(command in (h.get("command", "")) for g in groups for h in g.get("hooks", [])):
+        return
+    groups.append({"matcher": "Bash", "hooks": [{"type": "command", "command": command}]})
+
+ensure_hook("PreToolUse", "python3 ~/.claude/hooks/secret-guard.py")
+ensure_hook("PostToolUse", "python3 ~/.claude/hooks/secret-redact.py")
+
+with open(path, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+print("__OK__")
+PYEOF
+    then
+      ok "Deny rules + hooks registered in ${CLAUDE_HOME}/settings.json (backup: settings.json.bak)."
+    else
+      warn "Could not update settings.json automatically — enable manually per hooks/README.md."
+    fi
+  else
+    info "Secret handling skipped. Enable later per hooks/README.md."
+  fi
+fi
+
+echo ""
+
+# --------------------------------------------------------------------------
 # Check environment variable
 # --------------------------------------------------------------------------
 
