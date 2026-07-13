@@ -116,11 +116,53 @@ Do NOT pass planning conversation context. The checker reads files independently
   - Everything above
   - Plus the tester's summary
 
-- On **pass**: Update `taskStatus[N].status = "complete"`, update `completed` count, mark the task `[x]` in `tasks.md`. Report to user and advance.
-- On **fail**: Update `taskStatus[N].retryCount += 1`, store the failure reason. If retryCount < 2, re-run the executor with the failure report appended (per Stage 1 tiering, this retry will use Opus). Also increment `escalations` on the feature state — see State File Management. If retryCount >= 2, halt and present the failure to the user.
+  The validator confirms spec conformance. It does NOT hunt for bugs or security holes — that is
+  Stages 4–5. Only run Stages 4–5 if validation passes; there is no point reviewing code that does
+  not yet meet the spec.
+
+  **Stages 4 & 5 — Review (run only after validation passes):**
+  Invoke the **code-reviewer** and **security-reviewer** subagents in `task` mode. They are both
+  read-only and independent, so invoke them **concurrently** (two Agent calls in one message). Pass each:
+  - The single task block and requirement references
+  - The executor's completion summary (files changed) and, if worktree-isolated, the worktree path
+  - The tester's and validator's summaries
+  - An explicit `mode: task` instruction
+
+  **Review model tiering:** both reviewers are pinned to `model: opus` in frontmatter and are NOT
+  downgraded. Unlike the executor (Sonnet on the happy path, Opus on retry — cheap because it is the
+  common, low-stakes path), a reviewer that misses a defect fails silently. Keep them on Opus every time.
+
+- On **pass** (validator PASS *and* both reviewers PASS): Update `taskStatus[N].status = "complete"`, record `codeReview: "pass"` and `securityReview: "pass"`, update `completed` count, mark the task `[x]` in `tasks.md`. Report to user (surface any non-blocking Medium/Low findings for awareness) and advance.
+- On **fail** (validator FAIL, or either reviewer FAIL): Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). If retryCount < 2, re-run the executor with the combined report(s) appended — the validator failure and any blocking review findings — so it fixes everything in one retry (per Stage 1 tiering, this retry will use Opus). Also increment `escalations` on the feature state — see State File Management. If retryCount >= 2, halt and present the failures to the user.
+
+### Feature Review Gate (runs automatically after the last task completes, before `complete`)
+
+Once every task is `complete`, do NOT jump straight to `complete`. Run one whole-feature review pass
+first — the only stage that sees how the tasks compose. Set `phase` to `feature-review` and invoke the
+**code-reviewer** and **security-reviewer** subagents in `feature` mode, **concurrently**. Pass each:
+- The feature name and directory
+- An explicit `mode: feature` instruction and the base branch (default `main`) so they diff `main...HEAD`
+
+**On PASS (both reviewers PASS):**
+- Record `featureReview.codeReview = "pass"` and `featureReview.securityReview = "pass"`.
+- Advance `phase` to `complete`.
+
+**On FAIL (either reviewer has blocking findings):**
+- Do NOT advance to `complete`. Store the findings under `featureReview`.
+- Present the full findings to the user.
+- Ask: "The feature review found blocking issues. How would you like to proceed?
+  (a) Fix — re-open the affected task(s) for the executor, or add fix task(s) via the tasks-agent
+  (b) Override and mark complete anyway (not recommended; the finding is recorded)"
+- On (a): set the affected task(s) back to pending with the findings as their retry input and re-enter
+  the implementation pipeline; or, if the fix spans no existing task, re-invoke the tasks-agent to append
+  a remediation task, then run it through the full per-task pipeline. Re-run the feature review afterward.
+- On (b): record `featureReviewOverride: true` with the findings, then advance to `complete`.
+
+Non-blocking (Medium/Low) findings never block — surface them to the user and record them.
 
 ### `complete`
-- All tasks are done. Report final status: total tasks, all requirements addressed.
+- All tasks are done and the feature review has passed (or been explicitly overridden). Report final
+  status: total tasks, all requirements addressed, feature-review verdict.
 
 ## Vault Access (knowledge-vault isolation)
 
@@ -188,11 +230,17 @@ Initialize new features with:
     "currentTask": null
   },
   "taskStatus": {},
+  "featureReview": {
+    "codeReview": null,
+    "securityReview": null
+  },
   "escalations": 0
 }
 ```
 
-Update the state file after every phase transition and every task completion/failure.
+Each `taskStatus[N]` entry gains `codeReview` and `securityReview` (`"pass"` / `"fail"` / `null`)
+alongside `status`, `retryCount`, and `lastFailure`. `featureReview` records the whole-feature gate
+verdict. Update the state file after every phase transition and every task completion/failure.
 
 ## Critical Rules
 
@@ -202,4 +250,6 @@ Update the state file after every phase transition and every task completion/fai
 - NEVER write to the knowledge vault directly — always go through the vault-writer subagent.
 - NEVER advance a phase without explicit user confirmation.
 - NEVER start implementation if any of requirements, design, or tasks are unconfirmed.
+- NEVER mark a task complete unless the validator AND both reviewers (code, security) pass for it.
+- NEVER advance a feature to `complete` until the whole-feature review passes or the user explicitly overrides.
 - If context is getting long after multiple phases, suggest the user start a new session and resume. The state file preserves all progress.

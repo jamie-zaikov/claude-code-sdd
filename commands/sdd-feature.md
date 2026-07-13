@@ -35,6 +35,10 @@ Create the feature scaffold at `.specs/features/<slug>/`.
     "currentTask": null
   },
   "taskStatus": {},
+  "featureReview": {
+    "codeReview": null,
+    "securityReview": null
+  },
   "escalations": 0
 }
 ```

@@ -23,11 +23,19 @@ Rule: never scatter non-functional artifacts into the repo root or working tree 
 
 ### Phase Gates
 
-Requirements → Design → Tasks → [Consistency Check] → Implementation.
-Each phase requires explicit user confirmation before advancing.
+Requirements → Design → Tasks → [Consistency Check] → Implementation → [Feature Review] → Complete.
+Each planning phase requires explicit user confirmation before advancing.
 The consistency check runs automatically after tasks are confirmed — no extra user action needed,
 but a FAIL blocks implementation until resolved.
 Never start implementation if any prior phase is unconfirmed.
+
+Within Implementation, every task runs a five-stage pipeline:
+Execute → Test → Validate → Code Review → Security Review. The two reviews run automatically
+after the validator passes; any blocking finding sends the task back to the executor on retry.
+After the last task, a whole-feature review (code + security, over the full diff) runs automatically
+before the feature is marked complete — a blocking finding there halts completion until resolved or
+explicitly overridden. Validation checks spec conformance; the reviews hunt the bugs and security
+holes a requirement-anchored check misses by construction.
 
 ### Agent Ownership
 
@@ -39,6 +47,8 @@ Never start implementation if any prior phase is unconfirmed.
 - task-executor: implements one task at a time, worktree-isolated
 - task-tester: writes tests for one task, never modifies implementation
 - task-validator: validates against requirements, read-only, returns pass/fail
+- code-reviewer: adversarial correctness/robustness/maintainability review, read-only, returns pass/fail; runs per task and over the whole feature diff, after the validator passes
+- security-reviewer: security review (authz, secrets, injection, unsafe defaults, network/cloud exposure), read-only, returns pass/fail; runs per task and over the whole feature diff, after the validator passes
 - vault-reader: read-only knowledge-vault interface; reads in isolation, returns a distilled report
 - vault-writer: the only component that writes to the knowledge vault; a scribe, never an author
 
