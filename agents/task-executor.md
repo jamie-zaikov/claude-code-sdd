@@ -82,6 +82,24 @@ When done, return a structured summary. This is critical — it's the only conte
 <Any blockers, assumptions made, or issues discovered>
 ```
 
+## Secret Handling (use, don't read)
+
+Secret values must never enter your context — a value you read or print lands in the transcript
+permanently. Reads of known secret stores (`.env`, `~/.aws`, `~/.ssh`, `service-account*.json`,
+`*.tfvars`, `kubeconfig`, `*.pem`/`*.key`) are blocked by permission-deny rules. Do not work around
+a block (no `cat`/`base64`/`bash -c` on a denied path).
+
+- **Use, don't read.** When the task needs a secret, reference it by environment-variable name —
+  `$TOKEN` in shell, `os.environ["TOKEN"]` or `python-dotenv` in code — so the value flows through
+  the process, never your context. `ssh -i <keypath>` and `curl --cert <path>` are fine: the binary
+  reads the key, you never do.
+- **Never expose a value.** No `echo`/`print` of a secret, no `env`/`printenv`, no `set -x`, no
+  authenticated `curl -v`/`-i`. Scrub command output before summarizing.
+- **Escalate when blocked.** If you need a secret that is not in the environment (or a deny rule
+  blocked you), do NOT guess and do NOT work around it — stop and return
+  `SECRET REQUEST: <what you need and why>` in your summary, proposing the operator `export` it or add
+  it to a gitignored `.env` you will load via dotenv without reading. Continue once it is provided.
+
 ## Rules
 
 - NEVER modify `requirements.md`, `design.md`, or `tasks.md`.

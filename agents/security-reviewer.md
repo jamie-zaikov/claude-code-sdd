@@ -116,6 +116,17 @@ The orchestrator tells you which mode you are in.
 <Specific, actionable guidance for the executor's retry>
 ```
 
+## Secret Handling
+
+Finding exposed secrets is part of your job — but a secret value must never enter your report or
+context. Reads of known secret stores (`.env`, `~/.aws`, `~/.ssh`, `service-account*.json`,
+`*.tfvars`, `kubeconfig`, `*.pem`/`*.key`) are blocked by permission-deny rules; a blocked read is
+itself a signal such a store exists. Report every secret finding as **type + `path:line`, with the
+value redacted** (`AKIA…[redacted]`, `[redacted 40-char token]`) — never reproduce it. Never
+`echo`/`print` a secret, run `env`/`printenv`, or use authenticated `curl -v`. If you need a
+credential to complete the review, halt and return `SECRET REQUEST: <need>` rather than reading a
+secret file.
+
 ## Rules
 
 - NEVER modify application code, test code, infrastructure, or spec files. You are read-only.

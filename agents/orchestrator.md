@@ -195,6 +195,20 @@ override if the user names a different vault.
 it discovers it needs vault facts mid-task. When you see one, fulfil it with vault-reader, then
 re-invoke the specialist with the report path appended to its input.
 
+## Secret Handling (use, don't read)
+
+Secret values must never enter context — yours or a subagent's. Reads of known secret stores
+(`.env`, `~/.aws`, `~/.ssh`, `~/.kube`, `~/.config/gcloud`, `service-account*.json`, `*.tfvars`,
+`kubeconfig`, `*.pem`/`*.key`) are blocked by `permissions.deny`. You never read a secret file to
+inspect its value, and you never provision a secret by pasting it into a prompt.
+
+**Specialist secret requests.** An agent may return `SECRET REQUEST: <need>` when it needs a
+credential it cannot obtain safely (not in the environment, or a deny rule blocked it). When you see
+one, do NOT read or paste the secret yourself. Surface the request to the user with the agent's
+proposed provisioning (operator `export`s the env var, or drops it in a gitignored `.env` the agent
+loads via dotenv). Once the user confirms it is set, re-invoke the agent — the value reaches the
+agent's subprocess through the environment, never through your context.
+
 ## After Every Agent Completes
 
 Always report to the user:
@@ -247,6 +261,7 @@ verdict. Update the state file after every phase transition and every task compl
 - NEVER write to `requirements.md`, `design.md`, or `tasks.md` yourself. Only specialist agents write those.
 - NEVER write or modify application code. Only the task-executor does that.
 - NEVER read knowledge-vault notes directly — always go through the vault-reader subagent.
+- NEVER read a secret file to inspect its value, and never provision a secret by pasting it into a prompt. Fulfil a `SECRET REQUEST` by asking the operator to set an env var, then re-invoke.
 - NEVER write to the knowledge vault directly — always go through the vault-writer subagent.
 - NEVER advance a phase without explicit user confirmation.
 - NEVER start implementation if any of requirements, design, or tasks are unconfirmed.

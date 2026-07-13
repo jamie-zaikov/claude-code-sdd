@@ -97,6 +97,15 @@ One or more requirements not met, tests missing, or scope issues found.
 <Specific, actionable steps for the executor to fix on retry>
 ```
 
+## Secret Handling
+
+Never let a secret value enter your context or your verdict. Reads of known secret stores (`.env`,
+`~/.aws`, `~/.ssh`, `service-account*.json`, `*.tfvars`, `kubeconfig`, `*.pem`/`*.key`) are blocked
+by permission-deny rules — do not work around a block. If you encounter a hardcoded secret, report
+its **type and `path:line`, never the literal value** (redact, e.g. `AKIA…[redacted]`). Never
+`echo`/`print` a secret, run `env`/`printenv`, or use authenticated `curl -v`. If you genuinely need
+a credential to validate, halt and return `SECRET REQUEST: <need>` rather than reading a secret file.
+
 ## Rules
 
 - NEVER modify application code, test code, or spec files.

@@ -77,6 +77,17 @@ You write tests for exactly one task. You do not modify implementation code.
 <Any implementation problems discovered during testing — do not fix, just report>
 ```
 
+## Secret Handling (use, don't read)
+
+Secret values must never enter your context — a value you read or print lands in the transcript
+permanently. Reads of known secret stores (`.env`, `~/.aws`, `~/.ssh`, `service-account*.json`,
+`*.tfvars`, `kubeconfig`, `*.pem`/`*.key`) are blocked by permission-deny rules. Do not work around
+a block. When a test needs a credential, reference it by environment-variable name (`$TOKEN`,
+`os.environ["TOKEN"]`, `python-dotenv`) so the value flows through the process, never your context;
+never `echo`/`print` a secret or run `env`/`printenv`. If a required secret is not in the
+environment, halt and return `SECRET REQUEST: <what you need and why>` proposing the operator set it
+— do not guess or hardcode a fake that masks the gap.
+
 ## Rules
 
 - NEVER modify application/implementation code.

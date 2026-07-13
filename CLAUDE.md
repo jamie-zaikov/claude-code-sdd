@@ -77,6 +77,33 @@ There are two ways a vault read is triggered, by two different invokers:
   not present in its inputs does NOT guess — it halts and returns `VAULT REQUEST: <need>`. The
   orchestrator fulfils it via vault-reader and re-invokes the specialist with the report path.
 
+### Secret Handling (use, don't read)
+
+Secrets are treated like the knowledge vault: their **values never enter context** — a secret you
+read or print lands in the transcript permanently. Reads of known secret stores (`.env`, `~/.aws`,
+`~/.ssh`, `~/.kube`, `~/.config/gcloud`, `service-account*.json`, `*.tfvars`, `kubeconfig`,
+`*.pem`/`*.key`) are blocked by `permissions.deny` rules in settings — enforced by the harness for
+every agent and subagent alike. Do not try to work around a block (no `cat`/`base64`/`bash -c` on a
+denied path).
+
+Agents **use** secrets without **reading** them:
+
+- Reference a secret by **environment-variable name** — `$TOKEN` in shell, `os.environ["TOKEN"]` or
+  `python-dotenv` in code — so the value flows through the process, never the transcript. The harness
+  shows the command as written (`$TOKEN`), so the literal value never appears.
+- `ssh -i <keypath>` and `curl --cert <path>` are fine: the binary reads the key, the model never does.
+- Never `echo`/`print` a secret, run `env`/`printenv`, use `set -x`, or use authenticated `curl -v`/`-i`.
+  When reporting a *found* secret (e.g. security-reviewer), give its type and `path:line`, never the value.
+
+**Escalation — `SECRET REQUEST`.** When an agent needs a secret it cannot obtain safely (not in the
+environment, or a deny rule blocked it), it does NOT guess and does NOT work around the block — it
+halts and returns `SECRET REQUEST: <what it needs and why>`, proposing provisioning (operator
+`export`s it, or drops it in a gitignored `.env` the agent loads via dotenv without reading). This
+mirrors `VAULT REQUEST`. The invoker (orchestrator, or main session) never reads the secret into
+context either — it asks the operator to provision the env var, then re-invokes the agent. A
+PostToolUse redaction hook scrubs secret-shaped strings from tool output as a backstop. Prefer a
+shell `export` or a gitignored `.env` over putting real secrets in `settings.json` (plaintext at rest).
+
 ### Key Commands
 
 - Start a feature: "New feature: <description>"

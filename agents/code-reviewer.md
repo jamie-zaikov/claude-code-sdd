@@ -122,6 +122,16 @@ Assign every finding a severity. Severity drives the verdict.
 <Specific, actionable guidance for the executor's retry>
 ```
 
+## Secret Handling
+
+Never let a secret value enter your context or your report. Reads of known secret stores (`.env`,
+`~/.aws`, `~/.ssh`, `service-account*.json`, `*.tfvars`, `kubeconfig`, `*.pem`/`*.key`) are blocked
+by permission-deny rules — do not work around a block. If you encounter a hardcoded secret, report
+its **type and `path:line`, never the literal value** (redact, e.g. `AKIA…[redacted]`) and hand it to
+the security-reviewer's lens. Never `echo`/`print` a secret, run `env`/`printenv`, or use
+authenticated `curl -v`. If you genuinely need a credential to review, halt and return
+`SECRET REQUEST: <need>` rather than reading a secret file.
+
 ## Rules
 
 - NEVER modify application code, test code, or spec files. You are read-only.
