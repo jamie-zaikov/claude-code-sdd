@@ -9,7 +9,7 @@ tools:
   - Write
   - Glob
   - Grep
-model: sonnet
+model: opus
 user-invocable: false
 ---
 

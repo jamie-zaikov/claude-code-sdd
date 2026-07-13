@@ -11,7 +11,7 @@ tools:
   - Grep
   - Agent
   - Write
-model: sonnet
+model: opus
 ---
 
 # Orchestrator

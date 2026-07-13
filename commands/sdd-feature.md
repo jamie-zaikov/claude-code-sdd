@@ -101,6 +101,47 @@ Create an empty file with just:
 <!-- This file is owned by the tasks-agent. Do not edit manually during SDD workflow. -->
 ```
 
+### `.specs/features/$ARGUMENTS/input-data/README.md`
+
+Create the `input-data/` folder with a single committed `README.md`. This folder is where the user drops any source material the feature needs — reference docs, exports, sample payloads, screenshots, config dumps. Everything in it except this README is gitignored (see below), so it is safe to drop private or bulky data here.
+
+```markdown
+# input-data — $ARGUMENTS
+
+Drop any source material this feature needs here: reference docs, exports,
+sample payloads, screenshots, config dumps.
+
+Everything in this folder except this README is gitignored — safe for private
+or bulky data. Agents read from here; they never delete what you drop.
+```
+
+### `.specs/features/$ARGUMENTS/spec-memory/README.md`
+
+Create the `spec-memory/` folder with a single committed `README.md`. This folder is where agents and the main session write **non-functional artifacts** — anything that is not a spec document (requirements/design/tasks), not application code, and not user-supplied input. Examples: request drafts (e.g. a network-access ask), email drafts, investigation notes, decision logs, ad-hoc summaries, throwaway analysis. Everything except this README is gitignored, so these artifacts never clutter the repo root or the commit history.
+
+```markdown
+# spec-memory — $ARGUMENTS
+
+Agents and the main session write non-functional artifacts here — anything that
+is not a spec document, not application code, and not user input. Examples:
+request/email drafts, investigation notes, decision logs, ad-hoc summaries.
+
+Everything in this folder except this README is gitignored. This keeps scratch
+artifacts out of the repo root and out of commits.
+```
+
+## Gitignore
+
+Ensure `.gitignore` contains the per-feature scratch patterns below (append any that are missing; do not duplicate). These keep the contents of every feature's `input-data/` and `spec-memory/` out of git while keeping each folder's `README.md` tracked so the folder survives a clone and stays self-documenting.
+
+```
+# SDD per-feature scratch — data in, artifacts out; contents never committed
+.specs/features/*/input-data/*
+.specs/features/*/spec-memory/*
+!.specs/features/*/input-data/README.md
+!.specs/features/*/spec-memory/README.md
+```
+
 ## After creation — git branch setup
 
 After creating the spec files, ask the user what branch type this is (`feat`, `fix`, or other) and confirm the branch name, then create and switch to it branched from `main`:
@@ -113,7 +154,7 @@ git checkout -b <type>/$ARGUMENTS
 If `main` does not exist locally, report the error and ask the user how to proceed — do not attempt to create it.
 
 After the branch is created and checked out, confirm to the user:
-- The spec scaffold that was created
+- The spec scaffold that was created (note the `input-data/` folder for source material and the `spec-memory/` folder for non-functional artifacts, both gitignored except their READMEs)
 - The branch name and what it was branched from
 
 Then ask the user to describe what the feature should do, and offer two paths:

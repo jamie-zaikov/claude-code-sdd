@@ -12,6 +12,15 @@ At the start of every session:
 2. If working on a feature, read all files in `.specs/features/<feature-name>/` including `.spec-state.json`.
 3. If `.spec-state.json` exists and has a `phase` value, resume from that phase.
 
+### Feature Workspace: input-data and spec-memory
+
+Every scaffolded feature has two gitignored working folders alongside its spec documents (each keeps a tracked `README.md`; all other contents are ignored):
+
+- `.specs/features/<feature-name>/input-data/` — where the **user** drops source material the feature needs: reference docs, exports, sample payloads, screenshots, config dumps. Look here first for inputs before asking the user to paste them. Read from it freely; never delete what the user dropped.
+- `.specs/features/<feature-name>/spec-memory/` — where **you and every agent** write **non-functional artifacts**: anything that is not a spec document (requirements/design/tasks), not application code, and not user input. Request/email drafts, investigation notes, decision logs, ad-hoc summaries, throwaway analysis all go here.
+
+Rule: never scatter non-functional artifacts into the repo root or working tree (e.g. a top-level `NETWORK-ACCESS-REQUEST.md`). If there is an active feature, write them under that feature's `spec-memory/`. Because both folders are gitignored, these artifacts stay out of commits and out of the repo root by default.
+
 ### Phase Gates
 
 Requirements → Design → Tasks → [Consistency Check] → Implementation.

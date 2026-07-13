@@ -65,8 +65,17 @@ Create the Spec-Driven Development directory structure in this project.
 
 ## Gitignore
 
-If `.gitignore` exists, append `**/.spec-state.json` to it (if not already present).
-If `.gitignore` does not exist, create it with that single entry.
+Ensure `.gitignore` contains the block below (create the file with it if absent; otherwise append any missing lines without duplicating). The `input-data/*` and `spec-memory/*` patterns keep every feature's dropped data and non-functional artifacts out of git, while the `!…README.md` negations keep each folder tracked and self-documenting.
+
+```
+**/.spec-state.json
+
+# SDD per-feature scratch — data in, artifacts out; contents never committed
+.specs/features/*/input-data/*
+.specs/features/*/spec-memory/*
+!.specs/features/*/input-data/README.md
+!.specs/features/*/spec-memory/README.md
+```
 
 ## After creation
 

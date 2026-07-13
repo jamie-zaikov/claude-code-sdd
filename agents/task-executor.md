@@ -12,7 +12,7 @@ tools:
   - Bash
   - Glob
   - Grep
-model: sonnet
+model: opus
 isolation: worktree
 user-invocable: false
 ---
