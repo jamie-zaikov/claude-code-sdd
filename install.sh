@@ -263,6 +263,7 @@ info "SDD CI pre-push hook (advisory local secret-scan + build/test/lint)..."
 SDD_HOOK_SENTINEL='# >>> sdd-pre-push (managed) >>>'
 HOOK_SRC="${SCRIPT_DIR}/ci-templates/hooks/pre-push"
 SCANNER_SRC="${SCRIPT_DIR}/ci-templates/scripts/sdd-secret-scan.py"
+WORKFLOWS_SRC="${SCRIPT_DIR}/ci-templates/workflows"
 
 if ! command -v python3 &>/dev/null; then
   warn "python3 not found — skipping pre-push hook setup (the scanner needs python3)."
@@ -314,17 +315,28 @@ else
       fi
     fi
 
-    # (b) Stage the hook template + shared scanner into ~/.claude/ so /sdd-init
-    #     can distribute them downstream without a source clone (FR-21; FR-20).
-    #     Runs on opt-in even when (a) skipped, so the global templates exist.
-    mkdir -p "${CLAUDE_HOME}/ci-templates/hooks" "${CLAUDE_HOME}/ci-templates/scripts"
+    # (b) Stage the workflow templates + hook + shared scanner into ~/.claude/
+    #     so /sdd-init can distribute them downstream without a source clone
+    #     (FR-21; FR-20). Runs on opt-in even when (a) skipped, so the global
+    #     templates exist. cp -p / mkdir -p mirror the repo-install block above.
+    mkdir -p "${CLAUDE_HOME}/ci-templates/workflows" \
+             "${CLAUDE_HOME}/ci-templates/hooks" \
+             "${CLAUDE_HOME}/ci-templates/scripts"
+    # Stage every workflow template (glob guarded like the agents/commands loops
+    # so an unmatched pattern is skipped, not treated as a filename).
+    WF_COUNT=0
+    for wf in "${WORKFLOWS_SRC}/"sdd-*.yml; do
+      [ -f "$wf" ] || continue
+      cp -p "$wf" "${CLAUDE_HOME}/ci-templates/workflows/$(basename "$wf")"
+      WF_COUNT=$((WF_COUNT + 1))
+    done
     cp -p "$HOOK_SRC" "${CLAUDE_HOME}/ci-templates/hooks/pre-push"
     chmod +x "${CLAUDE_HOME}/ci-templates/hooks/pre-push"
     if [ -f "$SCANNER_SRC" ]; then
       cp -p "$SCANNER_SRC" "${CLAUDE_HOME}/ci-templates/scripts/sdd-secret-scan.py"
-      ok "Templates staged in ${CLAUDE_HOME}/ci-templates/ (hook + scanner) for /sdd-init."
+      ok "Templates staged in ${CLAUDE_HOME}/ci-templates/ (${WF_COUNT} workflow(s) + hook + scanner) for /sdd-init."
     else
-      warn "Scanner not found at ${SCANNER_SRC} — staged the hook template only."
+      warn "Scanner not found at ${SCANNER_SRC} — staged ${WF_COUNT} workflow(s) + the hook template only."
     fi
   else
     info "Pre-push hook skipped."
