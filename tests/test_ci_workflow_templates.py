@@ -44,7 +44,7 @@ except ImportError:  # pragma: no cover - depends on the runner environment
 # and consolidation onto feat/github-agent.
 WORKFLOW_DIR = Path(__file__).resolve().parent.parent / "ci-templates" / "workflows"
 
-SECRET_SCAN = WORKFLOW_DIR / "sdd-secret-scan.yml"
+SECRET_SCAN = WORKFLOW_DIR / "sdd-secret-scan.yml"  # pragma: allowlist secret
 REVIEW_GATE = WORKFLOW_DIR / "sdd-review-gate.yml"
 BUILD_TEST_LINT = WORKFLOW_DIR / "sdd-build-test-lint.yml"
 
@@ -179,7 +179,7 @@ class SingleGatePerFileTest(unittest.TestCase):
     """5.5(4): exactly one gate/job per file, with sdd-/gate naming (DD-1, FR-19)."""
 
     EXPECTED_JOB = {
-        SECRET_SCAN.name: "secret-scan",
+        SECRET_SCAN.name: "secret-scan",  # pragma: allowlist secret
         REVIEW_GATE.name: "review-gate",
         BUILD_TEST_LINT.name: "build-test-lint",
     }

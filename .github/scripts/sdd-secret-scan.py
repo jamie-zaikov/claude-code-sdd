@@ -20,6 +20,12 @@ copied rather than imported because `/sdd-init` ships this scanner standalone
 into downstream projects where `hooks/secret-redact.py` does not exist. If the
 source family changes, update this list to keep the two byte-identical.
 
+Two NARROW suppression mechanisms keep the gate green over the framework's own
+tree without weakening detection (see PRAGMA_MARKER / DEFAULT_EXCLUDED_PATHS):
+an inline `pragma: allowlist secret` marker suppresses only its own added line,
+and an explicit enumerated path-exclude list covers the framework's own
+pattern-definition and dedicated secret-fixture files.
+
 stdlib only (re, subprocess, sys, argparse, typing) — no external dependency
 (no gitleaks), per DD-2.
 """
@@ -74,6 +80,63 @@ _MULTILINE_PATTERNS: List[Tuple[str, "re.Pattern[str]"]] = [
 _SINGLE_LINE_PATTERNS: List[Tuple[str, "re.Pattern[str]"]] = [
     (name, pat) for name, pat in VENDORED_PATTERNS if not (pat.flags & re.DOTALL)
 ]
+
+
+# --- Targeted suppression (DD-2 dogfood remediation; FR-13/FR-16/FR-21) ---------
+# Two NARROW mechanisms let this scanner run clean over the SDD framework's OWN
+# tree — which by design carries the secret-regex family and deliberately
+# secret-shaped test fixtures — WITHOUT weakening detection anywhere else:
+#
+#   1. Inline pragma — an added line whose content contains the EXACT marker
+#      below is not reported. It suppresses ONLY that one line (the token is
+#      detect-secrets-compatible), never a neighbor and never the whole file.
+#   2. Path excludes — an EXPLICIT, ENUMERATED list of the framework's own
+#      pattern-definition and dedicated secret-fixture files. A finding on a
+#      listed path is skipped; a SIBLING non-listed path is still fully scanned.
+#      There are NO globs — every entry is one auditable repo-relative path.
+#
+# Neither mechanism disables the gate: a secret-shaped string on any other path,
+# without the pragma on its own line, is still detected and still exits 1.
+PRAGMA_MARKER = "pragma: allowlist secret"
+
+# Repo-relative paths (as they appear after the `b/` prefix in a `+++ b/<path>`
+# header) whose secret-shaped content is intentional framework material:
+#   - the secret-pattern definitions themselves (redactor + guard + this scanner,
+#     both copies) and their documentation,
+#   - the dedicated test suites that embed secret-shaped fixtures by design.
+DEFAULT_EXCLUDED_PATHS = frozenset({
+    "hooks/secret-redact.py",
+    "hooks/secret-guard.py",
+    "hooks/README.md",
+    "ci-templates/scripts/sdd-secret-scan.py",
+    ".github/scripts/sdd-secret-scan.py",
+    "tests/test_sdd_secret_scan.py",
+    "tests/test_secret_guard_gh.py",
+})
+
+
+def _normalize_diff_path(path: str) -> str:
+    """Normalize a diff path to the repo-relative form used by the exclude list:
+    strip a leading `a/`/`b/` (git's diff-side prefixes) and a leading `./`.
+    Paths from `_new_path_from_header` are already `b/`-stripped; this keeps the
+    match robust for callers that pass a raw path."""
+    if path.startswith(("a/", "b/")):
+        path = path[2:]
+    if path.startswith("./"):
+        path = path[2:]
+    return path
+
+
+def _is_excluded(path: str, excluded_paths: "frozenset[str]") -> bool:
+    """True when the (normalized) path is on the explicit framework exclude list."""
+    return _normalize_diff_path(path) in excluded_paths
+
+
+def _line_has_pragma(text_lines: List[str], index: int) -> bool:
+    """True when the content line at `index` carries the inline allowlist marker.
+    Bounds-checked so a finding line that falls outside the scanned block (never
+    expected) is simply treated as un-suppressed."""
+    return 0 <= index < len(text_lines) and PRAGMA_MARKER in text_lines[index]
 
 
 class Finding(NamedTuple):
@@ -225,27 +288,48 @@ def scan_content(text: str, path: str, base_line: int = 1) -> List[Finding]:
             line_no = base_line + text.count("\n", 0, match.start())
             findings.append(Finding(type_label, path, line_no))
 
+    # Inline-pragma suppression: drop any finding whose OWN reported line carries
+    # the allowlist marker. Tight by construction — the marker on line N
+    # suppresses ONLY line N (single- or multiline match start); neighboring
+    # lines and the rest of the block are unaffected.
+    findings = [
+        f for f in findings if not _line_has_pragma(text_lines, f.line - base_line)
+    ]
+
     return findings
 
 
-def scan_added_lines(runs: List[AddedRun]) -> List[Finding]:
+def scan_added_lines(
+    runs: List[AddedRun],
+    excluded_paths: "frozenset[str]" = DEFAULT_EXCLUDED_PATHS,
+) -> List[Finding]:
     """Scan each contiguous added-run independently.
 
     Scanning per run (rather than joining all added lines of a file across
     hunks) prevents a cross-hunk false positive: a `-----BEGIN ... PRIVATE
     KEY-----` added in one hunk and an unrelated `-----END ... PRIVATE KEY-----`
     added in a far-apart hunk must NOT match as a single block. A real private
-    key is a contiguous added block and lands inside one run."""
+    key is a contiguous added block and lands inside one run.
+
+    A run whose path is on `excluded_paths` (the framework's own
+    pattern-definition + dedicated secret-fixture files) is skipped entirely; a
+    run on any sibling path is still scanned in full."""
     findings: List[Finding] = []
     for run in runs:
+        if _is_excluded(run.path, excluded_paths):
+            continue
         block = "\n".join(run.lines)
         findings.extend(scan_content(block, run.path, run.start_line))
     return findings
 
 
-def scan_diff(diff_text: str) -> List[Finding]:
-    """Parse a unified diff and return findings over its added content."""
-    return scan_added_lines(parse_unified_diff(diff_text))
+def scan_diff(
+    diff_text: str,
+    excluded_paths: "frozenset[str]" = DEFAULT_EXCLUDED_PATHS,
+) -> List[Finding]:
+    """Parse a unified diff and return findings over its added content, honoring
+    the inline-pragma and path-exclude suppression mechanisms."""
+    return scan_added_lines(parse_unified_diff(diff_text), excluded_paths)
 
 
 def format_findings(findings: List[Finding]) -> str:

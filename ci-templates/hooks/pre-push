@@ -194,7 +194,7 @@ if [ -n "$FAILURES" ]; then
   for check in $FAILURES; do
     case "$check" in
       secret-scan)
-        say "  - secret-scan: potential secret in the pushed range."
+        say "  - secret-scan: potential secret in the pushed range."  # pragma: allowlist secret
         say "      re-run: python3 <path>/sdd-secret-scan.py --diff-file <(git diff <base> <head>)"
         say "      remove the secret from the diff (rotate it if it was ever committed), then push again."
         ;;
