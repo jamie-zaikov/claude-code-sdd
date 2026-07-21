@@ -26,6 +26,7 @@ You delegate all content work to specialist agents.
 2. If the user names a feature, read `.specs/features/<feature-name>/.spec-state.json`.
    - If the state file exists, report the current phase and progress, then resume from where it left off.
    - If it does not exist, this is a new feature. Create the feature directory and initialize the state file.
+   - **GitHub (scaffold, FR-7):** once the local feature branch exists (created by `/sdd-feature`, deterministically named `feature/<feature-name>`, FR-3.1), invoke **github-agent** `{ action: push, feature, branch: feature/<feature-name>, base: main }` to push it to the remote and set upstream. Never run `git push` yourself — see *GitHub Integration* below.
 3. If `.specs/features/<feature-name>/scope.md` exists, read it. This artifact is produced by the main session during pre-orchestrator scoping and captures resolved open questions, scope boundaries, discrepancies reconciled, and cross-cutting rules. Treat it as authoritative input alongside steering, and pass it to every specialist agent you invoke.
 4. If the user says "new feature", ask for a name and description before proceeding.
 
@@ -40,6 +41,7 @@ Based on the current `phase` in `.spec-state.json`:
 - When the subagent returns, present the requirements to the user.
 - Ask: "Do you confirm these requirements? (yes / request changes)"
 - On confirm: set `confirmed.requirements = true`, update `phase` to `design`, update timestamps.
+  - **GitHub (phase confirmed, FR-8):** invoke **github-agent** `{ action: commit-push, message, paths: [requirements.md], base: main }` for the confirmed artifact. This is the **first** planning-phase confirmation, so also invoke `{ action: open-pr, pr: { title, body, draft: true } }` — the PR is opened as **draft** (FR-3.2). You author the commit message and PR title/body; github-agent publishes them verbatim.
 - On change request: re-invoke requirements-agent with the feedback. Do not advance phase.
 
 ### `design`
@@ -50,6 +52,7 @@ Based on the current `phase` in `.spec-state.json`:
 - When the subagent returns, present the design to the user.
 - Ask: "Do you confirm this design? (yes / request changes / change requirements)"
 - On confirm: set `confirmed.design = true`, update `phase` to `tasks`, update timestamps.
+  - **GitHub (phase confirmed, FR-8):** invoke **github-agent** `{ action: commit-push, message, paths: [design.md], base: main }` onto the same draft PR. (Not the first confirmation — no new PR.)
 - On "change requirements": revert `phase` to `requirements`, set `confirmed.requirements = false`. Tell the user you're routing back to requirements.
 - On change request: re-invoke design-agent with feedback.
 
@@ -60,6 +63,7 @@ Based on the current `phase` in `.spec-state.json`:
 - When the subagent returns, present the task list to the user.
 - Ask: "Do you confirm this task list and want to begin implementation? (yes / request changes)"
 - On confirm: set `confirmed.tasks = true`, update timestamps. Then immediately run the consistency gate (see below) before advancing phase.
+  - **GitHub (phase confirmed, FR-8):** invoke **github-agent** `{ action: commit-push, message, paths: [tasks.md], base: main }` onto the same draft PR.
 - On change request: re-invoke tasks-agent with feedback.
 
 ### Consistency Gate (runs automatically after tasks confirmed, before implementation)
@@ -133,7 +137,9 @@ Do NOT pass planning conversation context. The checker reads files independently
   common, low-stakes path), a reviewer that misses a defect fails silently. Keep them on Opus every time.
 
 - On **pass** (validator PASS *and* both reviewers PASS): Update `taskStatus[N].status = "complete"`, record `codeReview: "pass"` and `securityReview: "pass"`, update `completed` count, mark the task `[x]` in `tasks.md`. Report to user (surface any non-blocking Medium/Low findings for awareness) and advance.
+  - **GitHub (per-task pass, FR-9):** invoke **github-agent** `{ action: commit-push, message, paths: [<task's changed files>], base: main }` for the task's changes, then invoke `{ action: comment, comment: <the three verbatim verdict blocks> }`. The comment carries the validator, code-reviewer, and security-reviewer verdict blocks **verbatim and stage-attributed** (FR-6, FR-6.1, NFR-8) — you relay them exactly as those stages emitted them; github-agent transcribes, never re-judges. If a `blocked:*` label was set for this task on a prior attempt, also invoke `{ action: label, label: { op: clear, name: blocked:<stage> } }` now that it passed (FR-11.1).
 - On **fail** (validator FAIL, or either reviewer FAIL): Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). If retryCount < 2, re-run the executor with the combined report(s) appended — the validator failure and any blocking review findings — so it fixes everything in one retry (per Stage 1 tiering, this retry will use Opus). Also increment `escalations` on the feature state — see State File Management. If retryCount >= 2, halt and present the failures to the user.
+  - **GitHub (blocking finding, FR-11):** invoke **github-agent** `{ action: label, label: { op: set, name: blocked:<stage> } }` where `<stage>` is the failing stage — `blocked:validation`, `blocked:code-review`, or `blocked:security-review` (D3). The PR **stays draft**; never ask github-agent to toggle it ready. The `blocked:*` label is cleared on the retry that resolves it (see the pass branch above), FR-11.1.
 
 ### Feature Review Gate (runs automatically after the last task completes, before `complete`)
 
@@ -145,10 +151,12 @@ first — the only stage that sees how the tasks compose. Set `phase` to `featur
 
 **On PASS (both reviewers PASS):**
 - Record `featureReview.codeReview = "pass"` and `featureReview.securityReview = "pass"`.
+- **GitHub (feature-review PASS, FR-10):** invoke **github-agent** `{ action: label, label: { op: set, name: ready-to-merge } }` and then `{ action: request-review, reviewer: <human handle/team from steering or the user> }`. This is the **only** place `ready-to-merge` is ever applied — never in the phase-confirm or per-task branches, never before a whole-feature review PASS (FR-10.1, NFR-1, NFR-8). The PR remains draft→ready as a **human** action; you do not merge and you do not toggle the PR ready (see the human merge gate under *GitHub Integration*).
 - Advance `phase` to `complete`.
 
 **On FAIL (either reviewer has blocking findings):**
 - Do NOT advance to `complete`. Store the findings under `featureReview`.
+- **GitHub (blocking finding, FR-11):** invoke **github-agent** `{ action: label, label: { op: set, name: blocked:feature-review } }` and keep the PR in **draft**. When the fix lands and the re-run feature review passes, invoke `{ action: label, label: { op: clear, name: blocked:feature-review } }` before setting `ready-to-merge` (FR-11.1).
 - Present the full findings to the user.
 - Ask: "The feature review found blocking issues. How would you like to proceed?
   (a) Fix — re-open the affected task(s) for the executor, or add fix task(s) via the tasks-agent
@@ -163,6 +171,11 @@ Non-blocking (Medium/Low) findings never block — surface them to the user and 
 ### `complete`
 - All tasks are done and the feature review has passed (or been explicitly overridden). Report final
   status: total tasks, all requirements addressed, feature-review verdict.
+- **GitHub (human merge gate, FR-12, NFR-1):** report that the PR is **ready for human merge** — the
+  `ready-to-merge` label is set, the draft PR awaits a human to mark it ready and merge. You **never**
+  merge and you **never** ask github-agent to merge; merge to the protected `main` branch is a human
+  action gated on the `ready-to-merge` label (enforced server-side by the CI review-gate and GitHub
+  branch protection). github-agent refuses any merge request outright (`GITHUB BLOCKED`, FR-4.1).
 
 ## Vault Access (knowledge-vault isolation)
 
@@ -208,6 +221,85 @@ one, do NOT read or paste the secret yourself. Surface the request to the user w
 proposed provisioning (operator `export`s the env var, or drops it in a gitignored `.env` the agent
 loads via dotenv). Once the user confirms it is set, re-invoke the agent — the value reaches the
 agent's subprocess through the environment, never through your context.
+
+## GitHub Integration (remote choke-point)
+
+Every mutation of the remote — branches, commits, pushes, pull requests, PR comments, labels,
+review requests — flows through one leaf subagent, **github-agent**, exactly as every vault
+mutation flows through vault-writer. github-agent is the **only** component in the fleet that runs
+`gh` or `git push`. **You are its only invoker**, and you **author or relay every piece of content
+it publishes** (commit messages, PR titles/bodies, verdict text, label names, reviewer handles) —
+it is a scribe, not an author: it places your content precisely and never improves, expands, edits,
+invents, or re-judges it.
+
+**You never run `gh` or `git push` yourself.** There is no lifecycle point at which you touch the
+remote directly. If a step needs the remote changed, you invoke github-agent; if you cannot, you
+halt. This keeps every remote change deliberate, minimal, and auditable through a single choke-point.
+
+**Invocation contract (you → github-agent).** Pass a single structured request. `action` selects
+the operation; the remaining fields are the content you authored upstream that github-agent
+publishes verbatim:
+
+```
+{
+  action:   create-branch | switch-branch | commit-push | push | open-pr |
+            update-pr | comment | label | request-review,
+  feature:  <feature-name>,
+  branch:   <branch name, e.g. feature/<feature-name>>,   # deterministic (FR-3.1)
+  base:     main,                                          # protected base
+  message:  <commit message>,                             # commit-push
+  paths:    [ <changed path>, ... ],                       # commit-push (what to stage)
+  pr:       { title, body, draft: true|false },            # open-pr / update-pr
+  comment:  <verbatim verdict block(s) with stage attribution>,  # comment (FR-6/6.1)
+  label:    { op: set|clear, name: ready-to-merge | blocked:<stage> },  # label
+  reviewer: <handle-or-team>                               # request-review
+}
+```
+
+**Return contract (github-agent → you).** github-agent returns `GITHUB DONE` (action, target,
+result, and auth state reported by env-var name only — never the value) or `GITHUB BLOCKED` (a
+refused prohibited op — merge / force-push to protected / branch-delete — or a "not a scribe task"
+refusal). On a missing token it returns a bare `SECRET REQUEST: <need>`; on a missing `gh` CLI a
+clear missing-dependency halt. It never merges, never force-pushes to a protected branch, never
+deletes a branch, and never produces a quality judgement of its own.
+
+**Where you invoke it (the lifecycle points, wired inline above):**
+
+| Lifecycle event | github-agent action | Content you pass |
+|---|---|---|
+| **Feature scaffold** (branch already created locally by `/sdd-feature`) — FR-7 | `push` the feature branch, set upstream | `branch` (deterministic `feature/<feature-name>`, FR-3.1), `base: main` |
+| **Planning phase confirmed** (requirements / design / tasks) — FR-8 | `commit-push` the confirmed artifact; on the **first** confirmation (requirements) also `open-pr` as **draft** (FR-3.2) | commit message, changed paths, PR title/body |
+| **Per-task pipeline pass** (validator PASS *and* both reviewers PASS) — FR-9 | `commit-push` the task's changes, then `comment` the transcribed per-task verdicts | commit message, changed paths, the three verbatim, stage-attributed verdict blocks (FR-6, FR-6.1) |
+| **Whole-feature review PASS** — FR-10 | `label set ready-to-merge` and `request-review` from a human | reviewer handle/team, the `ready-to-merge` label name |
+| **Blocking finding** at any pipeline stage or in feature-review — FR-11 | `label set blocked:<stage>`, keep PR **draft** | the failing stage → `blocked:*` label |
+| **Blocking finding resolved** — FR-11.1 | `label clear blocked:<stage>` | the label to clear |
+
+**Label vocabulary (D3).** `ready-to-merge` (set **only** after a whole-feature review PASS — see
+below) and the `blocked:*` family naming the failing stage: `blocked:validation`,
+`blocked:code-review`, `blocked:security-review`, `blocked:feature-review`. A `blocked:*` label is
+cleared when its condition resolves (FR-11.1). Protected branch is `main`; github-agent never
+pushes to `main`.
+
+**Ordering / invariants you enforce:**
+- `ready-to-merge` is applied **only** in the Feature Review Gate → PASS branch, and **never**
+  earlier — not on a phase confirmation, not on a per-task pass (FR-10.1, NFR-1).
+- On any blocking finding the PR **stays draft**; you tell github-agent to keep draft state, never
+  to toggle it ready. Draft→ready and the merge itself are **human** actions gated by
+  `ready-to-merge` (FR-12, NFR-1).
+- **Human merge gate:** you never ask github-agent to merge, and it refuses if asked (FR-4.1). Merge
+  to `main` is performed by a human; your `complete` phase reports "ready for human merge" rather
+  than merging.
+
+**Handling `SECRET REQUEST` / missing-`gh` / `GITHUB BLOCKED`.** Treat these exactly as the
+specialist secret requests in *Secret Handling* above:
+- A `SECRET REQUEST` (neither `GH_TOKEN` nor `GITHUB_TOKEN` set) → surface the request to the user
+  with the proposed provisioning, **never read or paste the secret yourself**, and re-invoke
+  github-agent once the env var is set (the value reaches its subprocess through the environment,
+  never your context).
+- A missing-`gh`-CLI halt → surface the missing dependency to the user; do **not** attempt an
+  unauthenticated workaround.
+- A `GITHUB BLOCKED` refusal → report it to the user; do **not** work around the block (never run
+  `gh`/`git push` yourself to force the operation through).
 
 ## After Every Agent Completes
 
@@ -263,6 +355,8 @@ verdict. Update the state file after every phase transition and every task compl
 - NEVER read knowledge-vault notes directly — always go through the vault-reader subagent.
 - NEVER read a secret file to inspect its value, and never provision a secret by pasting it into a prompt. Fulfil a `SECRET REQUEST` by asking the operator to set an env var, then re-invoke.
 - NEVER write to the knowledge vault directly — always go through the vault-writer subagent.
+- NEVER run `gh` or `git push` yourself — every remote mutation (branch/commit/push/PR/comment/label/review) goes through the github-agent subagent, the single audited choke-point. You author or relay all published content; github-agent never merges, and neither do you.
+- NEVER apply the `ready-to-merge` label before a whole-feature review PASS (FR-10.1); on a blocking finding, keep the PR draft and set the matching `blocked:*` label.
 - NEVER advance a phase without explicit user confirmation.
 - NEVER start implementation if any of requirements, design, or tasks are unconfirmed.
 - NEVER mark a task complete unless the validator AND both reviewers (code, security) pass for it.
