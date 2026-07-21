@@ -252,6 +252,88 @@ fi
 echo ""
 
 # --------------------------------------------------------------------------
+# SDD CI pre-push hook (advisory local mirror of the CI gates)
+# --------------------------------------------------------------------------
+
+info "SDD CI pre-push hook (advisory local secret-scan + build/test/lint)..."
+
+# Sentinel that marks an SDD-managed pre-push hook. Must match the first marker
+# line in ci-templates/hooks/pre-push so we can detect our own hook and stay
+# idempotent / non-destructive (FR-18, NFR-5).
+SDD_HOOK_SENTINEL='# >>> sdd-pre-push (managed) >>>'
+HOOK_SRC="${SCRIPT_DIR}/ci-templates/hooks/pre-push"
+SCANNER_SRC="${SCRIPT_DIR}/ci-templates/scripts/sdd-secret-scan.py"
+
+if ! command -v python3 &>/dev/null; then
+  warn "python3 not found — skipping pre-push hook setup (the scanner needs python3)."
+elif [ ! -f "$HOOK_SRC" ]; then
+  warn "Hook template not found at ${HOOK_SRC} — skipping pre-push hook setup."
+else
+  echo ""
+  echo "  This installs an advisory git pre-push hook into THIS repository. Before a"
+  echo "  push it runs the shared secret scanner and scripts/ci.sh (if present) over"
+  echo "  the pushed range, mirroring the CI gates. It is idempotent and never"
+  echo "  overwrites a pre-existing non-SDD hook; CI still enforces the same checks"
+  echo "  server-side. Bypass locally with: git push --no-verify."
+  echo ""
+  read -rp "  Install the SDD CI pre-push hook into this repository? (y/N) " reply
+  if [[ "$reply" =~ ^[Yy]$ ]]; then
+    # (a) Install the hook into THIS repo (the FR-21 dogfood hook side, DD-4).
+    #     Resolve the hooks dir from the repo install.sh lives in. git rev-parse
+    #     fails (non-zero) if this is not a git repo — capture it in the `if`
+    #     condition so `set -e` does not abort the installer (NFR-5).
+    if ! HOOKS_DIR=$(git -C "$SCRIPT_DIR" rev-parse --git-path hooks 2>/dev/null); then
+      warn "Not a git repository — cannot install the pre-push hook here; skipping repo install."
+    else
+      # --git-path is relative to SCRIPT_DIR (via -C); make it absolute.
+      case "$HOOKS_DIR" in
+        /*) : ;;
+        *)  HOOKS_DIR="${SCRIPT_DIR}/${HOOKS_DIR}" ;;
+      esac
+      mkdir -p "$HOOKS_DIR"
+      HOOK_DEST="${HOOKS_DIR}/pre-push"
+      if [ ! -e "$HOOK_DEST" ]; then
+        # No hook yet → install (cp -p preserves the 100755 exec bit).
+        cp -p "$HOOK_SRC" "$HOOK_DEST"
+        chmod +x "$HOOK_DEST"
+        ok "Pre-push hook installed → ${HOOK_DEST}"
+      elif grep -qF "$SDD_HOOK_SENTINEL" "$HOOK_DEST" 2>/dev/null; then
+        # An SDD-managed hook is already present → idempotent update.
+        if cmp -s "$HOOK_SRC" "$HOOK_DEST"; then
+          info "Pre-push hook already up to date (unchanged, skipped)."
+        else
+          cp -p "$HOOK_SRC" "$HOOK_DEST"
+          chmod +x "$HOOK_DEST"
+          ok "Pre-push hook updated → ${HOOK_DEST}"
+        fi
+      else
+        # A user's own hook exists without our sentinel → never overwrite.
+        warn "A non-SDD pre-push hook already exists at ${HOOK_DEST} — not overwriting."
+        warn "To adopt the SDD hook, merge it manually from:"
+        warn "  ${HOOK_SRC}"
+      fi
+    fi
+
+    # (b) Stage the hook template + shared scanner into ~/.claude/ so /sdd-init
+    #     can distribute them downstream without a source clone (FR-21; FR-20).
+    #     Runs on opt-in even when (a) skipped, so the global templates exist.
+    mkdir -p "${CLAUDE_HOME}/ci-templates/hooks" "${CLAUDE_HOME}/ci-templates/scripts"
+    cp -p "$HOOK_SRC" "${CLAUDE_HOME}/ci-templates/hooks/pre-push"
+    chmod +x "${CLAUDE_HOME}/ci-templates/hooks/pre-push"
+    if [ -f "$SCANNER_SRC" ]; then
+      cp -p "$SCANNER_SRC" "${CLAUDE_HOME}/ci-templates/scripts/sdd-secret-scan.py"
+      ok "Templates staged in ${CLAUDE_HOME}/ci-templates/ (hook + scanner) for /sdd-init."
+    else
+      warn "Scanner not found at ${SCANNER_SRC} — staged the hook template only."
+    fi
+  else
+    info "Pre-push hook skipped."
+  fi
+fi
+
+echo ""
+
+# --------------------------------------------------------------------------
 # Check environment variable
 # --------------------------------------------------------------------------
 
