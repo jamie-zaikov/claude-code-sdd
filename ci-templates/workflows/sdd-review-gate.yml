@@ -1,0 +1,65 @@
+# SDD CI gate — review gate (FR-14, FR-12, NFR-1, NFR-3).
+#
+# One gate per file (design DD-1): shares the `sdd-` prefix and the identical
+# trigger block with sdd-secret-scan.yml and sdd-build-test-lint.yml.
+#
+# Server-side enforcement of the human merge gate (D3): a PR to `main` passes
+# ONLY when the `ready-to-merge` label is present AND no `blocked:*` label
+# remains. This is the mandatory backstop to github-agent's label-setting —
+# even if a label is hand-added, the presence/absence check runs in CI (NFR-3),
+# and merge stays a human action gated by branch protection (FR-12, NFR-1).
+name: sdd-review-gate
+
+on:
+  pull_request:
+    branches: [ main ]          # PR events targeting the protected branch
+  push:
+    branches-ignore: [ main ]   # pushes to feature branches, for fast feedback
+
+# Least privilege (NFR-1): labels are read from the event payload file on disk
+# ($GITHUB_EVENT_PATH), so no API access or elevated scope is required.
+permissions:
+  contents: read
+
+jobs:
+  review-gate:
+    runs-on: ubuntu-latest
+    # No-op on push-to-feature-branch events: there is no PR label context yet.
+    # The gate only enforces on pull_request events targeting `main`.
+    if: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Enforce review labels
+        # Labels are read directly from the event payload file — no ${{ ... }}
+        # interpolation of label text into the shell (script-injection
+        # hardening) and no third-party marketplace action.
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as fh:
+              event = json.load(fh)
+
+          pr = event.get("pull_request") or {}
+          labels = [lbl.get("name", "") for lbl in pr.get("labels", [])]
+
+          blocked = sorted(l for l in labels if l.startswith("blocked:"))
+          ready = "ready-to-merge" in labels
+
+          # Fail if ANY blocked:* label remains, even when ready-to-merge is
+          # also present (a blocking finding is unresolved).
+          if blocked:
+              print("::error::Review gate failed — unresolved blocking "
+                    "label(s): " + ", ".join(blocked))
+              sys.exit(1)
+
+          # Fail unless the ready-to-merge label is present.
+          if not ready:
+              print("::error::Review gate failed — the 'ready-to-merge' label "
+                    "is required before this PR can merge to main.")
+              sys.exit(1)
+
+          print("Review gate passed: 'ready-to-merge' present and no "
+                "'blocked:*' labels remain.")
+          PY
