@@ -1,0 +1,214 @@
+#!/bin/sh
+# >>> sdd-pre-push (managed) >>>
+# SDD pre-push hook (reusable template) — the ADVISORY local fast-feedback layer
+# that mirrors the mandatory CI gates (design C4 / DD-2; FR-17, FR-16, NFR-3).
+#
+# Before a push it runs, over the exact range being pushed:
+#   (a) the SHARED secret scanner `sdd-secret-scan.py` — the SAME script the CI
+#       secret-scan workflow runs, so local and CI cannot drift (FR-16, NFR-3);
+#   (b) the project's `scripts/ci.sh` build/test/lint entrypoint, if present —
+#       the SAME entrypoint the CI build/test/lint workflow runs.
+# On any failing check it exits NON-ZERO to block the push and prints which
+# check failed and how to re-run it (FR-17.1).
+#
+# This is advisory only: CI (the sdd-*.yml workflows) is the mandatory
+# server-side backstop. A missing tool (python3 / scanner) is a warn-and-skip
+# here, because CI still enforces the same gate; but a secret that is actually
+# DETECTED, or a failing `scripts/ci.sh`, blocks the push.
+#
+# Bypass (advisory only): `git push --no-verify` skips this hook — but CI still
+# runs the identical checks server-side, so a bypass does not skip the gate.
+#
+# The `# >>> sdd-pre-push (managed) >>>` sentinel above (and its closing marker
+# at the end) lets install.sh / `/sdd-init` detect an SDD-managed hook and stay
+# idempotent / non-destructive (FR-19; supports NFR-5).
+#
+# pre-push protocol: git invokes this as `pre-push <remote-name> <remote-url>`
+# and feeds the refs being pushed on STDIN, one per line:
+#     <local ref> <local sha> <remote ref> <remote sha>
+# We read each line and compute the diff range to scan (see the loop below).
+
+set -u
+
+# $1/$2 are the remote name and URL git passes; unused but documented.
+REMOTE_NAME="${1:-}"
+REMOTE_URL="${2:-}"
+: "$REMOTE_NAME" "$REMOTE_URL"
+
+say() { printf '%s\n' "$*" >&2; }
+
+# Repo top-level; hooks already run from here, but resolve robustly anyway.
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT="."
+
+# --- Locate the shared scanner --------------------------------------------
+# Resolution order matches where installers place it: the CI-conventional
+# `.github/scripts/` (used by the sdd-secret-scan.yml workflow), then this
+# repo's template source `ci-templates/scripts/`, then a plain `scripts/`.
+# No absolute path is hardcoded; Tasks 7/8 align the installed location.
+find_scanner() {
+  for rel in \
+    .github/scripts/sdd-secret-scan.py \
+    ci-templates/scripts/sdd-secret-scan.py \
+    scripts/sdd-secret-scan.py
+  do
+    if [ -f "$REPO_ROOT/$rel" ]; then
+      printf '%s\n' "$REPO_ROOT/$rel"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# True only when $1 is a non-empty string of all zeros — git's "no such ref"
+# sentinel. Matching by shape (not a fixed 40 chars) also covers sha256 repos'
+# 64-zero form.
+is_zero_sha() {
+  case "$1" in
+    '' ) return 1 ;;
+    *[!0]* ) return 1 ;;
+    * ) return 0 ;;
+  esac
+}
+
+# Base commit for a NEW branch (remote ref does not exist yet). We scan only the
+# commits unique to the local ref, not the whole repository: the boundary of
+# `rev-list <local> --not --remotes` is the nearest ancestor already on a
+# remote, so `git diff <boundary> <local>` covers exactly the new commits. If no
+# such boundary exists (no remotes, or unrelated history), fall back to the
+# empty tree so the whole branch content is scanned — matching the CI workflow's
+# new-branch handling. The empty-tree id is derived so it is correct for both
+# sha1 and sha256 repositories.
+new_branch_base() {
+  _local="$1"
+  _base=$(git rev-list --boundary "$_local" --not --remotes 2>/dev/null \
+            | sed -n 's/^-//p' | head -n 1)
+  if [ -z "$_base" ]; then
+    _base=$(git hash-object -t tree /dev/null 2>/dev/null)
+  fi
+  printf '%s\n' "$_base"
+}
+
+DIFF_FILE=$(mktemp "${TMPDIR:-/tmp}/sdd-pre-push.XXXXXX") || {
+  say "sdd-pre-push: could not create a temp file; skipping secret scan (CI still enforces it)."
+  DIFF_FILE=""
+}
+if [ -n "$DIFF_FILE" ]; then
+  trap 'rm -f "$DIFF_FILE"' EXIT INT TERM
+fi
+
+# --- Build the combined diff over every pushed ref ------------------------
+# All quoting is explicit: SHAs come from stdin and are only ever used as
+# "$VAR", never interpolated unquoted, and are never passed to the scanner as
+# refs — we precompute the diff here and hand the scanner --diff-file, so no ref
+# reaches the scanner's internal `git diff` (closing the argument-injection path
+# proven in Tasks 4/5).
+append_range_diff() {
+  # $1 = base (commit or empty-tree id), $2 = head (commit)
+  [ -n "$DIFF_FILE" ] || return 0
+  if ! git diff "$1" "$2" >> "$DIFF_FILE" 2>/dev/null; then
+    say "sdd-pre-push: warning — could not compute diff $1..$2; skipping that range (CI still enforces it)."
+    return 1
+  fi
+  return 0
+}
+
+refs_seen=0
+if [ -n "$DIFF_FILE" ]; then
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    # Blank line (some git flows emit one) — ignore.
+    [ -n "${local_sha:-}" ] || continue
+    refs_seen=$((refs_seen + 1))
+
+    if is_zero_sha "$local_sha"; then
+      # Deleting a remote ref: nothing to scan.
+      continue
+    fi
+
+    if is_zero_sha "$remote_sha"; then
+      # New branch / remote ref absent: scan only the new commits.
+      if [ -z "$(git rev-list "$local_sha" --not --remotes 2>/dev/null)" ]; then
+        # All of this ref's content is already on a remote; nothing new.
+        continue
+      fi
+      base=$(new_branch_base "$local_sha")
+    else
+      # Normal update: scan the pushed range remote_sha..local_sha.
+      base="$remote_sha"
+    fi
+
+    append_range_diff "$base" "$local_sha" || true
+  done
+
+  # Empty stdin fallback: no refs on stdin (e.g. some scripted push flows).
+  # Scan the commits on HEAD not yet on any remote — the local work about to be
+  # pushed — via the same new-branch base logic.
+  if [ "$refs_seen" -eq 0 ]; then
+    head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+    if [ -n "$head_sha" ] && [ -n "$(git rev-list "$head_sha" --not --remotes 2>/dev/null)" ]; then
+      base=$(new_branch_base "$head_sha")
+      append_range_diff "$base" "$head_sha" || true
+    fi
+  fi
+fi
+
+# --- Run the checks --------------------------------------------------------
+FAILURES=""   # space-separated names of checks that failed (blocking)
+
+# (a) Secret scan over the combined diff.
+if [ -n "$DIFF_FILE" ] && [ -s "$DIFF_FILE" ]; then
+  if ! command -v python3 >/dev/null 2>&1; then
+    say "sdd-pre-push: warning — python3 not found; skipping local secret scan (CI still enforces it)."
+  elif SCANNER=$(find_scanner); then
+    # Scanner exit codes: 0 clean, 1 secret detected, 2 usage/git error.
+    python3 "$SCANNER" --diff-file "$DIFF_FILE"
+    scan_rc=$?
+    case "$scan_rc" in
+      0) : ;;                                   # clean
+      1) FAILURES="$FAILURES secret-scan" ;;    # DETECTED — block
+      2) say "sdd-pre-push: warning — secret scanner reported a tooling error (exit 2); skipping (CI still enforces it)." ;;
+      *) say "sdd-pre-push: warning — secret scanner exited $scan_rc; skipping (CI still enforces it)." ;;
+    esac
+  else
+    say "sdd-pre-push: warning — sdd-secret-scan.py not found under .github/scripts, ci-templates/scripts, or scripts; skipping local secret scan (CI still enforces it)."
+  fi
+fi
+
+# (b) Build/test/lint via the project's conventional entrypoint, if present.
+CI_SH="$REPO_ROOT/scripts/ci.sh"
+if [ -f "$CI_SH" ]; then
+  if [ -x "$CI_SH" ]; then
+    "$CI_SH"
+  else
+    sh "$CI_SH"
+  fi
+  ci_rc=$?
+  if [ "$ci_rc" -ne 0 ]; then
+    FAILURES="$FAILURES build-test-lint"
+  fi
+fi
+
+# --- Verdict ---------------------------------------------------------------
+if [ -n "$FAILURES" ]; then
+  say ""
+  say "sdd-pre-push: PUSH BLOCKED — failing check(s):$FAILURES"
+  for check in $FAILURES; do
+    case "$check" in
+      secret-scan)
+        say "  - secret-scan: potential secret in the pushed range."
+        say "      re-run: python3 <path>/sdd-secret-scan.py --diff-file <(git diff <base> <head>)"
+        say "      remove the secret from the diff (rotate it if it was ever committed), then push again."
+        ;;
+      build-test-lint)
+        say "  - build-test-lint: scripts/ci.sh failed."
+        say "      re-run: sh scripts/ci.sh"
+        ;;
+    esac
+  done
+  say ""
+  say "This local hook is advisory; CI enforces the same checks server-side."
+  say "To bypass locally: git push --no-verify (CI will still run and fail on the same issue)."
+  exit 1
+fi
+
+exit 0
+# <<< sdd-pre-push (managed) <<<
