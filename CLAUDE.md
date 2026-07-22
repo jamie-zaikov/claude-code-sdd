@@ -51,7 +51,9 @@ holes a requirement-anchored check misses by construction.
 - security-reviewer: security review (authz, secrets, injection, unsafe defaults, network/cloud exposure), read-only, returns pass/fail; runs per task and over the whole feature diff, after the validator passes
 - vault-reader: read-only knowledge-vault interface; reads in isolation, returns a distilled report
 - vault-writer: the only component that writes to the knowledge vault; a scribe, never an author
+- github-agent: the audited remote choke-point scribe — performs branch/commit/push/PR/label mechanics and transcribes existing validator/reviewer verdicts verbatim; never merges, never authors content, never judges quality
 
+github-agent is the only component that runs `gh` or `git push`.
 No agent modifies another agent's artifact.
 
 ### Knowledge-Vault Isolation
@@ -103,6 +105,24 @@ mirrors `VAULT REQUEST`. The invoker (orchestrator, or main session) never reads
 context either — it asks the operator to provision the env var, then re-invokes the agent. A
 PostToolUse redaction hook scrubs secret-shaped strings from tool output as a backstop. Prefer a
 shell `export` or a gitignored `.env` over putting real secrets in `settings.json` (plaintext at rest).
+
+### GitHub Integration (remote choke-point)
+
+When a project is wired to GitHub, every remote mutation flows through **github-agent**, the single
+audited choke-point (built in the shape of vault-writer). It is invoked only by the orchestrator and
+performs branch/commit/push, opens and updates pull requests (as **draft** during active
+development), transcribes existing validator/reviewer verdicts verbatim into PR comments, and
+sets/clears labels. It never merges, never authors content, and never judges quality — and it is the
+only component that runs `gh` or `git push`. Tokens are used, never read: `gh` reads `GH_TOKEN` /
+`GITHUB_TOKEN` by name, and a missing token triggers a `SECRET REQUEST` halt.
+
+The **merge to a protected branch is a human action** — no agent merges. It is gated by the
+`ready-to-merge` label, which the orchestrator has github-agent apply **only** after a whole-feature
+review passes. A blocking finding at any stage sets a `blocked:<stage>` label
+(`blocked:validation`, `blocked:code-review`, `blocked:security-review`, `blocked:feature-review`)
+and keeps the PR in draft; the label is cleared when the finding is resolved. A CI review-gate job
+plus GitHub branch protection enforce these label semantics server-side, so CI mirrors — never
+replaces — the local gates.
 
 ### Key Commands
 

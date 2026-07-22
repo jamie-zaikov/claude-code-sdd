@@ -1,0 +1,48 @@
+# SDD CI gate — build / test / lint (FR-15, FR-16, NFR-3).
+#
+# One gate per file (design DD-1): shares the `sdd-` prefix and the identical
+# trigger block with sdd-secret-scan.yml and sdd-review-gate.yml.
+#
+# Downstream stacks vary, so this template invokes a CONVENTIONAL entrypoint:
+# it runs `scripts/ci.sh` when the project provides one and fails on any check
+# failure; otherwise it prints a clear "not configured" notice and exits
+# successfully (a documented placeholder the downstream fills in). The same
+# `scripts/ci.sh` is invoked by the pre-push hook, so CI mirrors the local gate
+# (DD-2, NFR-3).
+name: sdd-build-test-lint
+
+on:
+  pull_request:
+    branches: [ main ]          # PR events targeting the protected branch
+  push:
+    branches-ignore: [ main ]   # pushes to feature branches, for fast feedback
+
+# Least privilege (NFR-1): building/testing/linting only reads repo content.
+permissions:
+  contents: read
+
+jobs:
+  build-test-lint:
+    # Job-level name so the emitted check-run context is `sdd-build-test-lint`
+    # (not the job id `build-test-lint`), letting branch protection pin the
+    # required check by its documented `sdd-` name.
+    name: sdd-build-test-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run build/test/lint entrypoint
+        run: |
+          set -euo pipefail
+          if [ -f scripts/ci.sh ]; then
+            echo "Running scripts/ci.sh"
+            # A non-zero exit from ci.sh fails the step (set -e), failing the
+            # required check.
+            bash scripts/ci.sh
+          else
+            echo "::notice::scripts/ci.sh not found — build/test/lint is not "
+            echo "configured for this project. Add an executable scripts/ci.sh "
+            echo "to run your build, test, and lint steps here."
+            exit 0
+          fi

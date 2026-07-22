@@ -18,6 +18,7 @@ agents/
   security-reviewer.md        # Security review (authz, secrets, injection, cloud exposure)
   vault-reader.md             # Read-only knowledge-vault interface, distills to a report
   vault-writer.md             # The only writer to the knowledge vault, audited choke-point
+  github-agent.md             # The only writer to the remote (branches/PRs/labels), audited choke-point
 
 commands/
   sdd-init.md             # /sdd-init — scaffold .specs/ in any project
@@ -28,6 +29,16 @@ commands/
 hooks/                    # Secret-handling safeguards (installed manually — see hooks/README.md)
   secret-guard.py         # PreToolUse: blocks secret dumps, allows sanctioned use
   secret-redact.py        # PostToolUse: scrubs secret-shaped strings from Bash output
+
+ci-templates/             # CI enforcement layer — distributed by /sdd-init, dogfooded in .github/
+  workflows/
+    sdd-secret-scan.yml     # Fails the check when a secret is detected in the diff
+    sdd-review-gate.yml     # Requires ready-to-merge + no blocked:* label on PRs to main
+    sdd-build-test-lint.yml # Runs the project's build/test/lint entrypoint
+  scripts/
+    sdd-secret-scan.py      # Shared scanner — same code the pre-push hook runs locally
+  hooks/
+    pre-push                # Advisory local fast-feedback hook (mirrors the CI gates)
 
 CLAUDE.md                 # Global instructions loaded in every session
 
@@ -67,7 +78,7 @@ chmod +x install.sh
 
 The installer will:
 
-1. Copy all 12 agents to `~/.claude/agents/`
+1. Copy all 13 agents to `~/.claude/agents/`
 2. Copy all 4 slash commands to `~/.claude/commands/`
 3. Install the global CLAUDE.md to `~/.claude/CLAUDE.md`
    - If you already have one, it offers to overwrite, append, or skip
@@ -198,7 +209,8 @@ Everything installs to `~/.claude/`:
 │   ├── code-reviewer.md
 │   ├── security-reviewer.md
 │   ├── vault-reader.md
-│   └── vault-writer.md
+│   ├── vault-writer.md
+│   └── github-agent.md
 ├── commands/        # Global — available in every project
 │   ├── sdd-init.md
 │   ├── sdd-feature.md
@@ -256,6 +268,55 @@ work (ssh, authenticated curl, API calls). Four layers, all enforced globally fo
 Layers 1–3 ship in the agents/CLAUDE.md and are installed by `install.sh`. **Layer 4 (hooks) and
 the deny list are machine config and must be enabled manually** — see [`hooks/README.md`](hooks/README.md)
 for the exact `settings.json` block.
+
+## GitHub integration & CI enforcement
+
+The framework bridges the local SDD lifecycle to GitHub through a single audited choke-point and a
+CI layer that re-runs the quality gates server-side.
+
+- **`github-agent` — the remote scribe.** Built in the exact shape of `vault-writer`, `github-agent`
+  is the **only** component that runs `gh` or `git push`. Invoked only by the orchestrator, it
+  performs the remote mechanics — create/switch branches, commit and push to a feature branch, open
+  and update pull requests (as **draft** during active development), transcribe existing
+  validator/reviewer verdicts verbatim into PR comments, and set/clear labels. It is a scribe, not
+  an author: it never invents content, never judges quality, and **never merges**. Tokens are used,
+  never read — `gh` reads `GH_TOKEN` / `GITHUB_TOKEN` by name, and a missing token triggers a
+  `SECRET REQUEST` halt (same "use, don't read" discipline as the secret-handling layer above). The
+  `secret-guard.py` hook additionally blocks GitHub-token dump vectors (e.g. `gh auth token`,
+  `printenv GH_TOKEN`) while leaving sanctioned `gh` use untouched.
+
+- **Human merge gate.** Merge to a protected branch (`main`) is always a **human** action — no agent
+  merges. It is gated by the `ready-to-merge` label, which the orchestrator has `github-agent` apply
+  **only** after a whole-feature review passes. A blocking finding at any pipeline stage sets a
+  `blocked:<stage>` label (`blocked:validation`, `blocked:code-review`, `blocked:security-review`,
+  `blocked:feature-review`) and keeps the PR in draft; the label is cleared when the finding is
+  resolved.
+
+- **Three CI workflow gates** (`ci-templates/workflows/`), each its own file so a future gate slots
+  in without touching the others:
+  - **`sdd-secret-scan`** — runs the shared scanner (`ci-templates/scripts/sdd-secret-scan.py`) over
+    the changed diff and fails the check when a secret is detected, reporting each match by type and
+    `path:line`, never the value. The scanner supports an inline `pragma: allowlist secret`
+    suppression (which drops only its own line) and an explicit path-exclude list for the framework's
+    own pattern/fixture files, so its detection stays tight without false positives on itself.
+  - **`sdd-review-gate`** — runs on pull requests to `main` and **fails unless the `ready-to-merge`
+    label is present and no `blocked:*` label remains**. This is the server-side backstop to the
+    human merge gate. **Branch protection on `main` must require the `sdd-review-gate` check** — the
+    job's `name:` is `sdd-review-gate` so the required-check name can be pinned exactly.
+  - **`sdd-build-test-lint`** — runs the project's build/test/lint entrypoint (`scripts/ci.sh` if
+    present) and fails on any failure.
+
+- **Pre-push hook.** `ci-templates/hooks/pre-push` runs the **same** secret scanner and
+  build/test/lint entrypoint locally before a push and blocks the push (non-zero exit) on failure,
+  naming the failing check. It is the advisory fast-feedback layer; **CI mirrors — never replaces —
+  the local gates**: even if the hook is absent or bypassed with `--no-verify`, the identical checks
+  run in CI as the mandatory backstop.
+
+- **Distribution & dogfood.** `/sdd-init` drops the workflow templates into a downstream project's
+  `.github/workflows/` and makes the pre-push hook available, appending missing files without
+  overwriting existing ones (idempotent, non-destructive). `install.sh` optionally installs the
+  pre-push hook into the current repo. This repository dogfoods the same layer in its own
+  [`.github/`](.github/).
 
 ## Uninstall
 
