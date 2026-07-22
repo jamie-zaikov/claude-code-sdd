@@ -134,7 +134,7 @@ if [ -f "${CLAUDE_HOME}/CLAUDE.md" ]; then
   if cmp -s "${SCRIPT_DIR}/CLAUDE.md" "${CLAUDE_HOME}/CLAUDE.md"; then
     info "CLAUDE.md already up to date."
   else
-    warn "~/.claude/CLAUDE.md already exists and differs."
+    warn "${CLAUDE_HOME}/CLAUDE.md already exists and differs."
     echo ""
     echo "  Options:"
     echo "    [o] Overwrite with SDD version"
