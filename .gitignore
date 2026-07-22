@@ -3,3 +3,11 @@
 # Python bytecode
 __pycache__/
 *.pyc
+
+**/.spec-state.json
+
+# SDD per-feature scratch — data in, artifacts out; contents never committed
+.specs/features/*/input-data/*
+.specs/features/*/spec-memory/*
+!.specs/features/*/input-data/README.md
+!.specs/features/*/spec-memory/README.md
