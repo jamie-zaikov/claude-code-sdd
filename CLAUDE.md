@@ -44,7 +44,7 @@ holes a requirement-anchored check misses by construction.
 - design-agent: owns design.md exclusively
 - tasks-agent: owns tasks.md exclusively
 - spec-consistency-checker: read-only cross-document auditor; fires after tasks confirmed, before implementation; receives no planning context
-- task-executor: implements one task at a time, worktree-isolated
+- task-executor: implements one task at a time in the shared feature-branch checkout (tasks run sequentially, so each executor inherits prior tasks' committed output)
 - task-tester: writes tests for one task, never modifies implementation
 - task-validator: validates against requirements, read-only, returns pass/fail
 - code-reviewer: adversarial correctness/robustness/maintainability review, read-only, returns pass/fail; runs per task and over the whole feature diff, after the validator passes

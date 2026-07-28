@@ -11,7 +11,7 @@ agents/
   design-agent.md             # Owns design.md, requirement traceability
   tasks-agent.md              # Owns tasks.md, hierarchical task breakdown
   spec-consistency-checker.md # Read-only cross-document auditor, runs before implementation
-  task-executor.md            # Implements one task, worktree-isolated
+  task-executor.md            # Implements one task, in the shared feature-branch checkout
   task-tester.md              # Writes tests for one task
   task-validator.md           # Validates implementation + tests against requirements, pass/fail
   code-reviewer.md            # Adversarial correctness/robustness review, per task + whole feature
@@ -333,6 +333,6 @@ Removes agents and commands. Leaves `~/.claude/CLAUDE.md` intact (remove SDD sec
 - **Start fresh sessions between phases.** The `.spec-state.json` carries progress. Don't run the whole lifecycle in one conversation — that's how you get context rot.
 - **Use `/compact` aggressively.** When context fills past 50%, compress.
 - **Opus for planning, Sonnet for execution.** Model tiering ships in each agent's `model:` frontmatter: Opus for requirements/design, Sonnet for tasks/execution/validation. The task-executor auto-escalates to Opus on a retry after a validator failure. Override per agent by editing its frontmatter.
-- **Worktrees for parallel tasks.** The task-executor has `isolation: worktree`. For manual parallel work: `claude --worktree task-3-api`.
+- **Sequential accumulation, shared checkout.** SDD tasks run strictly one executor at a time and are mutually dependent, so the task-executor runs in the shared feature-branch checkout (no `isolation: worktree`) and each task builds on the prior task's committed output. Worktree isolation only helps *parallel* agents, which this pipeline never runs — if you ever add parallel task execution, re-introduce isolation for those tasks only (and fork the worktree from the feature branch, not `main`). For manual parallel work outside the pipeline: `claude --worktree task-3-api`.
 - **Never paste secrets into the chat.** Provision them via a shell `export` or a gitignored `.env`; agents reference them by env-var name and escalate with `SECRET REQUEST` when one is missing. See [Security & secret handling](#security--secret-handling).
 - **Keep the knowledge vault out of the main session.** If your project has a large curated Obsidian/markdown vault, never read it into the orchestrator. Set its root under "Knowledge Vault" in `.specs/steering/tech.md`; the orchestrator brokers all access through `vault-reader` (reads → distilled report on disk) and `vault-writer` (the only writer). The bulk content lives and dies in the subagent's context, so the main session never bloats.
