@@ -15,6 +15,21 @@ Task 2 covers three design components:
   C2 — the `.spec-state.json` schema delta: `featureClass` plus the five-key `classification`
        object, in the initialization block and in the schema prose.
 
+Task 3 extends the module with the A3/A4 corrections to that text and with two more components:
+
+  C3 — the per-task routing inside ``### `implementation` ``: a shared preamble above Stage 1 and
+       the stage-specific bullets that forward the two values, with the stage order untouched.
+  I1 — the wire contract for those two values: `featureClass` (`"code"` | `"non-code"`, never
+       `null`) to Stages 2-5, and `taskProducesApplicationCode` to the task stages (2 & 3) only.
+
+  The A3/A4 corrections asserted here: the OPEN enumeration on both sides of the C0 block with
+  `CLAUDE.md` and `README.md` each named with its criterion (A3-3); the `PRECEDENCE` stanza
+  subordinating AMB-1…AMB-5 to that enumeration, and the fail-safe section CITING it rather than
+  restating it (A4-1); AMB-5, the empty-task-list trigger (A3-4); the C4 reclassification
+  subsection in the `null`-consumer list (A3-1); the absence-is-not-by-itself-a-legacy-signal
+  qualifier naming `commands/sdd-feature.md` (A3-5); and the legacy branch's one-line report of
+  its own determination (A3-2, R10).
+
 Assertions target wording, ORDER and ABSENCE — never mere substring presence where presence alone
 would also be satisfied by text saying the opposite. In particular:
 
@@ -42,14 +57,21 @@ would also be satisfied by text saying the opposite. In particular:
     replication has something that cannot silently drift;
   * `ready-to-merge` is asserted **absent** from the classification-gate region, and the whole-file
     singleton invariant (exactly one *set* operation, inside the Feature Review Gate PASS branch)
-    is re-asserted here as a regression guard (FR-9.1, AC-7).
+    is re-asserted here as a regression guard (FR-9.1, AC-7);
+  * every routing assertion is scoped to ONE stage's bullet list, so "Stage 3 requests
+    artifact-conformance mode" cannot be satisfied by text sitting in Stage 2 — and each scoped
+    slice asserts BOTH its anchors (see `slice_between`), so a re-anchoring that no longer matches
+    goes red instead of silently widening to the whole section;
+  * the `"code"` path is asserted UNCHANGED, not merely un-mentioned: the stage headings are
+    asserted to be four, in order, with the reviews still gated on validation, and no region of the
+    routing delta may introduce a user prompt (NFR-4).
 
-Covers FR-1, FR-1.1, FR-1.2, FR-1.3, FR-1.4, FR-1.5, FR-1.6, FR-1.7, FR-9.1, FR-11, FR-11.1,
-FR-11.2, NFR-5, NFR-6.
+Covers FR-1, FR-1.1, FR-1.2, FR-1.3, FR-1.4, FR-1.5, FR-1.6, FR-1.7, FR-2, FR-2.1, FR-2.3, FR-2.4,
+FR-3.3, FR-5.1, FR-9.1, FR-11, FR-11.1, FR-11.2, NFR-4, NFR-5, NFR-6.
 
-Later tasks (3, 4, 5) extend this module by adding further `OrchestratorDocTestCase` subclasses —
-the base class, the section/region helpers and the text normalisers below are shared for that
-purpose. Nothing here writes anything, anywhere.
+Later tasks (4, 5) extend this module by adding further `OrchestratorDocTestCase` subclasses — the
+base class, the section/region helpers and the text normalisers below are shared for that purpose.
+Nothing here writes anything, anywhere.
 
 Stdlib-only. Run:
     python3 -m unittest tests.test_orchestrator_feature_class -v
@@ -80,21 +102,33 @@ ALLOW_LIST_HEADING = (
     "Non-code artifact allow-list (normative — identical in every agent that classifies)"
 )
 
-# The C0 allow-list body, verbatim from design.md C0 (itself unparaphrased from the requirements
-# "Definitions used throughout"). Tasks 6/7/8 replicate this block into four more agent contracts,
-# so it must not drift here: this is its normative home (DD-5).
+# The C0 allow-list body, verbatim from design.md C0 as amended by A3 and A4 (itself unparaphrased
+# from the requirements "Definitions used throughout"): the repository enumeration is OPEN on both
+# sides, the application-code side names the repository-root `CLAUDE.md` with its criterion, the
+# non-code side names the repository-root `README.md` with its criterion, and a `PRECEDENCE` clause
+# subordinates the AMB-1..AMB-5 ambiguity triggers to the enumeration. Tasks 6/7/8 replicate this
+# block into four more agent contracts, so it must not drift here: this is its normative home (DD-5).
 CANONICAL_ALLOW_LIST = """\
 NON-CODE ARTIFACT — exactly one of:
   1. a spec artifact under .specs/features/<feature-name>/
      (requirements.md, design.md, tasks.md, scope.md, .spec-state.json)
   2. a committed prose/documentation file that the project's layout or steering does NOT
      designate as source, agent/prompt contract, template, script, or configuration
+     (in this repository these include, but are not limited to, the repository-root
+     README.md — descriptive documentation that nothing loads into an agent's context)
   3. a knowledge-vault mutation recorded by vault-writer in
      .specs/features/<feature-name>/vault/.write-log.jsonl
 
 APPLICATION CODE — anything else: executable source, tests, scripts, hooks, CI workflows,
   templates, runtime configuration, and any prose file the project designates as a
-  behaviour-bearing contract (in this repository: agents/*.md and commands/*.md).
+  behaviour-bearing contract (in this repository these include, but are not limited to,
+  agents/*.md, commands/*.md, and the repository-root CLAUDE.md — a contract the project
+  loads into every agent's context at session start).
+
+PRECEDENCE — this enumeration settles every file it names, on the side it names it. The
+  ambiguity triggers AMB-1 through AMB-5 apply only to a file this enumeration does not
+  already settle, and never override it. Both lists stay open: a file's absence from
+  either list is evidence of nothing.
 """
 
 CLASSIFICATION_SUBKEYS = (
@@ -216,28 +250,51 @@ class OrchestratorDocTestCase(unittest.TestCase):
         start, end = self.gate_span()
         return self.body[start:end]
 
-    def sub_region(self, start_pat, end_pat, label):
-        """The slice of the classification-gate region from `start_pat` up to `end_pat`.
+    def slice_between(self, text, start_pat, end_pat, label, container="classification gate"):
+        """The slice of `text` from `start_pat` up to `end_pat`, with BOTH anchors asserted.
 
-        BOTH anchors are asserted. A missing end anchor must never be tolerated: silently
-        extending the slice to the end of the classification gate turns a scoped assertion into a
-        whole-gate assertion **while staying green** — every positive pattern would then be
-        satisfiable by text belonging to a later paragraph, and every `assertNotRegex` would be
-        evaluated over paragraphs it was never meant to police. Fail loudly instead.
+        A missing end anchor must never be tolerated: silently extending the slice to the end of
+        the containing section turns a scoped assertion into a whole-section assertion **while
+        staying green** — every positive pattern would then be satisfiable by text belonging to a
+        later paragraph, and every `assertNotRegex` would be evaluated over paragraphs it was never
+        meant to police. Fail loudly instead.
         """
-        region = self.gate_region()
-        ms = re.search(start_pat, region)
-        self.assertIsNotNone(ms, f"classification gate has no {label} paragraph")
-        rest = region[ms.start():]
+        ms = re.search(start_pat, text)
+        self.assertIsNotNone(ms, f"the {container} has no {label} paragraph")
+        rest = text[ms.start():]
         me = re.search(end_pat, rest[1:])
         self.assertIsNotNone(
             me,
             f"the {label} region has no end anchor matching {end_pat!r} after it — the region "
-            f"would silently run to the end of the classification gate and every assertion scoped "
-            f"to {label} would degrade into a whole-gate assertion without going red. Re-anchor "
+            f"would silently run to the end of the {container} and every assertion scoped "
+            f"to {label} would degrade into a whole-section assertion without going red. Re-anchor "
             f"this region against the current section structure.",
         )
         return rest[: me.start() + 1]
+
+    def sub_region(self, start_pat, end_pat, label):
+        """`slice_between` scoped to the Feature Classification Gate section."""
+        return self.slice_between(self.gate_region(), start_pat, end_pat, label)
+
+    def impl_span(self):
+        span = section_span(self.body, IMPLEMENTATION_HEADING)
+        self.assertIsNotNone(
+            span,
+            f"no heading with the exact title {IMPLEMENTATION_HEADING!r} — design C3 places the "
+            f"per-task routing inside that section",
+        )
+        return span
+
+    def impl_region(self):
+        start, end = self.impl_span()
+        return self.body[start:end]
+
+    def stage_region(self, start_pat, end_pat, label):
+        """`slice_between` scoped to the ``### `implementation` `` section (design C3)."""
+        return self.slice_between(
+            self.impl_region(), start_pat, end_pat, label,
+            container="`implementation` section",
+        )
 
 
 # --- (1) C1: placement, ordering, and the gate's procedural content ------------------------------
@@ -475,17 +532,26 @@ class ClassificationGatePlacementTest(OrchestratorDocTestCase):
             "direction must be \"code\" and only \"code\" (FR-1.4)",
         )
 
-        # Enumerated triggers: at least four, each a distinct list item, each substantive.
-        # Any markdown list marker counts — `-`, `*`, `+` or an ordered `1.` / `1)` — so a purely
-        # cosmetic re-styling of the enumeration does not turn this assertion red.
+        # Enumerated triggers: FIVE, each a distinct list item, each substantive. Any markdown list
+        # marker counts — `-`, `*`, `+` or an ordered `1.` / `1)` — so a purely cosmetic re-styling
+        # of the enumeration does not turn this assertion red.
         triggers = re.findall(r"(?m)^\s*(?:[-*+]|\d+[.)])\s+.*$", region)
         self.assertGreaterEqual(
-            len(triggers), 4,
+            len(triggers), 5,
             f"the fail-safe enumerates only {len(triggers)} ambiguity trigger(s); design C1 lists "
-            f"four (no declared outputs / unresolvable output / prose in a designated directory / "
-            f"steering silent)",
+            f"five (no declared outputs / unresolvable output / prose in a designated directory / "
+            f"steering silent / an empty task list)",
         )
         flat_triggers = flat("\n".join(triggers))
+        # The labels themselves, pinned exactly: AMB-1 … AMB-5, once each, in order. Tests, reviews
+        # and the contract's own precedence pointer cite these labels by name, so a dropped or
+        # renumbered trigger must go red rather than merely thin the enumeration out.
+        self.assertEqual(
+            re.findall(r"\bAMB-\d+\b", flat_triggers),
+            ["AMB-1", "AMB-2", "AMB-3", "AMB-4", "AMB-5"],
+            "the ambiguity triggers are not labelled AMB-1 … AMB-5, exactly once each and in "
+            "order (FR-1.4, A3-4)",
+        )
         for label, pattern, why in (
             ("no declared outputs", r"(?i)declares no outputs", "a task declaring no outputs"),
             ("unresolvable output", r"(?i)cannot be resolved to a concrete path",
@@ -493,11 +559,76 @@ class ClassificationGatePlacementTest(OrchestratorDocTestCase):
             ("designated directory", r"(?i)steering designates as source",
              "a prose file inside a directory steering designates as source/contract/template"),
             ("steering silent", r"(?i)steering is silent", "steering silent and location unhelpful"),
+            # AMB-5 (A3-4): the per-feature rule is a conjunction of two universals and is
+            # VACUOUSLY TRUE over zero tasks — an empty task list is the single input on which the
+            # rule would otherwise invert its own fail-safe direction. AMB-1 covers "a task
+            # declares no outputs" and says nothing about "there are no tasks".
+            ("empty task list", r"(?i)tasks\.md declares no tasks",
+             "a tasks.md that declares no tasks at all, which no other trigger catches"),
         ):
             self.assertRegex(
                 flat_triggers, pattern,
                 f"ambiguity trigger '{label}' is missing — {why} must be enumerated (FR-1.4, R7)",
             )
+
+    def test_ambiguity_triggers_are_declared_subordinate_to_the_allow_list_enumeration(self):
+        """FR-1.4 / NFR-6 / A4-1: the fail-safe section must SUBORDINATE AMB-1…AMB-5 to C0's
+        enumeration, by citing the fenced `PRECEDENCE` clause rather than restating it.
+
+        Without the pointer the two rules are peers, and the repository-root `CLAUDE.md` (prose,
+        but a behaviour-bearing contract) and `README.md` (prose in a directory full of contracts)
+        are each simultaneously settled by the enumeration and caught by AMB-3/AMB-4 — an
+        ambiguity trigger firing over a file the enumeration already named would classify by
+        fail-safe instead of by enumeration, which is exactly the drift A4-1 closes.
+
+        The pointer must be a CITATION, not a copy: a second normative statement of the precedence
+        rule can drift out of step with the one Tasks 6/7/8 replicate into four other contracts.
+        """
+        region = flat(self.sub_region(r"\*\*Fail-safe", r"\*\*Record and report", "'Fail-safe'"))
+
+        self.assertRegex(
+            region, r"(?i)these triggers are subordinate to the allow-list enumeration",
+            "the fail-safe section does not declare the ambiguity triggers SUBORDINATE to C0's "
+            "allow-list enumeration (FR-1.4, A4-1)",
+        )
+        self.assertRegex(
+            region,
+            r"(?i)apply only to a file the fenced block above does not already settle by name",
+            "the fail-safe section does not restrict the triggers to files the fenced block does "
+            "not already settle by name (A4-1)",
+        )
+        self.assertRegex(
+            region, r"(?i)stated normatively once, in that block's PRECEDENCE clause",
+            "the fail-safe section does not CITE the fenced `PRECEDENCE` clause as the one "
+            "normative statement of the precedence rule (NFR-6, A4-1)",
+        )
+        self.assertRegex(
+            region, r"(?i)deliberately not restated here",
+            "the fail-safe section does not say the precedence rule is deliberately NOT restated "
+            "here — the reason a reader may not add a second copy (NFR-6)",
+        )
+        # A restatement, not a citation, is the failure mode: the normative sentence itself must
+        # live only in the fenced block that Tasks 6/7/8 replicate.
+        self.assertNotIn(
+            "settles every file it names", region,
+            "the fail-safe section RESTATES the `PRECEDENCE` rule instead of citing it. The "
+            "normative wording belongs in the fenced C0 block alone — Tasks 6/7/8 replicate that "
+            "block into four other contracts, and a second copy here would drift out of step "
+            "(NFR-6, A4-1, DD-5).",
+        )
+        # The concrete consequence, spelled out for the two files the enumeration now names.
+        self.assertRegex(
+            region,
+            r"(?i)the repository-root CLAUDE\.md is application code and the repository-root "
+            r"README\.md is a category-2 non-code artifact by enumeration",
+            "the fail-safe section does not state the concrete consequence of the precedence rule "
+            "for the repository-root CLAUDE.md and README.md (A4-1)",
+        )
+        self.assertRegex(
+            region, r"(?i)AMB-3 and AMB-4 never fire over either",
+            "the fail-safe section does not state that AMB-3 and AMB-4 never fire over the two "
+            "files the enumeration settles by name (FR-1.4, A4-1)",
+        )
 
     def test_record_and_report_value_and_per_task_basis(self):
         """FR-1.5 / NFR-5: the gate writes `featureClass` + the `classification` object and reports
@@ -672,6 +803,75 @@ class ClassificationGatePlacementTest(OrchestratorDocTestCase):
             "feature — the positive duty is what stops the silent switch-off (FR-1, FR-1.7)",
         )
 
+    def test_legacy_branch_reports_its_determination(self):
+        """FR-1.5 / FR-1.7 / NFR-5 / NFR-4 / R10: the legacy branch is the one path through this
+        gate that records no classification — so it must still REPORT.
+
+        Every other exit from the gate writes `featureClass` plus `classification.basis` and reports
+        the value and its basis to the user (FR-1.5). The legacy branch writes nothing, so without
+        an explicit report it is a silent path: the user cannot tell "this feature was read as
+        pre-change and left unclassified" apart from "the gate never ran". The report must name the
+        two conditions it fired on, and it must remain a REPORT — a prompt here would break NFR-4's
+        "no additional user prompt on the code path".
+        """
+        region = self.sub_region(
+            r"\*\*Report the legacy determination", r"\*\*What this gate never does",
+            "'Report the legacy determination'",
+        )
+        flat_region = flat(region)
+
+        self.assertRegex(
+            flat_region, r"(?i)when the legacy branch fires, report it to the user in one line",
+            "the legacy branch does not report its determination to the user — the one branch of "
+            "this gate that records no classification would leave no audit trail at all "
+            "(FR-1.5, NFR-5, R10)",
+        )
+        self.assertRegex(
+            flat_region, r"(?i)read as genuinely pre-change",
+            "the legacy report does not state WHAT was determined (that the state file was read "
+            "as genuinely pre-change) (FR-1.7)",
+        )
+        self.assertRegex(
+            flat_region, r"(?i)on which two conditions it was so read",
+            "the legacy report does not have to state the TWO conditions it fired on — a report "
+            "that omits its own grounds is not the audit trail FR-1.5 requires (FR-1.7, NFR-5)",
+        )
+        self.assertRegex(
+            flat_region, r'(?i)proceeds as "code", unclassified',
+            "the legacy report does not state the consequence: the feature proceeds as \"code\", "
+            "unclassified (FR-1.7)",
+        )
+        # The two conditions are not merely promised in the abstract — the report shape names them.
+        self.assertRegex(
+            flat_region,
+            r"(?i)featureClass absent AND phase already implementation",
+            "the legacy report shape does not name the two conditions concretely (an absent "
+            "`featureClass` AND a `phase` already at `implementation` or beyond) (FR-1.7, NFR-5)",
+        )
+        # NFR-4: a report, never a prompt.
+        self.assertRegex(
+            flat_region, r"(?i)this is a report, not a prompt",
+            "the legacy determination is not declared a REPORT rather than a prompt — NFR-4 "
+            "forbids any additional user prompt on the code path (NFR-4)",
+        )
+        self.assertRegex(
+            flat_region, r"(?i)it asks the user nothing",
+            "the legacy report does not state that it asks the user nothing (NFR-4)",
+        )
+        self.assertRegex(
+            flat_region, r"(?i)no additional user prompt on the code path.{0,20}is untouched",
+            "the legacy report does not tie itself back to NFR-4's 'no additional user prompt on "
+            "the code path' guarantee (NFR-4)",
+        )
+        self.assertNotRegex(
+            flat_region,
+            r"(?i)(ask the user|prompt the user|await (the user's )?(confirmation|response)|"
+            r"wait for the user)",
+            "the legacy determination has been turned into a user PROMPT. It must be a one-line "
+            "report: NFR-4 guarantees the code path gains no additional user prompt, and a legacy "
+            "state file is on the code path by definition (NFR-4, FR-1.7).",
+        )
+
     def test_gate_region_carries_no_label_github_or_ci_operation(self):
         """FR-9.1 / FR-10.1 / design C1 'explicitly absent': the classification gate performs no
         remote action. No `ready-to-merge`, no label op, no github-agent call, no CI reference."""
@@ -713,6 +913,13 @@ class AllowListBlockTest(OrchestratorDocTestCase):
         )
         return span
 
+    def allow_list_block(self):
+        """The fenced body of the C0 block, read from the LIVE file (never from the pin)."""
+        start, end = self.allow_list_span()
+        fence = re.search(r"```[a-zA-Z]*\n(.*?)```", self.body[start:end], re.DOTALL)
+        self.assertIsNotNone(fence, "the allow-list section has no fenced block")
+        return fence.group(1)
+
     def test_allow_list_heading_is_exact_and_inside_the_gate(self):
         """FR-1.3 / DD-5: the C0 heading is spelled exactly, is a `####` subsection, and lives
         inside the classification-gate section rather than floating elsewhere in the file."""
@@ -748,11 +955,8 @@ class AllowListBlockTest(OrchestratorDocTestCase):
         asserts all five copies are normalised-identical. Pinning the normative home here is what
         makes that replication meaningful — a silent edit here would propagate as "correct".
         """
-        start, end = self.allow_list_span()
-        fence = re.search(r"```[a-zA-Z]*\n(.*?)```", self.body[start:end], re.DOTALL)
-        self.assertIsNotNone(fence, "the allow-list section has no fenced block")
         self.assertEqual(
-            squash(fence.group(1)), squash(CANONICAL_ALLOW_LIST),
+            squash(self.allow_list_block()), squash(CANONICAL_ALLOW_LIST),
             "the C0 allow-list block has drifted from its canonical text (design C0 / DD-5). This "
             "block is normative and is replicated verbatim into four other agent contracts; change "
             "it in the design first, then in all five copies.",
@@ -761,10 +965,7 @@ class AllowListBlockTest(OrchestratorDocTestCase):
     def test_allow_list_names_all_three_categories_and_the_code_catch_all(self):
         """FR-1.3 / NFR-6: the substantive content — the three non-code categories and the
         application-code catch-all naming this repository's contract globs."""
-        start, end = self.allow_list_span()
-        fence = re.search(r"```[a-zA-Z]*\n(.*?)```", self.body[start:end], re.DOTALL)
-        self.assertIsNotNone(fence, "the allow-list section has no fenced block")
-        block = fence.group(1)
+        block = self.allow_list_block()
 
         self.assertIn("NON-CODE ARTIFACT", block)
         self.assertIn("exactly one of", block,
@@ -797,6 +998,125 @@ class AllowListBlockTest(OrchestratorDocTestCase):
                       "the allow-list does not designate agents/*.md as application code")
         self.assertIn("commands/*.md", block,
                       "the allow-list does not designate commands/*.md as application code")
+
+    def test_allow_list_enumeration_is_open_on_both_sides_and_names_claude_md_and_readme_md(self):
+        """FR-1.3 / A3-3 / A4-1: the repository enumeration is OPEN on both sides, and each side
+        names its worked example WITH the criterion that puts it there.
+
+        A closed enumeration would make "not listed" mean "not application code", so any prose file
+        the project later designates as a contract would classify non-code by omission. And the two
+        hard cases must be settled by name: the repository-root `CLAUDE.md` is prose the project
+        loads into every agent's context (application code), while the repository-root `README.md`
+        is prose nothing loads (category-2 non-code). Naming them without the criterion would
+        settle two files; naming the criterion generalises to the next file like them.
+        """
+        block = self.allow_list_block()
+        flat_block = flat(block)
+
+        self.assertEqual(
+            len(re.findall(r"(?i)include, but are not limited to", block)), 2,
+            "the repository enumeration is not stated as OPEN on BOTH sides — the phrase "
+            "'include, but are not limited to' must appear once in the non-code category 2 and "
+            "once in the application-code catch-all (FR-1.3, A3-3)",
+        )
+        self.assertNotRegex(
+            flat_block, r"(?i)(exhaustive|only the following|and nothing else)",
+            "the repository enumeration is closed — absence from either list must be evidence of "
+            "nothing (A3-3, A4-1)",
+        )
+
+        # The application-code side: CLAUDE.md, with the criterion that puts it there.
+        self.assertIn(
+            "CLAUDE.md", block,
+            "the allow-list does not name the repository-root CLAUDE.md at all (A3-3)",
+        )
+        self.assertRegex(
+            flat_block,
+            r"(?i)the repository-root CLAUDE\.md .{0,20}a contract the project loads into every "
+            r"agent's context at session start",
+            "the repository-root CLAUDE.md is not designated application code WITH its criterion "
+            "(the project loads it into every agent's context as a behaviour-bearing contract) "
+            "(FR-1.3, A3-3)",
+        )
+        claude_at = flat_block.index("CLAUDE.md")
+        self.assertGreater(
+            claude_at, flat_block.index("APPLICATION CODE"),
+            "the repository-root CLAUDE.md is named on the NON-CODE side of the enumeration — it "
+            "is a behaviour-bearing contract and belongs to APPLICATION CODE (FR-1.3, A3-3)",
+        )
+
+        # The non-code side: README.md, with the criterion that puts it there.
+        self.assertIn(
+            "README.md", block,
+            "the allow-list does not name the repository-root README.md at all (A3-3)",
+        )
+        self.assertRegex(
+            flat_block,
+            r"(?i)the repository-root README\.md .{0,20}descriptive documentation that nothing "
+            r"loads into an agent's context",
+            "the repository-root README.md is not designated a category-2 non-code artifact WITH "
+            "its criterion (nothing loads it into an agent's context) (FR-1.3, A3-3)",
+        )
+        readme_at = flat_block.index("README.md")
+        self.assertLess(
+            readme_at, flat_block.index("APPLICATION CODE"),
+            "the repository-root README.md is named on the APPLICATION CODE side of the "
+            "enumeration — nothing loads it into an agent's context, so it is a category-2 "
+            "non-code artifact (FR-1.3, A3-3)",
+        )
+
+    def test_allow_list_precedence_clause_subordinates_the_ambiguity_triggers(self):
+        """FR-1.3 / FR-1.4 / A4-1: the fenced block carries the `PRECEDENCE` stanza, and it is the
+        stanza that is replicated — so the subordination rule travels with the enumeration.
+
+        The enumeration and the AMB triggers are two rules over the same files. Without an explicit
+        ordering, `CLAUDE.md` is both "application code by enumeration" and "prose in a directory
+        steering designates as contract" (AMB-3), and a reader may take either. The `PRECEDENCE`
+        stanza must live INSIDE the fence: Tasks 6/7/8 replicate only the fenced block into four
+        other agent contracts, so a precedence rule stated outside it would not reach them.
+        """
+        block = self.allow_list_block()
+        flat_block = flat(block)
+
+        self.assertIn(
+            "PRECEDENCE", block,
+            "the fenced C0 block carries no `PRECEDENCE` stanza — Tasks 6/7/8 replicate this fence "
+            "and only this fence, so the subordination rule would not reach the four replicas "
+            "(A4-1, DD-5)",
+        )
+        self.assertRegex(
+            flat_block,
+            r"(?i)this enumeration settles every file it names, on the side it names it",
+            "the `PRECEDENCE` stanza does not state that the enumeration settles every file it "
+            "names, on the side it names it (A4-1)",
+        )
+        self.assertRegex(
+            flat_block,
+            r"(?i)the ambiguity triggers AMB-1 through AMB-5 apply only to a file this enumeration "
+            r"does not already settle",
+            "the `PRECEDENCE` stanza does not subordinate AMB-1…AMB-5 to the enumeration by name "
+            "(FR-1.4, A4-1)",
+        )
+        self.assertRegex(
+            flat_block, r"(?i)and never override it",
+            "the `PRECEDENCE` stanza does not forbid an ambiguity trigger OVERRIDING the "
+            "enumeration — subordination without that clause is advisory (FR-1.4, A4-1)",
+        )
+        self.assertRegex(
+            flat_block,
+            r"(?i)both lists stay open: a file's absence from either list is evidence of nothing",
+            "the `PRECEDENCE` stanza does not keep both lists open — without it, omission from "
+            "the enumeration becomes an argument (A3-3, A4-1)",
+        )
+        # The inversion: the ordering must never be stated the other way round.
+        self.assertNotRegex(
+            flat_block,
+            r"(?i)(this )?enumeration[^.]{0,60}(is subordinate to|yields to|defers to|"
+            r"gives way to)",
+            "the fenced block subordinates the ENUMERATION to the ambiguity triggers — A4-1 "
+            "requires the opposite ordering: the enumeration settles, the triggers only fill the "
+            "gaps it leaves (FR-1.3, FR-1.4)",
+        )
 
     def test_allow_list_declares_this_file_the_normative_home(self):
         """DD-5 / R1: the block states where it is normative and which copies are replicas, so a
@@ -998,6 +1318,108 @@ class StateSchemaTest(OrchestratorDocTestCase):
             "classification (FR-1.1, FR-2)",
         )
 
+    def test_null_consumer_list_names_the_reclassification_subsection(self):
+        """FR-1.1 / A3-1 / A4-1: the `null`-is-unclassified consumer list must also name the C4
+        reclassification subsection.
+
+        C4 reads `featureClass` to decide whether a feature is already `"code"` (and so whether the
+        monotonic non-code → code transition applies at all). Left out of this list, it is the one
+        consumer with no defined reading of `null` — and the tempting reading, "not yet code", is
+        the one that would let a reclassification fire over a feature that was never classified.
+        The whole point of A3-1 is that no consumer invents its own reading, so the list must be
+        complete, not merely non-empty.
+        """
+        prose = flat(self.schema_prose)
+        consumers = re.search(
+            r"(?i)a null featureClass reaching any consumer(.*?)means the classification gate has "
+            r"not run",
+            prose,
+        )
+        self.assertIsNotNone(
+            consumers,
+            "the `null`-reaching-a-consumer sentence has no 'means the classification gate has not "
+            "run' tail — the consumer enumeration could not be scoped, and asserting over the "
+            "whole schema prose would let any later paragraph satisfy it (FR-1.1)",
+        )
+        listed = consumers.group(1)
+        for consumer, why in (
+            ("per-task routing", "the Stage 2-5 routing preamble (C3, FR-2)"),
+            ("task-tester", "the tester (C6, FR-4)"),
+            ("task-validator", "the validator (C7, FR-3)"),
+            ("either reviewer", "the code and security reviewers (C8/C9, FR-5, FR-6)"),
+            ("feature-review gate", "the whole-feature review gate (C5, FR-8)"),
+            ("reclassification subsection", "the non-code → code fallback (C4, FR-3)"),
+        ):
+            self.assertIn(
+                consumer, listed,
+                f"the `null` consumer enumeration omits {consumer!r} — {why} would be left to "
+                f"invent its own reading of `null` (FR-1.1, A3-1, A4-1)",
+            )
+
+    def test_schema_prose_states_that_absence_is_not_by_itself_a_legacy_signal(self):
+        """FR-1.1 / FR-1.7 / A3-5: the `"code"`-for-absent default is a READER's default, and must
+        be fenced off from the legacy discriminator.
+
+        Two true statements sit next to each other here — "read an absent `featureClass` as
+        `"code"`" and "an absent `featureClass` means a pre-change state file" — and only the first
+        is unconditionally true. Read together they license skipping the classification gate for
+        every freshly scaffolded feature, because `/sdd-feature` writes a state file with no
+        `featureClass` key at all. The schema prose must therefore say, in the same breath as the
+        default, that absence alone decides nothing about the gate.
+        """
+        region = self.slice_between(
+            self.schema_prose,
+            r"\*\*Absence is not, by itself, a legacy signal",
+            r"single source of truth",
+            "'Absence is not, by itself, a legacy signal'",
+            container="`## State File Management` schema prose",
+        )
+        flat_region = flat(region)
+
+        self.assertRegex(
+            flat_region, r"(?i)absence is not, by itself, a legacy signal",
+            "the schema prose does not qualify the absent-key default with the "
+            "'absence is not, by itself, a legacy signal' clause (FR-1.7, A3-5)",
+        )
+        self.assertRegex(
+            flat_region, r"(?i)default above is a reader's default",
+            "the schema prose does not scope the \"code\" default as a READER's default — the "
+            "distinction between how a consumer reads the key and what its absence proves is the "
+            "whole content of A3-5 (FR-1.1, FR-1.7)",
+        )
+        self.assertRegex(
+            flat_region,
+            r"(?i)absence also means the classification gate has not yet run",
+            "the schema prose does not state the second, weaker meaning of absence (the gate has "
+            "not yet run over this feature) (FR-1.1, A3-5)",
+        )
+        self.assertRegex(
+            flat_region,
+            r"(?i)only the Feature Classification Gate's two-condition rule .{0,120}"
+            r"decides whether absence is a genuinely pre-change state file",
+            "the schema prose does not defer to the Feature Classification Gate's TWO-condition "
+            "rule as the only thing that decides whether absence means 'pre-change' (FR-1.7)",
+        )
+        self.assertRegex(
+            flat_region,
+            r"(?i)featureClass absent and phase already implementation or beyond",
+            "the schema prose cites the two-condition rule without naming its two conditions "
+            "(FR-1.7, A3-5)",
+        )
+        self.assertRegex(
+            flat_region,
+            r"(?i)never be cited to justify skipping the gate for a freshly scaffolded feature",
+            "the schema prose does not forbid citing the absent-key default to justify SKIPPING "
+            "the gate for a freshly scaffolded feature — that misuse is exactly the silent "
+            "switch-off A3-5 closes (FR-1.1, FR-1.7)",
+        )
+        self.assertIn(
+            "commands/sdd-feature.md", region,
+            "the schema prose does not name `commands/sdd-feature.md` as the command that writes "
+            "a state file with no `featureClass` key at all — the evidence that bare absence is "
+            "the ordinary state of every new feature (FR-1.7, A3-5)",
+        )
+
     def test_schema_prose_documents_all_five_classification_subkeys(self):
         """FR-1.5 / FR-1.6 / FR-3.1 / FR-3.3 / NFR-5: each sub-key is documented with substantive
         content, not merely listed."""
@@ -1043,7 +1465,320 @@ class StateSchemaTest(OrchestratorDocTestCase):
             )
 
 
-# --- (4) Regression: the ready-to-merge singleton invariant ---------------------------------------
+# --- (4) C3 / I1: per-task routing of the two forwarded values -----------------------------------
+
+
+class PerTaskRoutingTest(OrchestratorDocTestCase):
+    """C3 / I1 (FR-2, FR-2.1, FR-2.3, FR-2.4, FR-3.3, FR-5.1, NFR-4).
+
+    The routing delta is additive by design: two values are added to prompts the stages already
+    receive, and every condition that consumes them tests `featureClass == "non-code"` explicitly.
+    So the assertions here are of two kinds — the routing must actually be STATED at each stage
+    (a value nobody is told to pass is not forwarded), and the code path must be provably
+    untouched (same stages, same order, same gate, no new prompt).
+    """
+
+    def preamble_region(self):
+        return self.stage_region(
+            r"\*\*Forwarded to the stages of this pipeline",
+            r"\*\*Stage 1", "'Forwarded to the stages' preamble",
+        )
+
+    def stage_two_region(self):
+        return self.stage_region(r"\*\*Stage 2 — Testing", r"\*\*Stage 3", "'Stage 2'")
+
+    def stage_three_region(self):
+        return self.stage_region(r"\*\*Stage 3 — Validation", r"\*\*Stages 4 & 5", "'Stage 3'")
+
+    def stages_four_five_region(self):
+        return self.stage_region(
+            r"\*\*Stages 4 & 5 — Review", r"\*\*Review model tiering", "'Stages 4 & 5'",
+        )
+
+    def test_preamble_declares_both_forwarded_values_above_stage_one(self):
+        """FR-2 / I1 / C3: one shared preamble, placed above Stage 1, defining both values.
+
+        Defining them once above the stages is what makes the per-stage bullets short enough to
+        stay correct; defining them inside a stage would leave the later stages reading a name
+        nothing in the contract binds. `taskProducesApplicationCode` in particular is derived
+        per TASK, not per feature, and the derivation has to be stated somewhere.
+        """
+        impl = self.impl_region()
+        self.assertLess(
+            impl.index("**Forwarded to the stages of this pipeline"),
+            impl.index("**Stage 1"),
+            "the forwarded-values preamble sits BELOW Stage 1 — C3 places it immediately above "
+            "the stage list, so every stage bullet below can refer to values already defined",
+        )
+
+        region = flat(self.preamble_region())
+        self.assertRegex(
+            region, r"(?i)featureClass\b.{0,4}the current value from \.spec-state\.json",
+            "the preamble does not define `featureClass` as the current value read from "
+            "`.spec-state.json` (FR-2, I1)",
+        )
+        self.assertRegex(
+            region,
+            r"(?i)taskProducesApplicationCode\b.{0,80}derived for this task alone from the "
+            r"outputs it declares",
+            "the preamble does not define `taskProducesApplicationCode` as derived for THIS TASK "
+            "from the outputs it declares — a feature-level reading of it would exempt every task "
+            "in a non-code feature, including one that produces code (FR-2, I1)",
+        )
+        self.assertRegex(
+            region, r"(?i)using the allow-list above",
+            "the preamble does not tie the derivation of `taskProducesApplicationCode` to the C0 "
+            "allow-list, leaving each task's outputs classified by an unstated rule (FR-1.3, I1)",
+        )
+        self.assertRegex(
+            region,
+            r"(?i)it is false only when every output this task declares classifies non-code",
+            "the preamble does not state the fail-safe direction of "
+            "`taskProducesApplicationCode` — it must be `false` only when EVERY declared output "
+            "is non-code (FR-1.4, FR-2)",
+        )
+        # A3 / I1: `null` is never on the wire.
+        self.assertRegex(
+            region, r'(?i)forward it as "code"; null itself is never forwarded',
+            "the preamble does not state that an unclassified feature is forwarded as \"code\" "
+            "and that `null` itself never reaches a stage — I1 fixes the wire values at exactly "
+            "the two permitted classifications (FR-1.1, A3-1)",
+        )
+        self.assertRegex(
+            region, r"(?i)nothing existing is removed or renamed",
+            "the preamble does not state that the delta is ADDITIVE to the existing payloads "
+            "(I1, NFR-4)",
+        )
+
+    def test_preamble_carries_the_nfr4_guard_sentence_once(self):
+        """FR-2.3 / NFR-4: the guard sentence is present, complete, and stated exactly once.
+
+        "Changes nothing" has to be spelled out as the list of things that do not change, or it is
+        an aspiration rather than a checkable contract. Stating it once, in the shared preamble,
+        is also what keeps it from drifting into five per-stage variants that disagree.
+        """
+        region = flat(self.preamble_region())
+        self.assertRegex(
+            region, r'(?i)where featureClass is "code", these two values change nothing',
+            "the preamble carries no NFR-4 guard sentence for the `\"code\"` path (FR-2.3, NFR-4)",
+        )
+        self.assertRegex(
+            region,
+            r"(?i)same stages, same order, same verdict formats, same labels, and no additional "
+            r"user prompt",
+            "the NFR-4 guard sentence does not enumerate what stays the same (same stages, same "
+            "order, same verdict formats, same labels, no additional user prompt) — an unqualified "
+            "'nothing changes' is not checkable (FR-2.3, NFR-4)",
+        )
+        self.assertEqual(
+            len(re.findall(
+                r"(?i)same stages, same order, same verdict formats, same labels", flat(self.body),
+            )),
+            1,
+            "the NFR-4 guard sentence appears more than once in `agents/orchestrator.md`; C3 "
+            "states it once, in the shared preamble, so the copies cannot drift apart",
+        )
+        self.assertRegex(
+            region, r'(?i)every condition below tests featureClass against "non-code" explicitly',
+            "the preamble does not state that every routing condition tests `featureClass` "
+            "against `\"non-code\"` EXPLICITLY — that is what makes an unclassified feature take "
+            "the unchanged code path by construction rather than by luck (FR-2.3, NFR-4, A3-1)",
+        )
+
+    def test_stage_two_receives_both_values_and_the_conditional_no_code_instruction(self):
+        """FR-2 / FR-2.1: the tester is passed both values, and the no-code behaviour is requested
+        only on the conjunction — non-code feature AND a task producing no application code."""
+        region = flat(self.stage_two_region())
+
+        self.assertIn(
+            "featureClass", region,
+            "Stage 2 does not pass `featureClass` to the task-tester (FR-2)",
+        )
+        self.assertIn(
+            "taskProducesApplicationCode", region,
+            "Stage 2 does not pass `taskProducesApplicationCode` to the task-tester — without it "
+            "the tester cannot tell a prose task from a code task inside a non-code feature "
+            "(FR-2, I1)",
+        )
+        self.assertRegex(
+            region,
+            r'(?i)where featureClass is "non-code" and taskProducesApplicationCode is false, '
+            r"instruct the tester to apply its no-code behaviour",
+            "Stage 2 does not instruct the tester to apply its no-code behaviour on the "
+            "conjunction FR-2.1 defines (a `\"non-code\"` feature AND a task that produces no "
+            "application code)",
+        )
+        self.assertRegex(
+            region, r"(?i)in every other combination the tester is invoked exactly as today",
+            "Stage 2 does not state that every other combination leaves the tester invocation "
+            "unchanged — without it the no-code instruction has no stated complement (NFR-4)",
+        )
+
+    def test_stage_three_requests_artifact_conformance_and_records_the_exemption(self):
+        """FR-2.1 / FR-5.1 / FR-3.3 / DD-2: the validator is passed both values; artifact-
+        conformance mode is entered ONLY on the orchestrator's instruction; and issuing that
+        instruction is recorded in `classification.tasksValidatedUnderExemption`.
+
+        The mode is an exemption from "missing tests are a FAIL", so its entry point has to be
+        single and its use has to be auditable — a validator that could select the mode itself
+        would be able to exempt a code task, and an exemption nobody records cannot be re-reviewed
+        under the code path when the feature is later reclassified (FR-3.3).
+        """
+        region = flat(self.stage_three_region())
+
+        self.assertIn(
+            "featureClass", region,
+            "Stage 3 does not pass `featureClass` to the task-validator (FR-2)",
+        )
+        self.assertIn(
+            "taskProducesApplicationCode", region,
+            "Stage 3 does not pass `taskProducesApplicationCode` to the task-validator (FR-2, I1)",
+        )
+        self.assertRegex(
+            region,
+            r'(?i)where featureClass is "non-code" and taskProducesApplicationCode is false, '
+            r"instruct the validator to run in artifact-conformance mode",
+            "Stage 3 does not instruct the validator to run in artifact-conformance mode on the "
+            "conjunction FR-2.1 defines",
+        )
+        self.assertRegex(
+            region, r"(?i)the validator never selects that mode itself",
+            "Stage 3 does not state that the validator NEVER selects artifact-conformance mode "
+            "itself — FR-5.1 makes the orchestrator's instruction the only entry point",
+        )
+        self.assertRegex(
+            region, r"(?i)your instruction is its only entry point",
+            "Stage 3 does not name the orchestrator's instruction as the ONLY entry point into "
+            "artifact-conformance mode (FR-5.1, DD-2)",
+        )
+        self.assertRegex(
+            region,
+            r"(?i)append this task's number to classification\.tasksValidatedUnderExemption",
+            "Stage 3 does not append the task number to "
+            "`classification.tasksValidatedUnderExemption` when it issues the artifact-conformance "
+            "instruction — the exemption would then be unauditable and FR-3.3's reclassification "
+            "re-review would have nothing to re-cover",
+        )
+        self.assertRegex(
+            region, r"(?i)in every other combination the validator is invoked exactly as today",
+            "Stage 3 does not state that every other combination leaves the validator in its "
+            "unchanged code mode (FR-2.3, NFR-4)",
+        )
+        # The inversion FR-5.1 exists to forbid.
+        self.assertNotRegex(
+            region,
+            r"(?i)the validator (may|can|should|will) (select|choose|enter|decide)",
+            "Stage 3 lets the validator select artifact-conformance mode for itself — FR-5.1 "
+            "requires the orchestrator's instruction to be the single entry point",
+        )
+
+    def test_stages_four_and_five_receive_feature_class_only(self):
+        """FR-2 / I1: both reviewers are passed `featureClass` and nothing else changes.
+
+        `taskProducesApplicationCode` is a task-stage value (I1: "task stages only (Stages 2 & 3)")
+        — the reviewers scope on the feature classification and the diff, not on one task's
+        declared outputs.
+        """
+        region_raw = self.stages_four_five_region()
+        region = flat(region_raw)
+
+        self.assertIn(
+            "featureClass", region,
+            "Stages 4 & 5 do not pass `featureClass` to the reviewers (FR-2)",
+        )
+        self.assertNotIn(
+            "taskProducesApplicationCode", region_raw,
+            "Stages 4 & 5 pass `taskProducesApplicationCode` to the reviewers — I1 scopes that "
+            "field to the task stages (Stages 2 & 3) only",
+        )
+        self.assertRegex(
+            region,
+            r"(?i)everything else about the invocation is unchanged: mode: task, both reviewers "
+            r"concurrent, both on Opus",
+            "Stages 4 & 5 do not state that the rest of the invocation is unchanged (`mode: task`, "
+            "both reviewers concurrent, both on Opus) — the reviewer invocation is exactly what "
+            "NFR-4 and FR-2.4 forbid this feature from perturbing",
+        )
+
+    def test_stage_order_and_the_post_validation_review_gate_are_unchanged(self):
+        """FR-2.4: execute → test → validate → code review → security review, in that order, with
+        the reviews still gated on validation passing.
+
+        The routing delta adds fields to existing prompts. If it ever reorders or inserts a stage,
+        every downstream contract's assumptions about what a stage has already seen break — and
+        for a `"code"` feature that is a behavioural change NFR-4 forbids outright.
+        """
+        impl = self.impl_region()
+        offsets = []
+        for anchor, label in (
+            (r"\*\*Stage 1 — Execution", "Stage 1 — Execution"),
+            (r"\*\*Stage 2 — Testing", "Stage 2 — Testing"),
+            (r"\*\*Stage 3 — Validation", "Stage 3 — Validation"),
+            (r"\*\*Stages 4 & 5 — Review", "Stages 4 & 5 — Review"),
+        ):
+            found = [m.start() for m in re.finditer(anchor, impl)]
+            self.assertEqual(
+                len(found), 1,
+                f"the ``### `implementation` `` section declares the {label!r} heading "
+                f"{len(found)} time(s); exactly one is expected (FR-2.4)",
+            )
+            offsets.append((label, found[0]))
+
+        for (earlier, a), (later, b) in zip(offsets, offsets[1:]):
+            self.assertLess(
+                a, b,
+                f"{later!r} is declared BEFORE {earlier!r} — FR-2.4 fixes the stage order as "
+                f"execute → test → validate → code review → security review for both classes",
+            )
+
+        self.assertRegex(
+            flat(impl), r"(?i)Stages 4 & 5 — Review \(run only after validation passes\)",
+            "the review stages are no longer labelled as running only after validation passes "
+            "(FR-2.4)",
+        )
+        self.assertRegex(
+            flat(impl), r"(?i)only run stages 4.5 if validation passes",
+            "the ``### `implementation` `` section no longer gates Stages 4-5 on validation "
+            "passing — FR-2.4 keeps that gate for both classes",
+        )
+        # The reviewers are one concurrent pair, not two more sequential stages.
+        self.assertRegex(
+            flat(impl), r"(?i)invoke them concurrently",
+            "the code and security reviewers are no longer invoked concurrently (FR-2.4, NFR-4)",
+        )
+
+    def test_routing_adds_no_stage_and_no_user_prompt_to_the_code_path(self):
+        """FR-2.3 / FR-2.4 / NFR-4: the delta introduces no sixth stage and no new user prompt.
+
+        A new stage or a new question is the most likely way this feature would leak into the code
+        path, and neither would be caught by the per-stage assertions above — they check what the
+        existing stages say, not whether something new was appended.
+        """
+        impl = self.impl_region()
+        stage_headings = re.findall(r"\*\*Stages? [\d &]+ —", impl)
+        self.assertEqual(
+            len(stage_headings), 4,
+            f"the ``### `implementation` `` section declares {len(stage_headings)} stage "
+            f"heading(s) ({stage_headings}); the pipeline has exactly four (Stage 1, Stage 2, "
+            f"Stage 3, and the paired Stages 4 & 5) and FR-2.4 forbids adding one",
+        )
+
+        for region_name, region in (
+            ("the forwarded-values preamble", self.preamble_region()),
+            ("Stage 2", self.stage_two_region()),
+            ("Stage 3", self.stage_three_region()),
+            ("Stages 4 & 5", self.stages_four_five_region()),
+        ):
+            self.assertNotRegex(
+                flat(region),
+                r"(?i)(ask the user|prompt the user|ask:\s|await (the user's )?"
+                r"(confirmation|approval))",
+                f"{region_name} introduces a user prompt into the per-task pipeline — NFR-4 and "
+                f"FR-2.3 guarantee the classification adds no additional user prompt",
+            )
+
+
+# --- (5) Regression: the ready-to-merge singleton invariant ---------------------------------------
 
 
 class ReadyToMergeSingletonRegressionTest(OrchestratorDocTestCase):

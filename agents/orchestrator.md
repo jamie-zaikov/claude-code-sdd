@@ -132,12 +132,21 @@ NON-CODE ARTIFACT — exactly one of:
      (requirements.md, design.md, tasks.md, scope.md, .spec-state.json)
   2. a committed prose/documentation file that the project's layout or steering does NOT
      designate as source, agent/prompt contract, template, script, or configuration
+     (in this repository these include, but are not limited to, the repository-root
+     README.md — descriptive documentation that nothing loads into an agent's context)
   3. a knowledge-vault mutation recorded by vault-writer in
      .specs/features/<feature-name>/vault/.write-log.jsonl
 
 APPLICATION CODE — anything else: executable source, tests, scripts, hooks, CI workflows,
   templates, runtime configuration, and any prose file the project designates as a
-  behaviour-bearing contract (in this repository: agents/*.md and commands/*.md).
+  behaviour-bearing contract (in this repository these include, but are not limited to,
+  agents/*.md, commands/*.md, and the repository-root CLAUDE.md — a contract the project
+  loads into every agent's context at session start).
+
+PRECEDENCE — this enumeration settles every file it names, on the side it names it. The
+  ambiguity triggers AMB-1 through AMB-5 apply only to a file this enumeration does not
+  already settle, and never override it. Both lists stay open: a file's absence from
+  either list is evidence of nothing.
 ```
 
 `agents/orchestrator.md` is the **normative home** of this block. The copies in
@@ -161,7 +170,20 @@ any of these holds:
   three allow-list categories;
 - **AMB-3** — a prose file sits inside a directory that steering designates as source, contract, or
   template;
-- **AMB-4** — steering is silent and the file's location does not settle the question.
+- **AMB-4** — steering is silent and the file's location does not settle the question;
+- **AMB-5** — `tasks.md` declares no tasks at all.
+
+*Why AMB-5 is enumerated in its own right.* The per-feature rule above is a conjunction of two
+universals, and both are **vacuously true over zero tasks** — so an empty task list is the single
+input on which the rule would invert its own fail-safe direction. AMB-1 covers *a task declares no
+outputs* and says nothing at all about *there are no tasks*, so nothing else catches it.
+
+**These triggers are subordinate to the allow-list enumeration.** They apply only to a file the
+fenced block above does not already settle by name; the rule itself is stated normatively once, in
+that block's `PRECEDENCE` clause, and is deliberately not restated here so the two cannot drift
+apart. Concretely: the repository-root `CLAUDE.md` is application code and the repository-root
+`README.md` is a category-2 non-code artifact **by enumeration**, and AMB-3 and AMB-4 never fire
+over either of them.
 
 `"code"` is the fail-safe direction because it preserves today's behaviour exactly: a feature
 classified `"code"` runs the pipeline unchanged, so a vague or under-specified task list costs
@@ -201,6 +223,21 @@ still `requirements`, `design` or `tasks` is a **new** feature, not a legacy one
 feature, leave `featureClass` unwritten and `classification.basis` / `classification.decidedAt`
 unset, and silently disable the non-code track with no error and no audit trail.
 
+**Report the legacy determination (FR-1.5, FR-1.7, NFR-5).** When the legacy branch fires, report it
+to the user in one line: that the state file was read as **genuinely pre-change**, on **which two
+conditions** it was so read, and that the feature therefore proceeds as `"code"`, unclassified.
+
+```
+featureClass: code (not classified — legacy state file: `featureClass` absent AND `phase` already
+  `implementation`, so this file predates the classification gate; proceeding on the unchanged
+  code path without retro-classifying it)
+```
+
+This is a **report, not a prompt**: it asks the user nothing, so NFR-4's "no additional user prompt
+on the code path" is untouched. Its purpose is that this gate has **no silent path** — the one
+branch that records no classification still leaves the same audit trail that a recorded
+classification does.
+
 **What this gate never does.** The classification gate performs no GitHub action. It introduces no
 new phase transition — it rides along with the one the consistency gate already makes — and no new
 user prompt on the code path.
@@ -210,6 +247,20 @@ user prompt on the code path.
 - Find the next pending task (or the task that needs retry).
 - Report to the user: "Starting task N: <description>"
 - Execute the three-stage pipeline for this task:
+
+  **Forwarded to the stages of this pipeline.** Two values ride along with the payloads each stage
+  already receives — they are added to the prompt, and nothing existing is removed or renamed:
+  - `featureClass` — the current value from `.spec-state.json`. Per *State File Management*, a
+    `null` or absent value means the feature is **unclassified**: forward it as `"code"`; `null`
+    itself is never forwarded.
+  - `taskProducesApplicationCode` — `true` or `false`, derived for **this task alone** from the
+    outputs it declares, using the allow-list above (*Non-code artifact allow-list*). It is `false`
+    only when every output this task declares classifies non-code.
+
+  Where `featureClass` is `"code"`, these two values change nothing: every stage runs exactly as it
+  does today — same stages, same order, same verdict formats, same labels, and no additional user
+  prompt (FR-2.3, NFR-4). Every condition below tests `featureClass` against `"non-code"`
+  explicitly, so an unclassified feature takes the unchanged code path by construction.
 
   **Stage 1 — Execution:**
   Invoke the **task-executor** subagent. Pass it:
@@ -227,11 +278,20 @@ user prompt on the code path.
   Invoke the **task-tester** subagent. Pass it:
   - Everything the executor received
   - Plus the executor's completion summary
+  - Plus `featureClass` and `taskProducesApplicationCode`. Where `featureClass` is `"non-code"`
+    **and** `taskProducesApplicationCode` is `false`, instruct the tester to apply its **no-code
+    behaviour** (FR-2.1). In every other combination the tester is invoked exactly as today.
 
   **Stage 3 — Validation:**
   Invoke the **task-validator** subagent. Pass it:
   - Everything above
   - Plus the tester's summary
+  - Plus `featureClass` and `taskProducesApplicationCode`. Where `featureClass` is `"non-code"`
+    **and** `taskProducesApplicationCode` is `false`, instruct the validator to run in
+    **artifact-conformance mode**. The validator **never selects that mode itself** — your
+    instruction is its only entry point (FR-5.1). When you issue it, append this task's number to
+    `classification.tasksValidatedUnderExemption` in `.spec-state.json` (FR-3.3). In every other
+    combination the validator is invoked exactly as today, in its unchanged code mode.
 
   The validator confirms spec conformance. It does NOT hunt for bugs or security holes — that is
   Stages 4–5. Only run Stages 4–5 if validation passes; there is no point reviewing code that does
@@ -244,6 +304,8 @@ user prompt on the code path.
   - The executor's completion summary (files changed) and, if worktree-isolated, the worktree path
   - The tester's and validator's summaries
   - An explicit `mode: task` instruction
+  - Plus `featureClass`. Everything else about the invocation is unchanged: `mode: task`, both
+    reviewers concurrent, both on Opus.
 
   **Review model tiering:** both reviewers are pinned to `model: opus` in frontmatter and are NOT
   downgraded. Unlike the executor (Sonnet on the happy path, Opus on retry — cheap because it is the
@@ -474,10 +536,22 @@ permitted values are exactly two: `"code"` or `"non-code"` — no other value is
 before the classification gate has run, and it is **absent** from a state file written before this
 key existed; read an absent `featureClass` with a default of `"code"` (FR-1.7). A `null`
 `featureClass` reaching any consumer — the per-task routing, the task-tester, the task-validator,
-either reviewer, or the feature-review gate — means the classification gate has not run and the
-feature is **unclassified**; read `null` exactly as you read an absent value and treat it as
-`"code"`. `null` is never a third classification and is never forwarded to a consumer as if it
-were one. `featureClass` is the **single source of truth** for the classification; the sibling
+either reviewer, the feature-review gate, or the reclassification subsection — means the
+classification gate has not run and the feature is **unclassified**; read `null` exactly as you read
+an absent value and treat it as `"code"`. `null` is never a third classification and is never
+forwarded to a consumer as if it were one.
+
+**Absence is not, by itself, a legacy signal.** The `"code"` default above is a *reader's* default
+and is correct as such: a consumer handed a state file with no `featureClass` reads it as `"code"`.
+But absence **also** means the classification gate has not yet run over this feature, and those two
+readings are not the same claim. Only the *Feature Classification Gate*'s two-condition rule —
+`featureClass` absent **and** `phase` already `implementation` or beyond — decides whether absence is
+a genuinely pre-change state file. This sentence must therefore never be cited to justify **skipping
+the gate** for a freshly scaffolded feature: `/sdd-feature` (`commands/sdd-feature.md`) writes a
+state file with no `featureClass` key at all, so bare absence is the ordinary state of every new
+feature.
+
+`featureClass` is the **single source of truth** for the classification; the sibling
 `classification` object carries only provenance and is never read in place of it:
 
 - `classification.basis` — a human-readable string recording which tasks' declared outputs drove the
