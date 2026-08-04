@@ -32,8 +32,10 @@ from pathlib import Path
 #   <root>/tests/test_orchestrator_label_lifecycle.py  ->  <root>/agents/orchestrator.md
 ORCH_PATH = Path(__file__).resolve().parent.parent / "agents" / "orchestrator.md"
 
-# The reconciled global copy lives at a fixed absolute path (out-of-band, byte-identical target).
-GLOBAL_ORCH_PATH = Path("/Users/jamie.zaikov/.claude/agents/orchestrator.md")
+# The reconciled global copy lives outside the worktree; derive it from the invoking user's home so
+# the check is portable (FR-11.8). Where the path does not exist — CI, a fresh clone — the existing
+# skip fires exactly as it did with the hardcoded absolute path.
+GLOBAL_ORCH_PATH = Path.home() / ".claude" / "agents" / "orchestrator.md"
 
 
 def split_frontmatter(text):
@@ -64,6 +66,129 @@ def region_between(text, start_pat, end_pat):
     if not me:
         return rest
     return rest[: me.start() + 1]
+
+
+# --- Repo-vs-global sync-state discriminator (FR-11.8 carve-out, amendment A2) ----------------
+#
+# `orchestrator_sync_state` is a deliberate LOCAL COPY of `claude_sync_state` in
+# tests/test_docs_updates.py, not an import: FR-11.1 keeps every test module stdlib-only and
+# independently runnable, and the carve-out stays confined to the two assertions that need it
+# rather than growing a shared importable surface. Same signature, same three states, same order
+# of evaluation; only the invariant extractor passed in differs.
+
+ORCH_INVARIANT_PATTERNS = {
+    # (a) the `ready-to-merge` single-application-point rule ...
+    "ready_to_merge_single_application_point":
+        r"This is the \*\*only\*\* place `ready-to-merge` is ever applied[^)]*\)",
+    # ... together with the clear-`blocked:*`-before-set ordering.
+    "clear_blocked_before_ready_to_merge":
+        r"op: clear, name: blocked:feature-review[\s\S]*?alongside a stale `blocked:\*`",
+    # (b) the clear-EVERY-recorded-`blocked:*`-label wording.
+    "clear_every_recorded_blocked_label":
+        r"clear \*\*every one of them\*\*[\s\S]*?not merely the last stage",
+    # (c) the scaffold-push-only-on-first-scaffold scoping.
+    "scaffold_push_first_scaffold_only":
+        r"This fires \*\*only\*\* on first scaffold[^.]*",
+    # (d) the "never runs `gh` / `git push` yourself; github-agent is the only component that
+    #     does" framing — two spans, because the two halves live in separate paragraphs.
+    "orchestrator_never_runs_gh_or_git_push":
+        r"\*\*You never run `gh` or `git push` yourself\.\*\*",
+    "github_agent_sole_gh_runner":
+        r"github-agent is the \*\*only\*\* component in the fleet that runs `gh` or `git push`",
+}
+
+
+def orchestrator_invariant_lines(text):
+    """The orchestrator's invariant instruction lines, normalised, as a {key: value} dict.
+
+    These are the invariants FR-11.8 (amendment A2) names as the class of check that must survive
+    the byte-identity carve-out. Each pattern is anchored on wording that predates this feature and
+    matches exactly one span, so a copy that omits or restates an invariant is detected while new
+    content elsewhere — the signature of a pending sync — is ignored by construction.
+
+    Matching runs over the whitespace-normalised whole text rather than per raw line because the
+    document is hard-wrapped: two of these invariant sentences straddle a line break, so the line
+    is not the meaningful unit. A key whose pattern does not match is simply absent from the dict.
+    """
+    normalised = re.sub(r"\s+", " ", text)
+    out = {}
+    for key, pattern in ORCH_INVARIANT_PATTERNS.items():
+        m = re.search(pattern, normalised)
+        if m:
+            out[key] = m.group(0).strip()
+    return out
+
+
+def orchestrator_sync_state(repo_text, global_text, extract_invariants, reasons=None):
+    """Classify the repository-copy-vs-global-copy relationship: 'satisfied' | 'pending' | 'drift'.
+
+    Local copy of `claude_sync_state` (tests/test_docs_updates.py) — see the note above.
+
+      * ``'satisfied'`` — the two copies are identical; nothing to decide.
+      * ``'pending'``   — they differ only in ways consistent with "the repository copy is ahead
+        and ``./install.sh`` has not been run yet", the window NFR-10 declares legitimate.
+      * ``'drift'``     — the global copy omits or contradicts an invariant the repository copy
+        states, or carries a heading of unknown provenance. NFR-10 calls that a defect.
+
+    ``extract_invariants`` maps a document's full text to a ``{key: normalised value}`` dict;
+    ``reasons``, when a list is passed, collects a human-readable explanation of every drift signal
+    so the caller can name what diverged. Evaluated in order (design DD-6): equal texts first, then
+    (a) an invariant key from the repository copy missing from the global copy or differing after
+    normalisation, or (b) an ATX heading (normalised, outside code fences) present in the global
+    copy and absent from the repository copy — containment is directional, since repository-only
+    headings are the normal signature of a pending sync — and 'pending' otherwise.
+    """
+    if reasons is None:
+        reasons = []
+
+    if repo_text == global_text:
+        return "satisfied"
+
+    def normalised_headings(text):
+        """Normalised ATX heading texts, in document order, ignoring fenced code blocks."""
+        found = []
+        in_fence = False
+        for ln in text.splitlines():
+            if ln.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            m = re.match(r"^#+\s+(.*?)\s*#*\s*$", ln)
+            if not m:
+                continue
+            heading = re.sub(r"\s+", " ", re.sub(r"[`*_]", "", m.group(1))).strip().lower()
+            if heading and heading not in found:
+                found.append(heading)
+        return found
+
+    # (a) invariant divergence — the repository copy is authoritative, so every invariant it
+    #     carries must be carried identically by the global copy.
+    repo_invariants = extract_invariants(repo_text)
+    global_invariants = extract_invariants(global_text)
+    for key in sorted(repo_invariants):
+        if key not in global_invariants:
+            reasons.append(
+                f"invariant `{key}` is missing from the global copy\n"
+                f"    repo:   {repo_invariants[key]}"
+            )
+        elif global_invariants[key] != repo_invariants[key]:
+            reasons.append(
+                f"invariant `{key}` is stated differently in the global copy\n"
+                f"    repo:   {repo_invariants[key]}\n"
+                f"    global: {global_invariants[key]}"
+            )
+
+    # (b) heading provenance — a heading only the global copy has is not a "behind" state.
+    repo_headings = set(normalised_headings(repo_text))
+    for heading in normalised_headings(global_text):
+        if heading not in repo_headings:
+            reasons.append(
+                f"heading '{heading}' exists only in the global copy — content of unknown "
+                f"provenance that running ./install.sh would not explain"
+            )
+
+    return "drift" if reasons else "pending"
 
 
 class OrchestratorLabelLifecycleTest(unittest.TestCase):
@@ -268,19 +393,68 @@ class OrchestratorLabelLifecycleTest(unittest.TestCase):
     # --- (6) Consistency: repo copy == reconciled global copy (skips cleanly) --
 
     def test_repo_and_global_copies_are_byte_identical(self):
-        """(6) The repo agents/orchestrator.md and the reconciled global copy are byte-identical.
+        """(6) Repo-vs-global sync, relaxed to satisfied-or-pending — carve-out (FR-11.8, NFR-10).
+
+        This assertion used to demand raw byte-identity between agents/orchestrator.md and the
+        global copy. FR-11.8 (amendment A2) deliberately relaxes it, and NFR-10 says why: the
+        **repository copy is authoritative** and the `~/.claude` copy is a **derived install
+        artifact**, brought into sync by the operator running `./install.sh` *after merge*. While
+        the repository copy has moved ahead and the installer has not run, the difference is a
+        legitimate **pending-sync window**, not a defect — and it must never be "fixed" by writing
+        to `~/.claude/`, which no pipeline stage is permitted to do. Running the installer
+        mid-feature is not an acceptable resolution either.
+
+        What is emphatically **not** relaxed is genuine drift. The discriminator is a real content
+        comparison — never a blanket skip taken whenever the two copies differ — over the
+        orchestrator's invariant instruction lines: the `ready-to-merge` single-application-point
+        rule with its clear-`blocked:*`-before-set ordering, the clear-EVERY-recorded-label
+        wording, the scaffold-push-only-on-first-scaffold scoping, and the never-runs-`gh`/`git
+        push` framing. A readable global copy that omits or restates any one of them still FAILs,
+        and the message names it. This is one of exactly two assertions in the suite carrying this
+        carve-out (the other is `test_two_claude_files_byte_identical` in
+        tests/test_docs_updates.py, amendment A1); a third requires a fresh amendment.
+
+        The invariant set is anchored on wording that predates the non-code-feature-track change,
+        never on prose it adds: new content in the repository copy is the definition of "pending",
+        so keying on it would make every pending window read as drift and invert the amendment.
+
         If the global copy is unreadable (absent / permission-denied), SKIP cleanly rather than
-        fail — the global reconciliation is out-of-band and not always present in every env."""
+        fail — the global reconciliation is out-of-band and not always present in every env.
+        """
         if not GLOBAL_ORCH_PATH.exists():
             self.skipTest(f"global orchestrator copy not present at {GLOBAL_ORCH_PATH}")
         try:
-            global_bytes = GLOBAL_ORCH_PATH.read_bytes()
+            global_text = GLOBAL_ORCH_PATH.read_text(encoding="utf-8")
         except OSError as exc:
             self.skipTest(f"global orchestrator copy unreadable: {exc}")
-        repo_bytes = ORCH_PATH.read_bytes()
+        repo_text = ORCH_PATH.read_text(encoding="utf-8")
+
+        # Guard: the discriminator is only as strong as its anchors, so fail loudly rather than
+        # silently comparing nothing if the repository copy no longer carries an invariant span.
+        extracted = orchestrator_invariant_lines(repo_text)
+        missing = sorted(set(ORCH_INVARIANT_PATTERNS) - set(extracted))
         self.assertEqual(
-            repo_bytes, global_bytes,
-            "repo agents/orchestrator.md and the global copy are NOT byte-identical",
+            missing, [],
+            f"the repo agents/orchestrator.md no longer matches these invariant patterns: {missing} "
+            f"— the drift discriminator would go blind; re-anchor the pattern or restore the invariant",
+        )
+
+        reasons = []
+        state = orchestrator_sync_state(
+            repo_text, global_text, orchestrator_invariant_lines, reasons,
+        )
+        self.assertNotEqual(
+            state, "drift",
+            "repo agents/orchestrator.md and the global copy have genuinely DRIFTED — this is not a "
+            "pending sync:\n  - "
+            + "\n  - ".join(reasons)
+            + "\nThe repository copy is authoritative (NFR-10); resolve by running ./install.sh "
+              "after merge, never by hand-editing ~/.claude/agents/orchestrator.md.",
+        )
+        self.assertIn(
+            state, {"satisfied", "pending"},
+            f"unhandled orchestrator sync state {state!r} — the discriminator must return "
+            f"'satisfied', 'pending' or 'drift'",
         )
 
 
