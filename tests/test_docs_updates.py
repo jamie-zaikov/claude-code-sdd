@@ -31,8 +31,10 @@ ROOT = Path(__file__).resolve().parent.parent
 REPO_CLAUDE = ROOT / "CLAUDE.md"
 README = ROOT / "README.md"
 
-# The GLOBAL CLAUDE.md lives outside the worktree; read it at its absolute path.
-GLOBAL_CLAUDE = Path("/Users/jamie.zaikov/.claude/CLAUDE.md")
+# The GLOBAL CLAUDE.md lives outside the worktree; derive it from the invoking user's home so the
+# check is portable (FR-11.8). Where the path does not exist — CI, a fresh clone — the existing
+# skips fire exactly as they did with the hardcoded absolute path.
+GLOBAL_CLAUDE = Path.home() / ".claude" / "CLAUDE.md"
 
 
 # --- Markdown structural helpers -------------------------------------------
@@ -107,6 +109,92 @@ def github_agent_lines(section):
         elif "no agent modifies another agent" in norm.lower():
             out["invariant"] = norm
     return out
+
+
+def claude_sync_state(repo_text, global_text, extract_invariants, reasons=None):
+    """Classify the repository-copy-vs-global-copy relationship of a synced document.
+
+    Returns exactly one of:
+
+      * ``'satisfied'`` — the two copies are identical; nothing to decide.
+      * ``'pending'``   — they differ, but only in ways consistent with "the repository copy is
+        ahead and ``./install.sh`` has not been run yet". NFR-10 declares that window legitimate.
+      * ``'drift'``     — the global copy omits or contradicts something the repository copy
+        states, or carries structural content of unknown provenance. NFR-10 calls that a defect.
+
+    ``extract_invariants`` is a callable mapping a document's full text to a
+    ``{key: normalised line}`` dict of the invariant lines that must survive the pending-sync
+    window. It is a parameter rather than a hardcoded call so that the same state machine serves
+    both live-global assertions the FR-11.8 carve-out covers, each with its own invariant set.
+
+    ``reasons``, when a list is passed, collects a human-readable explanation of every drift signal
+    found, so the caller can name the diverging invariant key or the global-only heading in its
+    failure message rather than reporting a bare "not byte-identical".
+
+    Evaluated in order (design DD-6):
+
+      1. the texts are equal                                          -> ``'satisfied'``
+      2. drift, when **either**
+         (a) an invariant key extracted from the repository copy is missing from the global copy
+             or differs after normalisation, **or**
+         (b) an ATX heading (normalised, outside code fences) present in the global copy is absent
+             from the repository copy. Containment is deliberately directional: headings that
+             exist only in the *repository* copy are the normal signature of a pending sync, while
+             a heading only the *global* copy carries is content the installer did not put there.
+                                                                      -> ``'drift'``
+      3. otherwise                                                    -> ``'pending'``
+    """
+    if reasons is None:
+        reasons = []
+
+    if repo_text == global_text:
+        return "satisfied"
+
+    def normalised_headings(text):
+        """Normalised ATX heading texts, in document order, ignoring fenced code blocks."""
+        found = []
+        in_fence = False
+        for ln in text.splitlines():
+            if ln.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            m = re.match(r"^#+\s+(.*?)\s*#*\s*$", ln)
+            if not m:
+                continue
+            heading = re.sub(r"\s+", " ", re.sub(r"[`*_]", "", m.group(1))).strip().lower()
+            if heading and heading not in found:
+                found.append(heading)
+        return found
+
+    # (a) invariant divergence — the repository copy is authoritative, so every invariant it
+    #     carries must be carried identically by the global copy.
+    repo_invariants = extract_invariants(repo_text)
+    global_invariants = extract_invariants(global_text)
+    for key in sorted(repo_invariants):
+        if key not in global_invariants:
+            reasons.append(
+                f"invariant `{key}` is missing from the global copy\n"
+                f"    repo:   {repo_invariants[key]}"
+            )
+        elif global_invariants[key] != repo_invariants[key]:
+            reasons.append(
+                f"invariant `{key}` is stated differently in the global copy\n"
+                f"    repo:   {repo_invariants[key]}\n"
+                f"    global: {global_invariants[key]}"
+            )
+
+    # (b) heading provenance — a heading only the global copy has is not a "behind" state.
+    repo_headings = set(normalised_headings(repo_text))
+    for heading in normalised_headings(global_text):
+        if heading not in repo_headings:
+            reasons.append(
+                f"heading '{heading}' exists only in the global copy — content of unknown "
+                f"provenance that running ./install.sh would not explain"
+            )
+
+    return "drift" if reasons else "pending"
 
 
 class DocsMarkdownStructureTest(unittest.TestCase):
@@ -225,16 +313,49 @@ class ClaudeOwnershipContentTest(unittest.TestCase):
             )
 
     def test_two_claude_files_byte_identical(self):
-        """Established sync convention: the two CLAUDE.md files are byte-identical (executor asserts so).
+        """Sync convention, relaxed to satisfied-or-pending — deliberate carve-out (FR-11.8, NFR-10).
 
-        This is asserted in addition to (not instead of) the specific-line checks above, so the test
-        stays meaningful even if the byte-identical convention later changes.
+        This assertion used to demand raw byte-identity between the two CLAUDE.md files. FR-11.8
+        (amendment A1) deliberately relaxes it, and NFR-10 says why: the **repository copy is
+        authoritative** and the `~/.claude` copy is a **derived install artifact**, brought into
+        sync by the operator running `./install.sh` *after merge*. While the repository copy has
+        moved ahead and the installer has not run, the difference is a legitimate **pending-sync
+        window**, not a defect — and it must never be "fixed" by writing to `~/.claude/`, which no
+        pipeline stage is permitted to do. Running the installer mid-feature is not an acceptable
+        resolution either.
+
+        What is emphatically **not** relaxed is genuine drift: a global copy that omits an
+        Agent-Ownership invariant the repository copy carries, states one differently, or carries a
+        heading of unknown provenance still FAILs, and the message names what diverged. This is one
+        of exactly two assertions in the suite carrying this carve-out (the other is
+        `test_repo_and_global_copies_are_byte_identical` in tests/test_orchestrator_label_lifecycle.py,
+        amendment A2); a third requires a fresh amendment, not an extension by analogy.
+
+        The invariant set stays the three Agent-Ownership lines `test_two_claude_ownership_lines_consistent`
+        already enforces above, and is deliberately *not* extended with new prose (DD-7): new content
+        in the repository copy is the very definition of "pending", so promoting it to an invariant
+        would make every pending window read as drift and invert the amendment.
         """
         if not self.global_available:
             self.skipTest(f"global CLAUDE.md not readable at {GLOBAL_CLAUDE}; byte-identity skipped")
-        self.assertEqual(
-            self.repo_text, self.global_text,
-            "repo-root and global CLAUDE.md are not byte-identical (sync convention broken)",
+        reasons = []
+        state = claude_sync_state(
+            self.repo_text,
+            self.global_text,
+            lambda text: github_agent_lines(extract_section(text, r"Agent Ownership") or ""),
+            reasons,
+        )
+        self.assertNotEqual(
+            state, "drift",
+            "repo-root and global CLAUDE.md have genuinely DRIFTED — this is not a pending sync:\n  - "
+            + "\n  - ".join(reasons)
+            + "\nThe repository copy is authoritative (NFR-10); resolve by running ./install.sh "
+              "after merge, never by hand-editing ~/.claude/CLAUDE.md.",
+        )
+        self.assertIn(
+            state, {"satisfied", "pending"},
+            f"unhandled CLAUDE.md sync state {state!r} — the discriminator must return "
+            f"'satisfied', 'pending' or 'drift'",
         )
 
 
