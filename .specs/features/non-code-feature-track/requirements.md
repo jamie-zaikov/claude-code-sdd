@@ -56,14 +56,29 @@ tests-required), **P2** (reviewers' undefined verdict on empty/non-code scope), 
 `ready-to-merge` application point / CI deadlock); resolved questions **O1–O4**; reconciled
 discrepancies **D1–D2**.
 
-One further driver appears below: **A1** — an amendment made at requirements confirmation, after
-the initial document was drafted. A1 removes the assumption that the pipeline itself writes the
-global `~/.claude/CLAUDE.md`. Writing it during implementation would mutate the operator's live
-global configuration before the pull request is reviewed or merged, and would be an out-of-repo
-write invisible in the PR diff — weakening the exact audit trail this feature exists to protect.
-A1 touches FR-11.8, FR-12/FR-12.1, NFR-10, AC-8, AC-10, and — for consistency only — FR-7.3, the
-Overview, and the Out of Scope list. It changes no locked `scope.md` decision (O1–O4, D1–D2), and
-no requirement is renumbered.
+Two further drivers appear below, both amendments made after the initial document was drafted.
+
+**A1** — an amendment made at requirements confirmation. A1 removes the assumption that the
+pipeline itself writes the global `~/.claude/CLAUDE.md`. Writing it during implementation would
+mutate the operator's live global configuration before the pull request is reviewed or merged, and
+would be an out-of-repo write invisible in the PR diff — weakening the exact audit trail this
+feature exists to protect. A1 touches FR-11.8, FR-12/FR-12.1, NFR-10, AC-8, AC-10, and — for
+consistency only — FR-7.3, the Overview, and the Out of Scope list. It changes no locked `scope.md`
+decision (O1–O4, D1–D2), and no requirement is renumbered.
+
+**A2** — an amendment made during design, raised by the design-agent and accepted by the
+orchestrator under standing authority. A2 resolves a contradiction A1 left in FR-11.8: A1 confined
+its byte-identity carve-out to exactly **one** assertion while simultaneously requiring that every
+other assertion in `tests/` remain unweakened — but `test_repo_and_global_copies_are_byte_identical`
+(`tests/test_orchestrator_label_lifecycle.py:270`) has the same construction, asserting
+byte-identity between `agents/orchestrator.md` and its global copy and skipping only when the
+global copy is absent. This feature edits `agents/orchestrator.md` in several places, so that
+assertion fails locally for exactly the reason A1 carved out for `CLAUDE.md`, and A1's two clauses
+cannot both hold. A2 extends the carve-out to cover **both** assertions under identical constraints
+and closes it there; the `install.sh` test modules are unaffected, because they point `HOME` at a
+throwaway temporary directory. A2 touches FR-11.8 and AC-8, plus this preamble and the Open
+Questions note. It changes no locked `scope.md` decision (O1–O4, D1–D2), and no requirement is
+renumbered.
 
 ## Functional Requirements
 
@@ -455,39 +470,63 @@ exemption label.
 
 ##### FR-11.8
 
-*(drivers: O4, D2, cross-cutting rules; **A1** — amended at requirements confirmation)*
+*(drivers: O4, D2, cross-cutting rules; **A1** — amended at requirements confirmation; **A2** —
+amended during design)*
 
 **The system shall** keep the existing test suite passing, and no existing assertion is deleted or
-weakened to accommodate the new track, with exactly **one** deliberate, documented exception:
-`test_two_claude_files_byte_identical` in `tests/test_docs_updates.py` (lines 227–238), which
-asserts byte-identity between the repository-root `CLAUDE.md` and the global copy and skips only
-when the global file is unreadable — so it no-ops in CI but enforces locally. Under FR-12.1 and
-NFR-10 the repository copy legitimately moves ahead of the unsynced global copy during this
-feature, so that assertion would fail mid-feature and block the pipeline.
+weakened to accommodate the new track, with exactly **two** deliberate, documented exceptions:
 
-**The system shall** constrain that exception as follows; it is an amendment, not a licence to gut
-the check:
+1. `test_two_claude_files_byte_identical` in `tests/test_docs_updates.py` (lines 227–238), which
+   asserts byte-identity between the repository-root `CLAUDE.md` and the global copy and skips
+   only when the global file is unreadable — so it no-ops in CI but enforces locally.
+2. `test_repo_and_global_copies_are_byte_identical` at
+   `tests/test_orchestrator_label_lifecycle.py:270`, which asserts byte-identity between
+   `agents/orchestrator.md` and its global copy and skips only when the global copy is absent
+   (lines 274–277) — the same construction, and this feature edits `agents/orchestrator.md`.
 
-- **The system shall not** delete the assertion, and **shall** keep it able to fail on genuine
-  drift — content the repository copy states that the global copy is missing or contradicts. The
-  class of check that must survive is the one `test_two_claude_ownership_lines_consistent`
-  (`tests/test_docs_updates.py:212`) already performs: comparison of the normalised
-  Agent-Ownership invariant lines across the two copies. A global copy missing an Agent-Ownership
-  invariant phrase shall still be caught.
-- **The system shall** have the assertion tolerate the "repository copy ahead, global copy not yet
+Under FR-12.1 and NFR-10 the repository copy of each of these two documents legitimately moves
+ahead of the unsynced global copy during this feature, so both assertions would fail mid-feature
+and block the pipeline.
+
+**The system shall** constrain both exceptions as follows; they are an amendment, not a licence to
+gut the checks. Every constraint below applies identically to each of the two assertions:
+
+- **The system shall not** delete either assertion, and **shall** keep each able to fail on genuine
+  drift — content the repository copy states that the global copy is missing or contradicts. For
+  the `CLAUDE.md` assertion, the class of check that must survive is the one
+  `test_two_claude_ownership_lines_consistent` (`tests/test_docs_updates.py:212`) already performs:
+  comparison of the normalised Agent-Ownership invariant lines across the two copies; a global copy
+  missing an Agent-Ownership invariant phrase shall still be caught. For the
+  `agents/orchestrator.md` assertion, the drift discriminator shall likewise be a genuine one — a
+  comparison of invariant content the repository copy carries against the global copy — and **shall
+  not** be a blanket skip taken whenever the two copies differ.
+- **The system shall** have each assertion tolerate the "repository copy ahead, global copy not yet
   synced by `./install.sh`" state specifically, treating byte-identity as **satisfied-or-pending**
   rather than pass-or-fail.
-- **Where** the assertion resolves the global path, **the system shall** permit deriving it from
-  `Path.home()` in place of the hardcoded absolute `/Users/jamie.zaikov/.claude/CLAUDE.md` at
-  `tests/test_docs_updates.py:35` — a portability defect whose correction is in scope for the task
-  that reworks this assertion — and shall permit no change beyond that to the module's scope.
-- **The system shall** record the rationale for the carve-out in the reworked assertion itself
+- **Where** an assertion resolves its global path, **the system shall** permit deriving it from
+  `Path.home()` in place of the hardcoded absolute path — `/Users/jamie.zaikov/.claude/CLAUDE.md`
+  at `tests/test_docs_updates.py:35`, and `/Users/jamie.zaikov/.claude/agents/orchestrator.md` at
+  `tests/test_orchestrator_label_lifecycle.py:36` — a portability defect whose correction is in
+  scope for the task that reworks that assertion — and shall permit no change beyond that to either
+  module's scope.
+- **The system shall** record the rationale for the carve-out in each reworked assertion itself
   (for example its docstring), citing FR-11.8 and NFR-10, so a reviewer reads it as a deliberate
   amendment rather than an unexplained regression.
-- **The system shall** confine the carve-out to this single assertion: every other assertion in
-  `tests/`, in this module and in all others, remains undeleted and unweakened.
+- **The system shall** confine the carve-out to these **two** assertions and no others: every other
+  assertion in `tests/`, in these two modules and in all others, remains undeleted and unweakened.
+  The `install.sh` test modules (`tests/test_install_pre_push_hook.py` and
+  `tests/test_sdd_init_ci_templates.py`) also reference `~/.claude` paths, but they point `HOME` at
+  a throwaway temporary directory and are therefore unaffected by the pending-sync window; they
+  **shall not** be modified, and no further extension of this carve-out is authorised.
 
-*How* the assertion is reworked is a design decision; this requirement fixes only what must remain
+*Amendment rationale (A2):* the second assertion has the same construction and the same failure
+cause as the first. A1's confinement of the carve-out to exactly one assertion, together with its
+clause that no other assertion in `tests/` is weakened, cannot both hold once this feature edits
+`agents/orchestrator.md`; left unamended, implementation blocks at the first orchestrator edit. A2
+resolves that contradiction by extending the carve-out to the second assertion under identical
+constraints, and closes it there.
+
+*How* each assertion is reworked is a design decision; this requirement fixes only what must remain
 true of it.
 
 ### Documentation
@@ -644,9 +683,15 @@ detectable per FR-11.8.
 - **AC-7** — `ready-to-merge` appears as a *set* operation in exactly one place in
   `agents/orchestrator.md`, verified by a test. *(FR-9.1, FR-11.6)*
 - **AC-8** — Every changed agent contract has at least one corresponding assertion under `tests/`,
-  and the pre-existing test suite passes, with exactly one deliberate, documented exception: the
-  reworked `test_two_claude_files_byte_identical`, constrained by FR-11.8. No other existing
-  assertion is deleted or weakened. *(FR-11, FR-11.8; A1)*
+  and the pre-existing test suite passes, with exactly two deliberate, documented exceptions: the
+  reworked `test_two_claude_files_byte_identical` (`tests/test_docs_updates.py`) and the reworked
+  `test_repo_and_global_copies_are_byte_identical`
+  (`tests/test_orchestrator_label_lifecycle.py`), both constrained by FR-11.8. No other existing
+  assertion is deleted or weakened, and the `install.sh` test modules are unmodified.
+  `tests/test_orchestrator_label_lifecycle.py` passes while the repository copy of
+  `agents/orchestrator.md` is ahead of an unsynced global copy, yet still fails when a readable
+  global copy contradicts or omits invariant content carried by the repository copy.
+  *(FR-11, FR-11.8; A1, A2)*
 - **AC-9** — A code-bearing feature run end-to-end behaves identically to before this change.
   *(NFR-4)*
 - **AC-10** — The repository-root `CLAUDE.md` and the README describe the classification step and
@@ -678,4 +723,6 @@ Mirroring `scope.md`'s **Deferred** list and resolved questions:
 
 - None. All open questions (O1–O4) and both discrepancies (D1, D2) were resolved and locked in
   `scope.md` during pre-orchestrator scoping. The A1 amendment was raised and accepted at
-  requirements confirmation and touches no locked decision.
+  requirements confirmation and touches no locked decision. The A2 amendment was raised by the
+  design-agent during design and accepted by the orchestrator under standing authority; it
+  likewise touches no locked decision.
