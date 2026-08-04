@@ -59,7 +59,8 @@ consequences:
   installer or write to `~/.claude/`.
 - **Intermediate-commit breakage.** Every repo-vs-global byte-identity assertion in `tests/` starts
   failing the moment its repository-side file is edited. This constrains task order (see *Sequencing
-  constraints*) and produces one genuine requirements conflict (see *Conflict C-1*).
+  constraints*) and produced two requirements amendments, **A1** and **A2**, both now resolved.
+  Exactly two such assertions exist and both are carved out.
 
 ## Architecture
 
@@ -551,7 +552,7 @@ the resolved non-code scope. Add one sentence stating that **a non-code feature 
 
 #### C12 — Tests (`tests/`)
 
-Seven modules — six new, one confined rework. All follow the established pattern: a module docstring
+Eight modules — six new, two confined reworks. All follow the established pattern: a module docstring
 naming the covered FRs and the run command; paths resolved with
 `Path(__file__).resolve().parent.parent`; stdlib-only `unittest`; `split_frontmatter` /
 `region_between` / `extract_section` helpers copied locally (each existing module carries its own
@@ -564,10 +565,11 @@ surface).
 | `tests/test_orchestrator_ready_to_merge_singleton.py` | `agents/orchestrator.md` | Exactly **one** `ready-to-merge` *set* operation in the whole body (regex over `op:\s*set[^}]*ready-to-merge` plus prose `set … ready-to-merge` forms, de-duplicated by offset), and its offset lies inside the Feature Review Gate `On PASS (both reviewers PASS)` region; the "only place `ready-to-merge` is ever applied" sentence survives; **no** `ready-to-merge` token anywhere in the classification-gate or reclassification regions; every `blocked:` label name in the file is drawn from the frozen five-name vocabulary | FR-11.6, FR-9.1, FR-10.1, AC-7 |
 | `tests/test_validator_artifact_conformance.py` | `agents/task-validator.md` | `## Artifact-Conformance Mode` heading present; instruction-only entry asserted by the "never self-selected" phrasing **and** by the absence of any self-entry condition; "absence of unit tests is not a failure" scoped to the mode; placeholder/stub/TODO artifact → FAIL; application-code detection → FAIL + reported path (FR-5.6); the literal `.write-log.jsonl` path present; scope and quality checks still referenced as active; the all-or-nothing rule still present; the original `### 2. Test Coverage` checkboxes still present (nothing deleted) | FR-11.3, FR-5.x |
 | `tests/test_tester_no_code_behaviour.py` | `agents/task-tester.md` | No-code section heading present; vacuous/placeholder tests prohibited with the enumerated forms; the "no applicable tests" block is specified and names artifact + requirement + why-no-check; the machine-checkable preference precedes the fallback (offset ordering); "run existing tests in all cases" survives; the FR-4.5 escalation present | FR-11.4, FR-4.x |
-| `tests/test_reviewers_non_code_scope.py` | both reviewer files, parameterised over the two paths | For each file: the `## Non-Code Review Scope` heading; all three scope components; the literal path `.specs/features/<feature-name>/vault/.write-log.jsonl`; resolution order stated as diff-first-then-fallback; mandatory `PASS`/`FAIL` with hedge/N-A/nothing-to-review explicitly forbidden; the empty-scope FAIL; a "never read the vault note" statement plus the `VAULT REQUEST` escalation; the severity model restated unchanged; the frontmatter `tools:` list **unchanged** from the pre-change set (NFR-3 regression). Plus a cross-file assertion that the shared section is normalised-identical in both reviewers, and `test_allow_list_blocks_identical` asserting the C0 block is normalised-identical across all five agent files. Each reviewer's own finding-class subsection asserted separately | FR-11.5, FR-6.x, FR-7.x, FR-8.x, NFR-3, NFR-8 |
+| `tests/test_reviewers_non_code_scope.py` | both reviewer files, parameterised over the two paths | For each file: the `## Non-Code Review Scope` heading; all three scope components; the literal path `.specs/features/<feature-name>/vault/.write-log.jsonl`; resolution order stated as diff-first-then-fallback; mandatory `PASS`/`FAIL` with hedge/N-A/nothing-to-review explicitly forbidden; the empty-scope FAIL **together with the FR-6.4 attribution rule that makes it dischargeable** — that the feature's own `requirements.md`/`design.md`/`tasks.md`/`scope.md` are the plan and never counted as output, and that a spec artifact counts as output only when declared in a task's `**Files:**` field or reported written by the executor; a "never read the vault note" statement plus the `VAULT REQUEST` escalation; the severity model restated unchanged; the frontmatter `tools:` list **unchanged** from the pre-change set (NFR-3 regression). Plus a cross-file assertion that the shared section is normalised-identical in both reviewers, and `test_allow_list_blocks_identical` asserting the C0 block is normalised-identical across all five agent files. Each reviewer's own finding-class subsection asserted separately | FR-11.5, FR-6.x, FR-7.x, FR-8.x, NFR-3, NFR-8 |
 | `tests/test_review_gate_untouched.py` | `ci-templates/workflows/sdd-review-gate.yml` (**read-only**) | `"ready-to-merge" in labels` present; `startswith("blocked:")` present; both `sys.exit(1)` failure branches present; the `github.event_name == 'pull_request'` guard present; `permissions:`/`contents: read` unchanged; **no** token matching `(?i)(bypass|exempt|escape[- ]?hatch|override|skip[-_ ]?gate|non-?code|featureclass)` anywhere in the file; every label-shaped literal drawn from the frozen five-name vocabulary | FR-11.7, FR-10, FR-10.2, NFR-2, AC-6 |
 | `tests/test_docs_non_code_track.py` | repo-root `CLAUDE.md`, `README.md` | Repo `CLAUDE.md` names `featureClass`, the classification step in the phase-gate line, the artifact-conformance/tests-optional behaviour, the reviewers' non-code scope, the "still requires a real whole-feature review PASS" restatement, and the fallback-to-code-path sentence; README describes the classification step, the non-code track in the pipeline description, and states no bypass label exists. **Reads only the repository copies** — never touches `~/.claude/` | FR-12, FR-12.2, FR-13, FR-13.1, AC-10 |
-| `tests/test_docs_updates.py` **(reworked — the single carve-out)** | see the A1 resolution below | Three edits only: the `GLOBAL_CLAUDE` constant, the new `claude_sync_state()` helper, the reworked `test_two_claude_files_byte_identical` | FR-11.8, NFR-10, AC-8, AC-10 |
+| `tests/test_docs_updates.py` **(reworked — carve-out 1, A1)** | see the A1 resolution below | Three edits only: the `GLOBAL_CLAUDE` constant, the new `claude_sync_state()` helper, the reworked `test_two_claude_files_byte_identical` | FR-11.8, NFR-10, AC-8, AC-10 |
+| `tests/test_orchestrator_label_lifecycle.py` **(reworked — carve-out 2, A2)** | `agents/orchestrator.md` vs its installed copy | Three edits only: the `GLOBAL_ORCH_PATH` constant (`Path.home()`), a local `orchestrator_sync_state()` discriminator over the four invariant instruction lines (ready-to-merge singleton + clear-before-set ordering; clear-every-`blocked:*`; scaffold-push scoping; never-runs-`gh`/`git push`), and the reworked `test_repo_and_global_copies_are_byte_identical`. The module's other five tests untouched | FR-11.8 (as amended by A2), NFR-10, AC-8 |
 
 Every changed agent contract therefore has at least one corresponding assertion module (AC-8).
 
@@ -793,7 +795,7 @@ are likewise untouched.
 - **L4 — local-only signal.** In CI the global copy is absent and the assertion skips, exactly as
   today. Nothing about this rework makes CI stricter or looser (NFR-2).
 
-### Conflict C-1 — a second byte-identity assertion FR-11.8 does not cover
+### Conflict C-1 (RESOLVED by amendment A2) — a second byte-identity assertion FR-11.8 did not cover
 
 `tests/test_orchestrator_label_lifecycle.py:270`, `test_repo_and_global_copies_are_byte_identical`,
 asserts byte-identity between `agents/orchestrator.md` and `~/.claude/agents/orchestrator.md`, and
@@ -821,7 +823,8 @@ terms:
 - byte-identity becomes **satisfied-or-pending** for the "repository ahead, global not yet synced"
   state specifically;
 - the global path may be derived from `Path.home()` in place of the hardcoded absolute at
-  `tests/test_orchestrator_label_lifecycle.py:35`, and nothing else in that module changes;
+  `tests/test_orchestrator_label_lifecycle.py:36` (line 35 is the preceding comment; the
+  `GLOBAL_ORCH_PATH` assignment is on line 36), and nothing else in that module changes;
 - the rationale lives in the reworked assertion's own docstring, citing FR-11.8 and NFR-10.
 
 This is a small mechanical application of the existing mechanism, exactly as this design anticipated:
@@ -910,15 +913,15 @@ configuration before review or merge. The operator runs the installer after merg
 | FR-10 | C12 (`test_review_gate_untouched`) | CI template unmodified; no new job, workflow, or label |
 | FR-10.1 | C4, C5, C12 | Label vocabulary frozen at five names; reclassification adds none |
 | FR-10.2 | C12 | Bypass/exemption/escape-hatch tokens asserted absent from the CI template |
-| FR-11 | C12 | Seven modules mirroring the existing structural-lint pattern |
+| FR-11 | C12 | Eight modules mirroring the existing structural-lint pattern |
 | FR-11.1 | C12 | Stdlib-only `unittest`; paths resolved relative to the test file |
 | FR-11.2 | C12 (`test_orchestrator_feature_class`) | Classification step, schema key + values, fail-safe, routing, reclassification |
 | FR-11.3 | C12 (`test_validator_artifact_conformance`) | Mode defined, instruction-only, tests-not-a-FAIL, code → FAIL |
 | FR-11.4 | C12 (`test_tester_no_code_behaviour`) | No-code behaviour, vacuous-test prohibition, "no applicable tests" block |
-| FR-11.5 | C12 (`test_reviewers_non_code_scope`) | Both reviewers: scope, order, mandatory verdict, empty-scope FAIL, changelog source, no vault read |
+| FR-11.5 | C12 (`test_reviewers_non_code_scope`) | Both reviewers: scope, order, mandatory verdict, empty-scope FAIL, changelog source, no vault read, **and the FR-6.4 attribution rule** (plan-vs-output: a spec artifact counts as output only when declared in a task's `**Files:**` field or reported written by the executor) |
 | FR-11.6 | C12 (`test_orchestrator_ready_to_merge_singleton`) | Exactly one set operation, located in the PASS branch, none in the new regions |
 | FR-11.7 | C12 (`test_review_gate_untouched`) | Required label, `blocked:*` failure, no bypass label |
-| FR-11.8 | A1 resolution (`test_docs_updates.py` rework) | `Path.home()`; `claude_sync_state()`; satisfied-or-pending; drift still FAILs; rationale in the docstring. **See Conflict C-1** |
+| FR-11.8 | A1 resolution (`test_docs_updates.py`) + A2 resolution (`test_orchestrator_label_lifecycle.py`) | Both live-global byte-identity assertions become satisfied-or-pending: `Path.home()`; a three-state discriminator local to each module; genuine drift still FAILs; rationale in each assertion's docstring citing FR-11.8 and NFR-10. Carve-out closed at exactly two |
 | FR-12 | C11(a) | Repo-root `CLAUDE.md` pipeline description: classification + non-code track + real-PASS restatement |
 | FR-12.1 | C11(a) + a global constraint on every task | Repository copy only; **no** pipeline write anywhere under `~/.claude/`; installer syncs post-merge |
 | FR-12.2 | C11(a) | Classification is explicit, recorded in `.spec-state.json`, and falls back to the code path |
@@ -1049,6 +1052,11 @@ These are ordering facts, not task definitions:
    so no committed test asserts text that does not yet exist.
 3. **No task may write to `~/.claude/`, run `./install.sh`, or modify `install.sh`** (FR-12.1, Out of
    Scope). The global sync is a post-merge operator action.
+**Baseline for verification.** The suite is green today at **224 passed, 5 skipped** — all five skips
+are missing `shellcheck`/`actionlint`, not logic. Any commit that leaves the suite below that pass
+count has broken something; the two carve-outs are the only sanctioned way a repo-vs-global
+comparison may move from passing to skipping, and only into the `pending` state.
+
 4. **No task may modify `ci-templates/workflows/sdd-review-gate.yml`** (FR-10, NFR-2). The earlier
    prohibition on touching `tests/test_orchestrator_label_lifecycle.py` is **lifted by A2**, which
    authorises reworking exactly one assertion in that module —
