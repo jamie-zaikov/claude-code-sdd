@@ -92,6 +92,119 @@ Do NOT pass planning conversation context. The checker reads files independently
 - On (c): set `confirmed.tasks = false`, re-invoke tasks-agent with the consistency report as feedback.
 - On (d): log the override in the state file under `consistencyOverride: true`, then proceed as PASS.
 
+### Feature Classification Gate (runs automatically after the consistency gate, before implementation)
+
+Classify the feature as code-bearing or non-code, record the classification in `.spec-state.json`,
+and report it to the user. The classification decides which artifacts the tester, validator and
+reviewers examine later — never whether a stage runs.
+
+**When it runs.** Immediately after the consistency gate resolves PASS — including the
+`(d) override and proceed` path — in the **same state-file write** that sets
+`phase = "implementation"`. It runs **exactly once per feature** (FR-1).
+
+The run/skip predicate keys on the **recorded decision**, never on the presence of the key: run this
+gate unless `featureClass` is already set to `"code"` or `"non-code"`. State the complement
+explicitly — a `featureClass` that is **absent** and a `featureClass` that is **`null`** both mean
+*no classification has been recorded yet*, and in either state the gate runs (the one exception is a
+genuinely pre-change state file; see *Legacy state* below). On resume, skip the gate only when
+`featureClass` already holds `"code"` or `"non-code"`; never skip it merely because the key exists.
+
+**Inputs.**
+- (a) The confirmed `tasks.md` — every task's **declared outputs**, taken primarily from that task's
+  **`**Files:**` field**, which the task template already defines at `agents/tasks-agent.md:62` as
+  `**Files:** <Expected files to create or modify>`, and secondarily from the task body and its
+  sub-tasks where that field is absent or incomplete.
+- (b) `design.md`, used **only** to resolve a task whose outputs are named by component rather than
+  by path.
+- (c) `.specs/steering/structure.md` and `.specs/steering/tech.md`, for the project's own
+  designation of what counts as source, agent/prompt contract, template, script, or configuration.
+
+You **never** inspect a git diff to classify (FR-1.2). At this point in the lifecycle nothing has
+been implemented, so there is no diff that could carry the answer: the classification derives from
+the outputs the confirmed tasks *declare they will produce*, never from whether a diff happens to be
+empty or docs-only.
+
+#### Non-code artifact allow-list (normative — identical in every agent that classifies)
+
+```
+NON-CODE ARTIFACT — exactly one of:
+  1. a spec artifact under .specs/features/<feature-name>/
+     (requirements.md, design.md, tasks.md, scope.md, .spec-state.json)
+  2. a committed prose/documentation file that the project's layout or steering does NOT
+     designate as source, agent/prompt contract, template, script, or configuration
+  3. a knowledge-vault mutation recorded by vault-writer in
+     .specs/features/<feature-name>/vault/.write-log.jsonl
+
+APPLICATION CODE — anything else: executable source, tests, scripts, hooks, CI workflows,
+  templates, runtime configuration, and any prose file the project designates as a
+  behaviour-bearing contract (in this repository: agents/*.md and commands/*.md).
+```
+
+`agents/orchestrator.md` is the **normative home** of this block. The copies in
+`agents/task-tester.md`, `agents/task-validator.md`, `agents/code-reviewer.md` and
+`agents/security-reviewer.md` are verbatim replicas; if a copy ever disagrees,
+`agents/orchestrator.md` wins.
+
+**Per-output rule.** An output is **non-code** iff it matches one of the three allow-list categories
+above; otherwise it is **application code**.
+
+**Per-feature rule (FR-1.3).** Set `featureClass = "non-code"` **iff every** task declares at least
+one output **and** every declared output of every task classifies non-code. Otherwise set
+`featureClass = "code"` — one task declaring application code is enough to make the whole feature
+`"code"`.
+
+**Fail-safe (FR-1.4).** Classify `"code"` whenever the answer is not unambiguous. The ambiguity
+triggers are enumerated so the rule is checkable rather than a matter of mood — classify `"code"` if
+any of these holds:
+- **AMB-1** — a task declares no outputs at all;
+- **AMB-2** — an output cannot be resolved to a concrete path, or cannot be resolved to one of the
+  three allow-list categories;
+- **AMB-3** — a prose file sits inside a directory that steering designates as source, contract, or
+  template;
+- **AMB-4** — steering is silent and the file's location does not settle the question.
+
+`"code"` is the fail-safe direction because it preserves today's behaviour exactly: a feature
+classified `"code"` runs the pipeline unchanged, so a vague or under-specified task list costs
+nothing worse than the behaviour that already exists.
+
+**Record and report (FR-1.5).** Write `featureClass` and the `classification` object to
+`.spec-state.json` (see *State File Management*), filling `classification.basis` and
+`classification.decidedAt`. Then report to the user the recorded value **and** the basis — one line
+per task, naming that task's declared outputs and their classification:
+
+```
+featureClass: non-code
+  Task 1 — .specs/features/<feature>/recon.md → non-code (prose/documentation, category 2)
+  Task 2 — .specs/features/<feature>/vault/.write-log.jsonl → non-code (vault mutation, category 3)
+```
+
+**Override (FR-1.6).** The user may override the recorded value.
+- An override toward `"code"` is **always** honoured: write `featureClass = "code"`.
+- An override toward `"non-code"` is honoured **only** when the per-feature rule (FR-1.3) already
+  holds for the confirmed tasks; when it does, write `featureClass = "non-code"`. Otherwise
+  **refuse it**: name the offending task and the declared output of that task that is application
+  code, and keep `featureClass = "code"`.
+- Every override — accepted **or** refused — is recorded in `classification.override`.
+
+**Legacy state (FR-1.7).** A genuinely pre-change state file is identified by **two** conditions
+holding together, never by one alone. If `featureClass` is absent from an existing state file
+**and** `phase` is already `implementation` or beyond, the file was written by a run that had
+already passed the point where this gate now sits, so the key could not have existed when it was
+written: treat the feature as `"code"` and proceed on the unchanged code path — do not
+retro-classify it and do not run this gate over its already-confirmed task list.
+
+Absence on its own is **not** the discriminator, and must never be used as one. Every freshly
+scaffolded feature begins with no `featureClass` key at all — `/sdd-feature` writes a state file
+that does not contain it — so a state file whose `featureClass` is absent or `null` while `phase` is
+still `requirements`, `design` or `tasks` is a **new** feature, not a legacy one, and this gate
+**must** run over it. Reading bare absence as "legacy" would skip classification for every new
+feature, leave `featureClass` unwritten and `classification.basis` / `classification.decidedAt`
+unset, and silently disable the non-code track with no error and no audit trail.
+
+**What this gate never does.** The classification gate performs no GitHub action. It introduces no
+new phase transition — it rides along with the one the consistency gate already makes — and no new
+user prompt on the code path.
+
 ### `implementation`
 - Read `tasks.md` and the `taskStatus` map from `.spec-state.json`.
 - Find the next pending task (or the task that needs retry).
@@ -336,6 +449,14 @@ Initialize new features with:
     "currentTask": null
   },
   "taskStatus": {},
+  "featureClass": null,
+  "classification": {
+    "basis": null,
+    "decidedAt": null,
+    "override": null,
+    "tasksValidatedUnderExemption": [],
+    "reclassification": null
+  },
   "featureReview": {
     "codeReview": null,
     "securityReview": null
@@ -347,6 +468,29 @@ Initialize new features with:
 Each `taskStatus[N]` entry gains `codeReview` and `securityReview` (`"pass"` / `"fail"` / `null`)
 alongside `status`, `retryCount`, and `lastFailure`. `featureReview` records the whole-feature gate
 verdict. Update the state file after every phase transition and every task completion/failure.
+
+`featureClass` is the feature classification written by the *Feature Classification Gate* above. Its
+permitted values are exactly two: `"code"` or `"non-code"` — no other value is valid. It is `null`
+before the classification gate has run, and it is **absent** from a state file written before this
+key existed; read an absent `featureClass` with a default of `"code"` (FR-1.7). A `null`
+`featureClass` reaching any consumer — the per-task routing, the task-tester, the task-validator,
+either reviewer, or the feature-review gate — means the classification gate has not run and the
+feature is **unclassified**; read `null` exactly as you read an absent value and treat it as
+`"code"`. `null` is never a third classification and is never forwarded to a consumer as if it
+were one. `featureClass` is the **single source of truth** for the classification; the sibling
+`classification` object carries only provenance and is never read in place of it:
+
+- `classification.basis` — a human-readable string recording which tasks' declared outputs drove the
+  value (FR-1.5).
+- `classification.decidedAt` — ISO-8601 timestamp of the classification gate.
+- `classification.override` — `null`, or
+  `{ "by": "user", "requested": "code"|"non-code", "accepted": true|false, "reason": "<one line>" }`,
+  recorded whether the override was accepted or refused (FR-1.6).
+- `classification.tasksValidatedUnderExemption` — array of task numbers whose validation ran in
+  artifact-conformance mode (FR-3.3).
+- `classification.reclassification` — `null`, or
+  `{ "from": "non-code", "to": "code", "task": <N>, "paths": ["<path>", ...],
+  "trigger": "tester"|"validator"|"orchestrator", "at": "<iso8601>" }` (FR-3.1).
 
 ## Critical Rules
 
