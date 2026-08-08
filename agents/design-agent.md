@@ -7,6 +7,7 @@ description: >
 tools:
   - Read
   - Write
+  - Edit
   - Glob
   - Grep
 model: opus
