@@ -18,8 +18,8 @@ the unchanged five-stage pipeline while building the non-code path (design Flow 
 
 ### Amendment status and progress
 
-- **Tasks 1, 2 and 3 are complete and committed** (`8de970c`, `baf7245`, `562c6d5`); all three passed
-  all five pipeline stages on the first attempt. Their checkboxes below are ticked. **Tasks 4–11 have
+- **Tasks 1, 2, 3 and 4 are complete and committed** (`8de970c`, `baf7245`, `562c6d5`, `c73de3f`);
+  all four passed all five pipeline stages. Their checkboxes below are ticked. **Tasks 5–11 have
   not run** and are unticked.
 - **Design amendments A3 and A4 are absorbed into this list.** A3 items 1–7 and A4's authoritative
   propagation block (*design.md → Amendment A4 → What A3 and A4 together require of `tasks.md`*) are
@@ -481,7 +481,7 @@ R11
 ---
 
 ## Task 4: Orchestrator — reclassification fallback, non-code → code (C4) + the A5 contract corrections (C0, C1, C3)
-- [ ] 4. Add the monotonic reclassification subsection with its three triggers and its retry accounting, and land the A5 corrections to C0's fence, its fail-safe pointer, the per-task derivation, the routing preamble, the exemption record, the legacy-branch report and the gate's `**Inputs**` list.
+- [x] 4. Add the monotonic reclassification subsection with its three triggers and its retry accounting, and land the A5 corrections to C0's fence, its fail-safe pointer, the per-task derivation, the routing preamble, the exemption record, the legacy-branch report and the gate's `**Inputs**` list.
 
 **Description:** Add a new `####`-level subsection at the end of ``### `implementation` ``, after the
 `On **fail**` bullet, headed `#### Reclassification: non-code → code (fallback, D2)`. Depends on
@@ -520,16 +520,16 @@ thread cite these numbers — so the ordinals here are deliberately non-monotoni
 sub-task remains last by position. A5 item 1 explicitly left the choice to the tasks-agent.
 
 **Sub-tasks:**
-- [ ] 4.1. Specify the three triggers: **T1** the task-tester reports the task in fact produced
+- [x] 4.1. Specify the three triggers: **T1** the task-tester reports the task in fact produced
   application code; **T2** the task-validator returns FAIL citing application-code modification under
   artifact-conformance mode; **T3** the orchestrator itself sees an application-code path in the
   executor's changed-files summary. (FR-3, FR-4.5, FR-5.6)
-- [ ] 4.2. Specify the actions on any trigger: set `featureClass = "code"` and populate
+- [x] 4.2. Specify the actions on any trigger: set `featureClass = "code"` and populate
   `classification.reclassification` with the triggering path(s), task number, trigger source and
   timestamp; report the reclassification to the user naming the file(s) and the task. (FR-3.1, NFR-5)
-- [ ] 4.3. Specify that the current task's **Stage 2 (test)** and **Stage 3 (validation)** re-run
+- [x] 4.3. Specify that the current task's **Stage 2 (test)** and **Stage 3 (validation)** re-run
   under the code path — tests required — before the task may be marked complete. (FR-3.2)
-- [ ] 4.4. Specify that `classification.tasksValidatedUnderExemption` is kept as written — a
+- [x] 4.4. Specify that `classification.tasksValidatedUnderExemption` is kept as written — a
   permanent record, not a live flag — and that when it is non-empty and the feature has been
   reclassified, the Feature Review Gate invocation must state that those tasks' outputs are reviewed
   under the code path. **Document the key's semantics, not merely its shape** (Task 2 security review,
@@ -542,22 +542,22 @@ sub-task remains last by position. A5 item 1 explicitly left the choice to the t
   **instruction-issue**, which over-records deliberately — a task that *fails* validation under the
   exemption stays recorded, the direction FR-3.3's re-review requires; and that entries are **never
   removed or cleared**, not on reclassification and not at feature completion. (FR-3.3, NFR-5, A5-5)
-- [ ] 4.5. State monotonicity explicitly: once `featureClass` is `"code"` it is never set back to
+- [x] 4.5. State monotonicity explicitly: once `featureClass` is `"code"` it is never set back to
   `"non-code"` for the remainder of the feature — not by a later artifact-only task, and not by a
   user override. (FR-3.4, FR-1.6)
-- [ ] 4.6. Settle retry accounting explicitly: T2 is a genuine validator FAIL and flows through the
+- [x] 4.6. Settle retry accounting explicitly: T2 is a genuine validator FAIL and flows through the
   **existing** `On **fail**` branch unchanged (`retryCount += 1`, `blocked:validation`, executor
   re-run); T1 and T3 are caught before a validation verdict exists, re-run stages 2–3 within the same
   attempt, and do **not** increment `retryCount` and do **not** set a label. No new label is
   introduced on any path. (FR-3.2, FR-10.1, DD-8)
-- [ ] 4.7. **(A3 item 7 / A4 item 5.)** Keep C4 consistent with the `null`-is-unclassified reading
+- [x] 4.7. **(A3 item 7 / A4 item 5.)** Keep C4 consistent with the `null`-is-unclassified reading
   rule: state in the subsection that it is a **consumer** of `featureClass` and obeys the schema
   prose's rule — a `null` or absent value means the feature is **unclassified** and is read exactly as
   an absent value, i.e. as `"code"`. State the two consequences plainly, so the rule cannot be
   inverted here: there is **no exemption to withdraw** from an unclassified feature, so no trigger
   reclassifies it; and this subsection **never writes `"non-code"`** — it only ever moves a value
   **to** `"code"`, never from `null` to `"non-code"` and never back. (FR-3, FR-3.1, FR-3.4)
-- [ ] 4.9. **(A5 item 1(a) — the fence's final form.)** Replace C0's fenced block in
+- [x] 4.9. **(A5 item 1(a) — the fence's final form.)** Replace C0's fenced block in
   `agents/orchestrator.md` with its final form exactly as design C0 gives it after A5: category 2's
   `README.md` parenthetical stated as a **condition** pointing at the fence's own bounded check
   (`WHERE the PRECEDENCE CHECK below passes for it`), with the failure consequence named inside
@@ -581,7 +581,7 @@ sub-task remains last by position. A5 item 1 explicitly left the choice to the t
   fence and Task 8 asserts all five copies are normalised-identical, so the fence's **final** form
   and its pinned constant must be in place first, or four copies of superseded wording ship and the
   identity assertion locks the wrong text in place (sequencing constraint 5).
-- [ ] 4.10. **(A5 item 1(b).)** Rescope the fail-safe precedence pointer in the Feature
+- [x] 4.10. **(A5 item 1(b).)** Rescope the fail-safe precedence pointer in the Feature
   Classification Gate to the **file-classifying** triggers AMB-2…AMB-4; state that **AMB-1 and AMB-5
   are feature-level and always apply**, which is what keeps AMB-5 able to fire over a `tasks.md` with
   no tasks and therefore no unsettled file; and make the `README.md` consequence **conditional** on
@@ -589,30 +589,30 @@ sub-task remains last by position. A5 item 1 explicitly left the choice to the t
   restatement, so no second normative copy can drift out of step with the replicated one (NFR-6) —
   the shipped pointer's "AMB-3 and AMB-4 never fire over either of them" is already correctly scoped
   and needs only the conditionality. (FR-1.4, NFR-6, A5-1, A5-2)
-- [ ] 4.11. **(A5 item 1(c).)** Add the **at-least-one-output conjunct** to the per-task derivation of
+- [x] 4.11. **(A5 item 1(c).)** Add the **at-least-one-output conjunct** to the per-task derivation of
   `taskProducesApplicationCode`: it is `false` **only when the task declares at least one output
   and** every declared output classifies non-code; a task declaring **no** outputs derives
   **`true`**. This is the per-task counterpart of AMB-1, closing one level down the same
   vacuous-truth hole AMB-5 closes at feature level — the per-feature rule carries the explicit
   *"every task declares at least one output"* conjunct and the per-task rule carried neither it nor
   AMB-1. State the fail-safe direction, not merely the arithmetic. (FR-2.1, FR-1.4, DD-18, A5-3)
-- [ ] 4.12. **(A5 item 1(d).)** Correct the routing preamble's scoping so it agrees with interface I1
+- [x] 4.12. **(A5 item 1(d).)** Correct the routing preamble's scoping so it agrees with interface I1
   and the stage bullets beneath it: `featureClass` is forwarded to **Stages 2, 3, 4 and 5**;
   `taskProducesApplicationCode` to **Stages 2 and 3 only**; **Stage 1 receives neither** and is
   unchanged. Do **not** touch the NFR-4 guard sentence, which must remain present **exactly once**.
   (FR-2, FR-2.3, NFR-4, NFR-6, I1, A5-4)
-- [ ] 4.13. **(A5 item 1(e).)** Make the exemption record **write-ahead and set-valued** in the
+- [x] 4.13. **(A5 item 1(e).)** Make the exemption record **write-ahead and set-valued** in the
   Stage 3 region: **before** issuing the artifact-conformance instruction, add this task's number to
   `classification.tasksValidatedUnderExemption` **if it is not already present**; the key is a
   **duplicate-free set**; entries are **never removed or cleared**; and the keying stays on
   **instruction-issue**. (FR-3.3, NFR-5, A5-5)
-- [ ] 4.14. **(A5 item 1(f).)** Correct the legacy-branch report template so the reported condition
+- [x] 4.14. **(A5 item 1(f).)** Correct the legacy-branch report template so the reported condition
   reads `phase` already `implementation` **or beyond**, matching the rule paragraph and the C2 schema
   clause it currently contradicts. Keep the line a **report, not a prompt** (NFR-4) and keep it
   **fully literal** — no interpolated path, username or state value; full literalness is a verified
   property worth keeping, and *"implementation or beyond"* is true whenever the branch fires.
   (FR-1.5, FR-1.7, NFR-4, NFR-5, A5-6)
-- [ ] 4.15. **(A5 item 1(g).)** Add the designation input C0's check requires to the Feature
+- [x] 4.15. **(A5 item 1(g).)** Add the designation input C0's check requires to the Feature
   Classification Gate's `**Inputs**` list, as a fourth input: *(d) the repository-root `CLAUDE.md`
   and any file it imports, read **only** to run C0's `PRECEDENCE` **CHECK** — whether this project
   loads a file the enumeration names on its non-code side into an agent's context, or designates it a
@@ -622,7 +622,7 @@ sub-task remains last by position. A5 item 1 explicitly left the choice to the t
   touch the *"never inspects a git diff"* sentence (FR-1.2); it must survive verbatim.** Without this
   input the fence names evidence the contract gives the classifier no authority to read. (FR-1.2,
   FR-1.3, FR-1.4, DD-17, A5-2)
-- [ ] 4.8. Test — **physically last, and deliberately still numbered 4.8** (4.9–4.15 were inserted
+- [x] 4.8. Test — **physically last, and deliberately still numbered 4.8** (4.9–4.15 were inserted
   above it rather than renumbering anything). Extend `tests/test_orchestrator_feature_class.py` with
   assertions that the reclassification subsection exists under its exact heading and sits inside the
   `implementation` section after the `On **fail**` bullet; that all three triggers are named; that
