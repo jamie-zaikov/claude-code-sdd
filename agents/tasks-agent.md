@@ -78,7 +78,7 @@ appended to your inputs. You may list several needs in one request.
 
 4. **Testing sub-task:** Every task must include a testing sub-task as its last sub-item. This is what the Task Tester agent will execute.
 
-5. **No non-coding tasks:** Do not include tasks for "deploy", "user testing", "documentation review", or anything that can't be done by a coding agent. Only include tasks that produce code or tests.
+5. **No tasks an agent cannot execute or a validator cannot check:** Do not include tasks for "deploy", "user testing", or anything that requires a human to act. Every task must be completable by an agent and must produce an artifact a validator can check against a cited requirement. For a code-bearing feature that artifact is code or tests. For a feature that ships no application code it may be a committed document, a spec artifact, or a knowledge-vault entry recorded in the vault changelog — such a task is in scope, and its absence of unit tests is not by itself a reason to exclude it.
 
 6. **Scope boundary:** Each task description must be precise enough that an agent can implement it without making assumptions. Include file paths, function signatures, or component names from the design.
 
