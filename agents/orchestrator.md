@@ -118,6 +118,14 @@ genuinely pre-change state file; see *Legacy state* below). On resume, skip the 
   by path.
 - (c) `.specs/steering/structure.md` and `.specs/steering/tech.md`, for the project's own
   designation of what counts as source, agent/prompt contract, template, script, or configuration.
+- (d) The repository-root `CLAUDE.md` and any file it imports, read **only** to run the allow-list
+  block's `PRECEDENCE` **CHECK** — whether this project loads a file the enumeration names on its
+  non-code side into an agent's context, or designates it a contract or standard. This is the **same
+  kind of input as (c)**: a source of the project's **designation**, which is what a declared output
+  is classified *against* — never what the classification is derived *from*. It widens the
+  designation surface from steering alone to steering-plus-`CLAUDE.md`, and it widens no other part
+  of the classification: it is read for that one check and for nothing else. Without it the fenced
+  block below would name evidence this contract gives you no authority to read.
 
 You **never** inspect a git diff to classify (FR-1.2). At this point in the lifecycle nothing has
 been implemented, so there is no diff that could carry the answer: the classification derives from
@@ -133,7 +141,7 @@ NON-CODE ARTIFACT — exactly one of:
   2. a committed prose/documentation file that the project's layout or steering does NOT
      designate as source, agent/prompt contract, template, script, or configuration
      (in this repository these include, but are not limited to, the repository-root
-     README.md — descriptive documentation that nothing loads into an agent's context)
+     README.md — WHERE the PRECEDENCE CHECK below passes for it)
   3. a knowledge-vault mutation recorded by vault-writer in
      .specs/features/<feature-name>/vault/.write-log.jsonl
 
@@ -143,10 +151,21 @@ APPLICATION CODE — anything else: executable source, tests, scripts, hooks, CI
   agents/*.md, commands/*.md, and the repository-root CLAUDE.md — a contract the project
   loads into every agent's context at session start).
 
-PRECEDENCE — this enumeration settles every file it names, on the side it names it. The
-  ambiguity triggers AMB-1 through AMB-5 apply only to a file this enumeration does not
-  already settle, and never override it. Both lists stay open: a file's absence from
-  either list is evidence of nothing.
+PRECEDENCE — decided BEFORE the category tests above, and ASYMMETRIC.
+  * A file named on the APPLICATION CODE side is settled application code, UNCONDITIONALLY.
+  * A file named on the NON-CODE side is settled non-code ONLY IF YOU RUN its CHECK and it
+    passes. THE CHECK: read the repository-root CLAUDE.md, the files it imports, and
+    .specs/steering/*.md; it FAILS if any of them loads that file into an agent's context or
+    designates it a contract (an @-import, a session-start read instruction, or a
+    designation of it as a contract or standard, in steering or in CLAUDE.md; a mere mention
+    is not a load), and it FAILS if you did not run it.
+  * A FAILED OR UNRUN CHECK IS ITSELF THE DESIGNATION: the file is APPLICATION CODE. Do not
+    fall back to the category tests for it.
+  * AMB-2, AMB-3 and AMB-4 are FILE-CLASSIFYING triggers: they apply only to a file this
+    enumeration does not settle and never override one it does. AMB-1 (a task declares no
+    outputs) and AMB-5 (tasks.md declares no tasks) are FEATURE-LEVEL triggers about missing
+    declarations, name no file, and always apply.
+  * Both lists stay open: a file's absence from either list is evidence of nothing.
 ```
 
 `agents/orchestrator.md` is the **normative home** of this block. The copies in
@@ -178,12 +197,23 @@ universals, and both are **vacuously true over zero tasks** — so an empty task
 input on which the rule would invert its own fail-safe direction. AMB-1 covers *a task declares no
 outputs* and says nothing at all about *there are no tasks*, so nothing else catches it.
 
-**These triggers are subordinate to the allow-list enumeration.** They apply only to a file the
-fenced block above does not already settle by name; the rule itself is stated normatively once, in
-that block's `PRECEDENCE` clause, and is deliberately not restated here so the two cannot drift
-apart. Concretely: the repository-root `CLAUDE.md` is application code and the repository-root
-`README.md` is a category-2 non-code artifact **by enumeration**, and AMB-3 and AMB-4 never fire
-over either of them.
+**These triggers are subordinate to the allow-list enumeration: the file-classifying ones, AMB-2,
+AMB-3 and AMB-4.** They apply only to a file the fenced block above does not already settle by name;
+the rule itself is stated normatively once, in that block's `PRECEDENCE` clause, and is deliberately
+not restated here so the two cannot drift apart.
+
+**AMB-1 and AMB-5 are feature-level triggers and always apply.** They are about missing
+*declarations* — *a task declares no outputs at all*, *`tasks.md` declares no tasks at all* — so they
+name no file, and a **file** enumeration cannot subordinate them. That is what keeps AMB-5 able to
+fire over a `tasks.md` with no tasks, where there is no unsettled file for the enumeration to leave
+open in the first place.
+
+Concretely: the repository-root `CLAUDE.md` is application code and the repository-root `README.md`
+is a category-2 non-code artifact **by enumeration** — the first unconditionally, the second only for
+as long as the bounded `CHECK` stated with it inside the fence has been run and passes for it (it was
+run for this repository, and it passes) — and AMB-3 and AMB-4 never fire over either of them. Where
+that check fails, or was never run, the fence itself settles the file as application code and the
+question never reaches these triggers at all.
 
 `"code"` is the fail-safe direction because it preserves today's behaviour exactly: a feature
 classified `"code"` runs the pipeline unchanged, so a vague or under-specified task list costs
@@ -229,8 +259,8 @@ conditions** it was so read, and that the feature therefore proceeds as `"code"`
 
 ```
 featureClass: code (not classified — legacy state file: `featureClass` absent AND `phase` already
-  `implementation`, so this file predates the classification gate; proceeding on the unchanged
-  code path without retro-classifying it)
+  `implementation` or beyond, so this file predates the classification gate; proceeding on the
+  unchanged code path without retro-classifying it)
 ```
 
 This is a **report, not a prompt**: it asks the user nothing, so NFR-4's "no additional user prompt
@@ -248,14 +278,24 @@ user prompt on the code path.
 - Report to the user: "Starting task N: <description>"
 - Execute the three-stage pipeline for this task:
 
-  **Forwarded to the stages of this pipeline.** Two values ride along with the payloads each stage
-  already receives — they are added to the prompt, and nothing existing is removed or renamed:
-  - `featureClass` — the current value from `.spec-state.json`. Per *State File Management*, a
-    `null` or absent value means the feature is **unclassified**: forward it as `"code"`; `null`
-    itself is never forwarded.
+  **Forwarded to the stages of this pipeline.** Two values ride along with the payloads the stages
+  below already receive — they are added to the prompt, and nothing existing is removed or renamed.
+  **Which stage receives which is fixed here, once**, and the per-stage bullets below repeat it
+  rather than extend it:
+  - `featureClass` — the current value from `.spec-state.json`, forwarded to **Stages 2, 3, 4 and
+    5**. Per *State File Management*, a `null` or absent value means the feature is
+    **unclassified**: forward it as `"code"`; `null` itself is never forwarded.
   - `taskProducesApplicationCode` — `true` or `false`, derived for **this task alone** from the
-    outputs it declares, using the allow-list above (*Non-code artifact allow-list*). It is `false`
-    only when every output this task declares classifies non-code.
+    outputs it declares, using the allow-list above (*Non-code artifact allow-list*), and forwarded
+    to the **task stages only — Stages 2 and 3**. It is `false` **only when this task declares at
+    least one output and** every output it declares classifies non-code; **a task that declares no
+    outputs derives `true`**. That direction is the fail-safe one: nobody having said what the task
+    produces is not evidence that it produces no application code, so a task with no declared
+    outputs never earns the exemption. It is the per-task counterpart of AMB-1, and it matches the
+    per-feature rule above, which carries the same *every task declares at least one output*
+    conjunct.
+  - **The task-executor (Stage 1) receives neither value**, and its invocation is unchanged — no new
+    field and no new prompt (FR-2.4, NFR-4).
 
   Where `featureClass` is `"code"`, these two values change nothing: every stage runs exactly as it
   does today — same stages, same order, same verdict formats, same labels, and no additional user
@@ -289,8 +329,14 @@ user prompt on the code path.
   - Plus `featureClass` and `taskProducesApplicationCode`. Where `featureClass` is `"non-code"`
     **and** `taskProducesApplicationCode` is `false`, instruct the validator to run in
     **artifact-conformance mode**. The validator **never selects that mode itself** — your
-    instruction is its only entry point (FR-5.1). When you issue it, append this task's number to
-    `classification.tasksValidatedUnderExemption` in `.spec-state.json` (FR-3.3). In every other
+    instruction is its only entry point (FR-5.1). **Before** you issue that instruction, add this
+    task's number to `classification.tasksValidatedUnderExemption` in `.spec-state.json` **if it is
+    not already present**: the key is a **duplicate-free set** of task numbers, entries are **never
+    removed or cleared** — not on reclassification and not at feature completion — and the write is
+    **write-ahead**, so no interruption in that window can leave an exemption granted but unrecorded
+    (FR-3.3). It is keyed on **issuing the instruction**, never on the validation verdict, so a task
+    that fails validation under the exemption stays recorded: this record **over**-records rather
+    than under-records, which is the direction FR-3.3's re-review requires. In every other
     combination the validator is invoked exactly as today, in its unchanged code mode.
 
   The validator confirms spec conformance. It does NOT hunt for bugs or security holes — that is
@@ -315,6 +361,71 @@ user prompt on the code path.
   - **GitHub (per-task pass, FR-9):** invoke **github-agent** `{ action: commit-push, message, paths: [<task's changed files>], base: main }` for the task's changes, then invoke `{ action: comment, comment: <the three verbatim verdict blocks> }`. The comment carries the validator, code-reviewer, and security-reviewer verdict blocks **verbatim and stage-attributed** (FR-6, FR-6.1, NFR-8) — you relay them exactly as those stages emitted them; github-agent transcribes, never re-judges. If **any** `blocked:*` labels were set for this task across its prior attempts, clear **every one of them** now that it has fully passed — invoke `{ action: label, label: { op: clear, name: blocked:<stage> } }` once per recorded label (e.g. `blocked:validation`, `blocked:code-review`, and/or `blocked:security-review`), not merely the last stage's label, so no stale `blocked:*` is left orphaned on the PR when the task ultimately passes (FR-11.1).
 - On **fail** (validator FAIL, or either reviewer FAIL): Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). If retryCount < 2, re-run the executor with the combined report(s) appended — the validator failure and any blocking review findings — so it fixes everything in one retry (per Stage 1 tiering, this retry will use Opus). Also increment `escalations` on the feature state — see State File Management. If retryCount >= 2, halt and present the failures to the user.
   - **GitHub (blocking finding, FR-11):** invoke **github-agent** `{ action: label, label: { op: set, name: blocked:<stage> } }` where `<stage>` is the failing stage — `blocked:validation`, `blocked:code-review`, or `blocked:security-review` (D3). The PR **stays draft**; never ask github-agent to toggle it ready. The `blocked:*` label is cleared on the retry that resolves it (see the pass branch above), FR-11.1.
+
+#### Reclassification: non-code → code (fallback, D2)
+
+A `"non-code"` classification is a statement about what the confirmed tasks *declared*, made before
+any of them ran. This subsection is what happens when implementation contradicts it.
+
+**This subsection is a consumer of `featureClass`**, and it obeys the reading rule stated once in
+*State File Management*: a `null` or **absent** `featureClass` means the feature is **unclassified**
+and is read **exactly as an absent value** — that is, as `"code"`. Two consequences follow, stated
+plainly here so the rule cannot be inverted in this direction:
+- An unclassified feature was never granted an exemption, so **there is no exemption to withdraw**
+  from it and **no trigger reclassifies it**. `null` is not "not yet code".
+- This subsection **never writes `"non-code"`**. It only ever moves a value **to** `"code"` — never
+  from `null` to `"non-code"`, and never back.
+
+**Triggers.** Any one of the following, arising during the per-task pipeline of a feature whose
+recorded `featureClass` is `"non-code"`:
+- **T1** — the **task-tester** reports that the task in fact produced application code (FR-4.5).
+- **T2** — the **task-validator** returns FAIL citing application-code modification under
+  artifact-conformance mode (FR-5.6).
+- **T3** — **you** see an application-code path in the executor's changed-files summary, judged
+  against the allow-list above (*Non-code artifact allow-list*).
+
+**Actions on any trigger:**
+1. Set `featureClass = "code"` in `.spec-state.json` and populate `classification.reclassification`
+   with the triggering path(s), the task number, the trigger source and the timestamp (FR-3.1).
+2. **Report** the reclassification to the user, naming the file(s) and the task (FR-3.1, NFR-5).
+3. Re-run the current task's **Stage 2 (test)** and **Stage 3 (validation)** under the code path —
+   **tests required** — before the task may be marked complete (FR-3.2).
+4. Keep `classification.tasksValidatedUnderExemption` **as written**. It is a **permanent record,
+   not a live flag**, and its semantics are these — stated so no reader has to infer them from the
+   key's shape:
+   - *What it records* — the numbers of the tasks whose **Stage 3 ran in artifact-conformance mode**.
+   - *When an entry is added* — the task's number is added, **if it is not already present**,
+     immediately **before** you issue the artifact-conformance instruction in Stage 3 above. The
+     write is deliberately **write-ahead**, so no interruption in that window can leave an exemption
+     **granted but unrecorded**.
+   - *It is a duplicate-free set* — Stage 3 re-runs on both retry paths (the `On **fail**` branch
+     above, and action 3 here), so a task whose Stage 3 runs under the exemption more than once
+     appears **exactly once** in this key, not once per attempt.
+   - *It is keyed on issuing the instruction*, never on the verdict. That **over**-records
+     deliberately: a task that *fails* validation under the exemption **stays recorded**, which is
+     the direction FR-3.3's re-review requires. Under-recording would hide an exemption.
+   - *Entries are never removed or cleared* — not here on reclassification, and not at feature
+     completion.
+
+   When this key is non-empty **and** the feature has been reclassified, the **Feature Review Gate**
+   invocation must state that those tasks' outputs are to be reviewed **under the code path**
+   (FR-3.3).
+5. **Monotonic (FR-3.4).** Once `featureClass` is `"code"` it is **never** set back to `"non-code"`
+   for the remainder of the feature — not by a later task that declares only artifacts, and not by a
+   user override. An override toward `"non-code"` after reclassification is refused for the same
+   reason the classification gate refuses one: the FR-1.3 test no longer holds for this feature
+   (FR-1.6).
+
+**Retry accounting.** The three triggers do not all cost an attempt, and the difference is settled
+here rather than left to judgement:
+- **T2 is a genuine validator FAIL**, so it flows through the **existing** `On **fail**` branch
+  above, unchanged: `retryCount += 1`, `blocked:validation` set, the executor re-run with the failure
+  report. Reclassification changes what the re-run is validated *against*; it changes nothing about
+  how the failure is accounted.
+- **T1 and T3 are caught before a validation verdict exists.** They re-run stages 2–3 **within the
+  same attempt**: they do **not** increment `retryCount` and they do **not** set a label.
+- **No new label is introduced on any path** (FR-10.1, DD-8). This subsection adds nothing to the
+  label vocabulary and applies no label of its own.
 
 ### Feature Review Gate (runs automatically after the last task completes, before `complete`)
 
