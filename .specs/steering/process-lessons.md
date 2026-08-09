@@ -20,6 +20,13 @@ human had merged it, a merge commit named as an ordinary commit, and a state fil
   that is NOT a regression` beats `6/6`.
 - Verify `.spec-state.json` against disk before acting on it. It is gitignored, so it has no git
   history to recover from — keep a backup when editing it.
+- **A report's own status header is not evidence of its status. Read the tail.** Reports are written
+  incrementally (rule 4), so a report headed `(in progress)` may carry a final verdict 180 lines
+  below a title its author never revised. This produced a real error: Task 5 was recorded as
+  "reviews still running, findings unknown" when both had in fact returned FAIL with three
+  High-severity findings between them. Take a verdict from the verdict section, never from the title.
+- **The highest ID in a register is not the number of entries.** A register whose top ID is `F39`
+  held 30 entries; a second register overlapped it on three scalar IDs *and* on a whole range.
 
 ## 2. Query external state. Never infer it.
 
