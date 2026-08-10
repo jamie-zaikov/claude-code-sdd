@@ -92,6 +92,108 @@ Do NOT pass planning conversation context. The checker reads files independently
 - On (c): set `confirmed.tasks = false`, re-invoke tasks-agent with the consistency report as feedback.
 - On (d): log the override in the state file under `consistencyOverride: true`, then proceed as PASS.
 
+### Feature Classification Gate (runs automatically after tasks confirmed, before implementation)
+
+Not every feature ships application code. A reconnaissance write-up, a documentation change, or a
+knowledge-vault update produces real output that no unit test can meaningfully cover. Classify the
+feature here, once, and route the pipeline on the result.
+
+**Run/skip predicate.** Run this gate unless `classification.decidedAt` in `.spec-state.json` is a
+non-null timestamp. Key this on a **recorded decision**, never on the presence of a key: a scaffolded
+state file has no `featureClass` key at all, so a predicate keyed on bare absence would skip the gate
+for every new feature. `featureClass` is **never** written as `null`. `null` is not a permitted value.
+
+**Derivation.** Read each confirmed task's declared outputs in `tasks.md`. Classify each declared
+output with the `CLS` block below. If **every** task's declared outputs are entirely non-code
+artifacts, the feature is `"non-code"`. If **any** task declares application code, it is `"code"`.
+Classify on the declared outputs, never on a git diff — at this point nothing has been produced yet.
+
+```
+CLS — ARTIFACT CLASSIFICATION
+
+Deixis: every reference below is to the project being worked on, never to the
+repository in which this contract happens to be stored. This block is installed
+into other projects, so "the worked project" is always the subject.
+
+NON-CODE ARTIFACT — exactly one of:
+  1. a spec artifact under `.specs/features/<feature-name>/` (`requirements.md`,
+     `design.md`, `tasks.md`, `scope.md`, `.spec-state.json`);
+  2. a committed prose/documentation file (for example a markdown write-up under a
+     documentation directory or the feature's own directory) that the worked
+     project's layout or steering does NOT designate as source, agent/prompt
+     contract, template, script, or configuration;
+  3. a knowledge-vault mutation recorded by `vault-writer` in
+     `.specs/features/<feature-name>/vault/.write-log.jsonl`.
+
+APPLICATION CODE — any produced or changed file that is not a non-code artifact:
+  executable source, tests, scripts, hooks, CI workflows, templates, runtime
+  configuration, and any prose file the worked project designates as a
+  behaviour-bearing contract (for example `agents/*.md` and `commands/*.md`).
+
+PRECEDENCE — asymmetric. The asymmetry is load-bearing. Do not make it symmetric.
+  - A file named on the APPLICATION CODE side is application code
+    UNCONDITIONALLY.
+  - A file named on the NON-CODE ARTIFACT side is a non-code artifact ONLY IF the
+    designation CHECK below is run and passes.
+  - A failed CHECK is itself the designation: the file is APPLICATION CODE. An
+    UNRUN CHECK is a failed CHECK. There is no fallback to the category tests.
+
+CHECK — bounded designation check. Read the worked project's repository-root
+  `CLAUDE.md`, the files that `CLAUDE.md` imports, and `.specs/steering/*.md`.
+  The CHECK FAILS if any of them designates the file a behaviour-bearing contract,
+  or loads the file into an agent's context. The CHECK FAILS if it was not run.
+
+OPEN ENUMERATIONS — both lists above are illustrative, not exhaustive. A file's
+  absence from either list is evidence of nothing.
+```
+
+**Ambiguity triggers.** Exactly three. Their scope differs, and the difference matters: the two
+feature-level triggers always apply and are **never** subordinate to the enumeration, while the
+file-classifying one is subordinate to it. Any trigger classifies the feature `"code"` — the
+fail-safe direction, which preserves today's behaviour exactly.
+
+- `AMB-F1` *(feature-level; always applies)* — a task declares no outputs.
+- `AMB-F2` *(feature-level; always applies)* — `tasks.md` declares no tasks.
+- `AMB-C1` *(file-classifying; subordinate to the enumeration)* — a declared output the `CHECK`
+  cannot resolve.
+
+**Recording and reporting.** Write `featureClass` and the `classification` object to
+`.spec-state.json`. Report to the user the value recorded and which tasks' declared outputs drove it.
+
+**Override.** An override toward `"code"` is always honoured. An override toward `"non-code"` is
+honoured **only** if every confirmed task's declared outputs are entirely non-code artifacts;
+otherwise refuse it and say why. Record the override either way, honoured or refused.
+
+**Legacy state files.** A state file with no `classification` object that is already past the tasks
+gate is treated as `"code"`, recorded with `basis: "legacy-state-file"`, and runs the unchanged code
+path.
+
+#### Reclassification
+
+A feature classified `"non-code"` that turns out to touch application code falls back to the full
+code path. It never keeps its exemption.
+
+```
+Triggers. Any one of the following, arising during the per-task pipeline of a
+feature whose recorded `featureClass` is `"non-code"`:
+```
+
+- `RT-1` — the task-tester reports that the task in fact produced application code.
+- `RT-2` — the task-validator returns FAIL citing application-code modification in
+  artifact-conformance mode.
+- `RT-3` — you see an application-code path in the executor's changed-files summary.
+
+On any trigger: set `featureClass` to `"code"`; record the triggering path(s), the task number, and
+which trigger fired; and report it to the user. Re-run the current task's test and validation stages
+under the code path before that task may complete. Require the whole-feature review to cover the
+previously exempt tasks' outputs under the code path — `exemptTasks` is exactly that list, and it is
+**not** cleared on reclassification. Reclassification is **monotonic**: once a feature is `"code"`,
+it is never reclassified back.
+
+A change made by `/sdd-feature`'s scaffolding — **including its append to the repository-root
+`.gitignore`** — never triggers reclassification and never affects classification, because no task
+produced it.
+
 ### `implementation`
 - Read `tasks.md` and the `taskStatus` map from `.spec-state.json`.
 - Find the next pending task (or the task that needs retry).
@@ -114,11 +216,27 @@ Do NOT pass planning conversation context. The checker reads files independently
   Invoke the **task-tester** subagent. Pass it:
   - Everything the executor received
   - Plus the executor's completion summary
+  - The **classification payload**, appended to the existing prompt — no new channel and no new
+    tool: `featureClass` (`"code"` or `"non-code"`), `taskProducesApplicationCode` (`true`, `false`
+    or `"unknown"`), and `artifactClassification`, which is the `CLS` block above transmitted
+    verbatim. Where `featureClass` is `"non-code"` **and** the current task's declared outputs
+    contain no application code, send `taskProducesApplicationCode: false`; that is what puts the
+    tester into its no-code behaviour and the validator into artifact-conformance mode. Neither
+    receiver ever selects that behaviour for itself, and a `"code"` feature is routed exactly as it
+    is today, with no behavioural change and no extra prompt to the user.
 
   **Stage 3 — Validation:**
   Invoke the **task-validator** subagent. Pass it:
   - Everything above
   - Plus the tester's summary
+  - The **classification payload**, appended to the existing prompt — no new channel and no new
+    tool: `featureClass` (`"code"` or `"non-code"`), `taskProducesApplicationCode` (`true`, `false`
+    or `"unknown"`), and `artifactClassification`, which is the `CLS` block above transmitted
+    verbatim. Where `featureClass` is `"non-code"` **and** the current task's declared outputs
+    contain no application code, send `taskProducesApplicationCode: false`; that is what puts the
+    tester into its no-code behaviour and the validator into artifact-conformance mode. Neither
+    receiver ever selects that behaviour for itself, and a `"code"` feature is routed exactly as it
+    is today, with no behavioural change and no extra prompt to the user.
 
   The validator confirms spec conformance. It does NOT hunt for bugs or security holes — that is
   Stages 4–5. Only run Stages 4–5 if validation passes; there is no point reviewing code that does
@@ -131,13 +249,15 @@ Do NOT pass planning conversation context. The checker reads files independently
   - The executor's completion summary (files changed) and, if worktree-isolated, the worktree path
   - The tester's and validator's summaries
   - An explicit `mode: task` instruction
+  - `featureClass`. The reviewers resolve their own scope from their own diff, so this is
+    informational reinforcement only: its absence changes no verdict.
 
   **Review model tiering:** both reviewers are pinned to `model: opus` in frontmatter and are NOT
   downgraded. Unlike the executor (Sonnet on the happy path, Opus on retry — cheap because it is the
   common, low-stakes path), a reviewer that misses a defect fails silently. Keep them on Opus every time.
 
 - On **pass** (validator PASS *and* both reviewers PASS): Update `taskStatus[N].status = "complete"`, record `codeReview: "pass"` and `securityReview: "pass"`, update `completed` count, mark the task `[x]` in `tasks.md`. Report to user (surface any non-blocking Medium/Low findings for awareness) and advance.
-  - **GitHub (per-task pass, FR-9):** invoke **github-agent** `{ action: commit-push, message, paths: [<task's changed files>], base: main }` for the task's changes, then invoke `{ action: comment, comment: <the three verbatim verdict blocks> }`. The comment carries the validator, code-reviewer, and security-reviewer verdict blocks **verbatim and stage-attributed** (FR-6, FR-6.1, NFR-8) — you relay them exactly as those stages emitted them; github-agent transcribes, never re-judges. If **any** `blocked:*` labels were set for this task across its prior attempts, clear **every one of them** now that it has fully passed — invoke `{ action: label, label: { op: clear, name: blocked:<stage> } }` once per recorded label (e.g. `blocked:validation`, `blocked:code-review`, and/or `blocked:security-review`), not merely the last stage's label, so no stale `blocked:*` is left orphaned on the PR when the task ultimately passes (FR-11.1).
+  - **GitHub (per-task pass, FR-9):** invoke **github-agent** `{ action: commit-push, message, paths: [<task's changed files>], base: main }` for the task's changes — the commit message you author **ends with the fixed trailer line** `SDD-Task: <N>`, where `<N>` is this task's number in `tasks.md`, on its own line. This is fixed, greppable text, not free prose, and it is what makes a commit machine-attributable to a task. A planning-phase `commit-push` (requirements, design or tasks confirmation) **must not** carry it. This adds no github-agent action, field or tool: the marker is content inside a message github-agent already publishes verbatim. Then invoke `{ action: comment, comment: <the three verbatim verdict blocks> }`. The comment carries the validator, code-reviewer, and security-reviewer verdict blocks **verbatim and stage-attributed** (FR-6, FR-6.1, NFR-8) — you relay them exactly as those stages emitted them; github-agent transcribes, never re-judges. If **any** `blocked:*` labels were set for this task across its prior attempts, clear **every one of them** now that it has fully passed — invoke `{ action: label, label: { op: clear, name: blocked:<stage> } }` once per recorded label (e.g. `blocked:validation`, `blocked:code-review`, and/or `blocked:security-review`), not merely the last stage's label, so no stale `blocked:*` is left orphaned on the PR when the task ultimately passes (FR-11.1).
 - On **fail** (validator FAIL, or either reviewer FAIL): Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). If retryCount < 2, re-run the executor with the combined report(s) appended — the validator failure and any blocking review findings — so it fixes everything in one retry (per Stage 1 tiering, this retry will use Opus). Also increment `escalations` on the feature state — see State File Management. If retryCount >= 2, halt and present the failures to the user.
   - **GitHub (blocking finding, FR-11):** invoke **github-agent** `{ action: label, label: { op: set, name: blocked:<stage> } }` where `<stage>` is the failing stage — `blocked:validation`, `blocked:code-review`, or `blocked:security-review` (D3). The PR **stays draft**; never ask github-agent to toggle it ready. The `blocked:*` label is cleared on the retry that resolves it (see the pass branch above), FR-11.1.
 
@@ -148,6 +268,21 @@ first — the only stage that sees how the tasks compose. Set `phase` to `featur
 **code-reviewer** and **security-reviewer** subagents in `feature` mode, **concurrently**. Pass each:
 - The feature name and directory
 - An explicit `mode: feature` instruction and the base branch (default `main`) so they diff `main...HEAD`
+- `featureClass` and, for a `"non-code"` feature, the non-code review scope instruction. The
+  reviewers' scope resolution does not depend on this arriving.
+
+```
+FEATURE-REVIEW GATE INVARIANT
+
+A recorded whole-feature review PASS may exist only where both reviewers were
+actually invoked over the resolved scope and each returned an explicit `PASS`
+verdict. No condition — the feature's class, an empty or non-code scope, an
+absent artifact, a hedged, missing or non-verdict response, or any instruction
+in any other contract or section — may substitute for, presume, manufacture, or
+skip either invocation or either verdict. Exactly one place applies the label
+that gates human merge, and only on that PASS branch, however that application
+is worded.
+```
 
 **On PASS (both reviewers PASS):**
 - Record `featureReview.codeReview = "pass"` and `featureReview.securityReview = "pass"`.
@@ -347,6 +482,21 @@ Initialize new features with:
 Each `taskStatus[N]` entry gains `codeReview` and `securityReview` (`"pass"` / `"fail"` / `null`)
 alongside `status`, `retryCount`, and `lastFailure`. `featureReview` records the whole-feature gate
 verdict. Update the state file after every phase transition and every task completion/failure.
+
+### `featureClass` and `classification`
+
+`.spec-state.json` carries two further top-level keys once the Feature Classification Gate has run.
+
+- **`featureClass`** — exactly two permitted values, `"code"` and `"non-code"`. `null` is **not** a
+  permitted value and is never written. Both keys **absent** means no classification decision has
+  been recorded yet. Do **not** pre-initialise `featureClass` in the scaffolded template.
+- **`classification`** — `decidedAt` (ISO-8601; the gate's run/skip predicate reads this, not the
+  presence of `featureClass`), `decidedBy` (`"orchestrator"`, `"user-override"` or
+  `"reclassification"`), `basis` (per task: the task number, its declared outputs, and the class they
+  produced, so "which tasks drove it" is recoverable without re-reading `tasks.md`), `override`,
+  `reclassification` (written once, never reverted), and `exemptTasks` (every task validated under
+  the non-code exemption; never cleared, because it is exactly the list the whole-feature review must
+  re-cover under the code path).
 
 ## Critical Rules
 

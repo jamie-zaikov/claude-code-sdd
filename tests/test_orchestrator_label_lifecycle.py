@@ -26,7 +26,14 @@ Run:
 
 import re
 import unittest
+import subprocess
+import sys
 from pathlib import Path
+
+# Resolve the sibling helper whether this module is run as `tests.<name>` from the repo root or
+# directly as `python3 tests/<name>.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sync_state import classify_sync_state  # noqa: E402
 
 # Resolve the orchestrator relative to this test so it survives consolidation / worktree layout:
 #   <root>/tests/test_orchestrator_label_lifecycle.py  ->  <root>/agents/orchestrator.md
@@ -267,20 +274,48 @@ class OrchestratorLabelLifecycleTest(unittest.TestCase):
 
     # --- (6) Consistency: repo copy == reconciled global copy (skips cleanly) --
 
-    def test_repo_and_global_copies_are_byte_identical(self):
-        """(6) The repo agents/orchestrator.md and the reconciled global copy are byte-identical.
-        If the global copy is unreadable (absent / permission-denied), SKIP cleanly rather than
-        fail — the global reconciliation is out-of-band and not always present in every env."""
+    def test_repo_and_global_copies_are_in_sync_or_pending_install(self):
+        """(6) The repo agents/orchestrator.md and the installed global copy have not DRIFTED.
+
+        Reworked per FR-11.8 / NFR-10. A strict byte-identity assertion cannot distinguish real
+        divergence from the normal window in which the repository copy is ahead of the installed
+        copy, awaiting the operator's `./install.sh`. It therefore failed on every ordinary change
+        and pressured the reader into syncing the live fleet early — which would load unreviewed
+        agent contracts into the very agents that must review them.
+
+        `classify_sync_state` names the three states instead. `identical` and `pending` both pass;
+        `drift` fails. The invariants below must survive in the repository copy either way, so
+        `pending` can never become a blanket excuse for a lost guarantee.
+        """
         if not GLOBAL_ORCH_PATH.exists():
             self.skipTest(f"global orchestrator copy not present at {GLOBAL_ORCH_PATH}")
         try:
-            global_bytes = GLOBAL_ORCH_PATH.read_bytes()
+            global_text = GLOBAL_ORCH_PATH.read_text(encoding="utf-8")
         except OSError as exc:
             self.skipTest(f"global orchestrator copy unreadable: {exc}")
-        repo_bytes = ORCH_PATH.read_bytes()
-        self.assertEqual(
-            repo_bytes, global_bytes,
-            "repo agents/orchestrator.md and the global copy are NOT byte-identical",
+        repo_text = ORCH_PATH.read_text(encoding="utf-8")
+
+        invariants = (
+            "{ action: label, label: { op: set, name: ready-to-merge } }",
+            "FEATURE-REVIEW GATE INVARIANT",
+        )
+        # What ./install.sh would have installed: the file at the last merged revision.
+        merged_text = None
+        try:
+            merged_text = subprocess.run(
+                ["git", "show", "origin/main:agents/orchestrator.md"],
+                cwd=ORCH_PATH.resolve().parent.parent,
+                capture_output=True, text=True, check=True,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError):
+            pass  # No git or no origin/main: fall back to strict comparison below.
+        state = classify_sync_state(repo_text, global_text, invariants, merged_text)
+        self.assertIn(
+            state, ("identical", "pending"),
+            f"repo agents/orchestrator.md and the installed global copy have DRIFTED "
+            f"(state={state!r}). Either the installed copy was edited directly, or the repository "
+            "copy lost a load-bearing invariant. A repository copy that is merely ahead of the "
+            "installed copy is 'pending' and passes; run ./install.sh after merge to clear it.",
         )
 
 

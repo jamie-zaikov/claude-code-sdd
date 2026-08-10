@@ -37,6 +37,24 @@ before the feature is marked complete — a blocking finding there halts complet
 explicitly overridden. Validation checks spec conformance; the reviews hunt the bugs and security
 holes a requirement-anchored check misses by construction.
 
+Not every feature ships application code. After tasks are confirmed and before implementation
+starts, the orchestrator **classifies** the feature as code-bearing or non-code, from what its
+tasks declare they will produce, and records the decision in `.spec-state.json`. Classification is
+explicit, never inferred from an empty git diff.
+
+On the non-code track the stages do not change; what they check does:
+- the tester writes a real machine check where the artifact allows one, and otherwise states why no
+  automated check is feasible — it never writes a placeholder test to satisfy an expectation;
+- the validator runs in artifact-conformance mode, mapping every cited requirement to a named
+  produced artifact it has read; a missing unit test is not a failure in that mode only;
+- both reviewers have a defined, emittable verdict for an empty or non-code scope, reviewing spec
+  artifacts, committed documents and the vault changelog. A hedge is not a permitted outcome.
+
+The gate does not move. A non-code feature reaches `ready-to-merge` only through a **real**
+whole-feature review PASS, at the same single application point, and no bypass label exists. A
+feature classified non-code that turns out to touch application code **falls back to the full code
+path** and never keeps its exemption.
+
 ### Agent Ownership
 
 - orchestrator: coordinates lifecycle, never writes content or code
@@ -142,3 +160,27 @@ When all implementation tasks for a feature are complete, ask the user:
 - Requirements use EARS syntax (FR-N, NFR-N).
 - Every task references at least one requirement.
 - Every requirement traces to at least one design component.
+
+## Communication Style — Simplified Technical English
+
+Write every conversational reply to the user in **ASD-STE100 Simplified Technical English**,
+Issue 9, released 15 January 2025 (<https://www.asd-ste100.org/>).
+
+- Give one idea in one sentence. Maximum 20 words in a procedure, 25 in a description.
+- Use the active voice. Use the present tense where this is possible.
+- Use one word for one meaning. Do not use a synonym for variety. Keep the same term for the
+  same thing.
+- Do not use `-ing` forms. Technical names are the exception.
+- Keep noun clusters to three words.
+- Keep the articles `the` and `a`. Do not delete words to make a sentence short.
+- Write six sentences in a paragraph, or fewer. Use vertical lists for complex data.
+- Technical names and technical verbs are permitted. Terms such as `commit`, `branch`,
+  `orchestrator` and `requirements` do not change.
+
+**Scope.** This rule governs conversational replies to the user. It does **not** govern spec
+artifacts, code, code comments, or commit messages. Those follow the Writing Rules above. An
+agent's report to its invoker is not a reply to the user.
+
+**Known limit — state it, never hide it.** ASD licenses the approved-word dictionary, which holds
+approximately 900 words. It is not available here. Apply the writing rules correctly. Do not
+claim that the text conforms to the dictionary.
