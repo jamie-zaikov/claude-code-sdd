@@ -249,6 +249,11 @@ produced it.
   Invoke the **task-tester** subagent. Pass it:
   - Everything the executor received
   - Plus the executor's completion summary
+  - **First, check `RT-3` (Reclassification, above).** You now hold the executor's changed-files
+    summary — this is the only stage that does. If it contains an application-code path while
+    `featureClass` is `"non-code"`, reclassify to `"code"` **before** computing the payload below,
+    and send `taskProducesApplicationCode: true`. Computing the payload from the task's *declared*
+    outputs alone would grant the exemption to a task that in fact produced application code.
   - The **classification payload**, appended to the existing prompt — no new channel and no new
     tool: `featureClass` (`"code"` or `"non-code"`), `taskProducesApplicationCode` (`true`, `false`
     or `"unknown"`), and `artifactClassification`, which is the `CLS` block above transmitted
@@ -289,7 +294,13 @@ produced it.
 
 - On **pass** (validator PASS *and* both reviewers PASS): Update `taskStatus[N].status = "complete"`, record `codeReview: "pass"` and `securityReview: "pass"`, update `completed` count, mark the task `[x]` in `tasks.md`. Report to user (surface any non-blocking Medium/Low findings for awareness) and advance.
   - **GitHub (per-task pass, FR-9):** invoke **github-agent** `{ action: commit-push, message, paths: [<task's changed files>], base: main }` for the task's changes — the commit message you author **ends with the fixed trailer line** `SDD-Task: <N>`, where `<N>` is this task's number in `tasks.md`, on its own line. This is fixed, greppable text, not free prose, and it is what makes a commit machine-attributable to a task. A planning-phase `commit-push` (requirements, design or tasks confirmation) **must not** carry it. This adds no github-agent action, field or tool: the marker is content inside a message github-agent already publishes verbatim. Then invoke `{ action: comment, comment: <the three verbatim verdict blocks> }`. The comment carries the validator, code-reviewer, and security-reviewer verdict blocks **verbatim and stage-attributed** (FR-6, FR-6.1, NFR-8) — you relay them exactly as those stages emitted them; github-agent transcribes, never re-judges. If **any** `blocked:*` labels were set for this task across its prior attempts, clear **every one of them** now that it has fully passed — invoke `{ action: label, label: { op: clear, name: blocked:<stage> } }` once per recorded label (e.g. `blocked:validation`, `blocked:code-review`, and/or `blocked:security-review`), not merely the last stage's label, so no stale `blocked:*` is left orphaned on the PR when the task ultimately passes (FR-11.1).
-- On **fail** (validator FAIL, or either reviewer FAIL): Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). If retryCount < 2, re-run the executor with the combined report(s) appended — the validator failure and any blocking review findings — so it fixes everything in one retry (per Stage 1 tiering, this retry will use Opus). Also increment `escalations` on the feature state — see State File Management. If retryCount >= 2, halt and present the failures to the user.
+- **Before applying the fail branch, check for `RT-2` (Reclassification, above).** If the
+  validator's FAIL cites application-code modification while the task was in artifact-conformance
+  mode, this is a **reclassification signal and not a task failure**: handle it under
+  Reclassification and do **not** apply the branch below — no `retryCount` increment, no
+  `blocked:validation`, no executor re-run. Applying the branch below would send the executor back
+  to delete legitimate application code as the only way to clear the verdict.
+- On **fail** (validator FAIL other than `RT-2`, or either reviewer FAIL): Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). If retryCount < 2, re-run the executor with the combined report(s) appended — the validator failure and any blocking review findings — so it fixes everything in one retry (per Stage 1 tiering, this retry will use Opus). Also increment `escalations` on the feature state — see State File Management. If retryCount >= 2, halt and present the failures to the user.
   - **GitHub (blocking finding, FR-11):** invoke **github-agent** `{ action: label, label: { op: set, name: blocked:<stage> } }` where `<stage>` is the failing stage — `blocked:validation`, `blocked:code-review`, or `blocked:security-review` (D3). The PR **stays draft**; never ask github-agent to toggle it ready. The `blocked:*` label is cleared on the retry that resolves it (see the pass branch above), FR-11.1.
 
 ### Feature Review Gate (runs automatically after the last task completes, before `complete`)

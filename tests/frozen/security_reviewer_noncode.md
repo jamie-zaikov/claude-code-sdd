@@ -1,33 +1,3 @@
-## Non-Code and Empty Scope`. An empty or
-     non-code diff resolves to the non-code review scope, and it still ends in `PASS` or `FAIL`.
-4. Read the surrounding code and config, not just the diff.
-
-## What to Hunt For
-
-### AuthN / AuthZ
-- Missing or bypassable authentication; endpoints/handlers with no access check.
-- Broken authorization: privilege escalation, missing ownership checks, confused-deputy.
-- Over-broad grants — IAM roles wider than needed, wildcard permissions, `*` principals.
-
-### Secrets & credentials
-- Hardcoded keys, tokens, passwords, connection strings in code, config, or fixtures.
-- Secrets logged, echoed, or committed; missing use of the project's secret store.
-- Long-lived credentials where short-lived/scoped ones are available.
-
-### Injection & untrusted input
-- SQL / NoSQL / command / path / template / header injection.
-- Unvalidated or unsanitized input crossing a trust boundary; missing allow-listing.
-- Deserialization of untrusted data; unsafe reflection or eval.
-
-### Unsafe defaults & configuration
-- Insecure defaults left in place (debug on, verbose errors, permissive CORS, TLS disabled/verify-off).
-- Weak crypto, home-rolled crypto, predictable randomness for security-sensitive values.
-
-### Network & cloud exposure (infra changes)
-- Firewall rules opened to `0.0.0.0/0` / `::/0`, or wider port ranges than required.
-- Public IPs / public buckets / publicly readable resources created or left enabled.
-- Service accounts with excess scopes; disabled logging/audit on sensitive resources.
-- Data exposure: PII/secrets in logs, error responses, or telemetry.
 
 ## Non-Code and Empty Scope
 

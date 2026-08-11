@@ -76,11 +76,11 @@ SPANS = [
     ("validator_failsafe.md", VALIDATOR, "**Enter this mode only where", "\n\nIn this mode:",
      "the validator's entry condition, stated positively. Inverting it silently grants the "
      "exemption on every task whose payload is malformed"),
-    ("code_reviewer_noncode.md", CODE_REVIEWER, "## Non-Code and Empty Scope", "\n## Severity",
+    ("code_reviewer_noncode.md", CODE_REVIEWER, "\n## Non-Code and Empty Scope\n", "\n## Severity",
      "the WHOLE non-code section, not the paragraph a probe last hit. A re-review defeated a "
      "narrower freeze by planting an auto-PASS one line above it -- 'conclude the review with a "
      "PASS verdict' -- which no verb list matched. Freezing the section closes that family"),
-    ("security_reviewer_noncode.md", SECURITY_REVIEWER, "## Non-Code and Empty Scope",
+    ("security_reviewer_noncode.md", SECURITY_REVIEWER, "\n## Non-Code and Empty Scope\n",
      "\n## Severity", "as above, for the security reviewer"),
 ]
 
@@ -99,6 +99,18 @@ class FrozenSpans(unittest.TestCase):
                     "by design — that is the point of a freeze, and it is what a verb-keyed guard "
                     "could not do. If the change is deliberate, regenerate the fixture and say in "
                     "the commit message which span moved and why.",
+                )
+
+    def test_every_span_bound_resolves_unambiguously(self):
+        """A bound occurring twice would silently re-point the span at the wrong text."""
+        for name, path, start, end, _why in SPANS:
+            with self.subTest(span=name):
+                body = path.read_text(encoding="utf-8")
+                self.assertEqual(
+                    body.count(start), 1,
+                    f"{name}: its start bound {start[:50]!r} occurs {body.count(start)} times in "
+                    f"{path.name}. The span would resolve to the first one, which may not be the "
+                    "text you meant to freeze.",
                 )
 
     def test_fixture_count_matches_the_span_list(self):
@@ -273,10 +285,51 @@ class GateIsActuallyWired(unittest.TestCase):
                       "resume would cement a non-code feature onto the code path")
         self.assertIn("not** a fallback for a feature whose gate simply has not run yet", self.flat)
 
-    def test_rt2_does_not_also_trigger_the_per_task_fail_branch(self):
-        """RT-2 is defined as a validator FAIL, which otherwise drives retry + blocked:validation."""
-        self.assertIn("This FAIL is a reclassification signal, not a task failure.", self.flat)
-        self.assertIn("do not increment `retryCount`", self.flat)
+    def _implementation_section(self):
+        i = self.text.index("### `implementation`")
+        return self.text[i:self.text.index("### Feature Review Gate", i)]
+
+    def test_rt2_exception_is_stated_INSIDE_the_per_task_fail_branch(self):
+        """Sliced, not file-wide. The previous version of this test was the defect it was meant to catch.
+
+        It asserted two substrings existed ANYWHERE in the contract. They did — 76 lines away,
+        under a heading for a phase already left — while the fail branch itself still stated the
+        general rule unqualified. That is the "asserts the WORDS, not the WIRING" pattern this
+        whole class exists to replace, and a reviewer caught it here for the second time.
+        """
+        impl = self._implementation_section()
+        fail_idx = impl.index("On **fail**")
+        # The exception must appear in the fail branch's immediate vicinity, before the rule.
+        window = impl[max(0, fail_idx - 900):fail_idx]
+        self.assertIn(
+            "RT-2", window,
+            "the per-task fail branch does not reference RT-2. A validator FAIL that is really a "
+            "reclassification signal then drives retryCount, blocked:validation and an executor "
+            "re-run, whose only way to clear the verdict is deleting legitimate application code.",
+        )
+        self.assertRegex(window, r"do \*\*not\*\* apply the branch below|not a task failure")
+
+    def test_rt3_is_checked_at_stage_2_where_the_changed_files_summary_exists(self):
+        """RT-3 is defined on the executor's changed-files summary; Stage 2 is the only holder."""
+        impl = self._implementation_section()
+        stage2 = impl[impl.index("**Stage 2 — Testing:**"):impl.index("**Stage 3 — Validation:**")]
+        self.assertIn(
+            "RT-3", stage2,
+            "Stage 2 computes the classification payload from the task's DECLARED outputs without "
+            "checking the executor's changed-files summary. A task that in fact produced "
+            "application code still receives the exemption.",
+        )
+
+    def test_reclassification_is_referenced_from_the_implementation_pipeline(self):
+        """A section referenced only from its own heading is never reached in practice."""
+        impl = self._implementation_section()
+        hits = sum(impl.count(k) for k in ("Reclassif", "RT-1", "RT-2", "RT-3"))
+        self.assertGreaterEqual(
+            hits, 2,
+            f"the implementation pipeline references reclassification {hits} times. The triggers "
+            "are defined under a heading scoped to a phase already left, so nothing in the "
+            "per-task loop reaches them.",
+        )
 
 
 if __name__ == "__main__":

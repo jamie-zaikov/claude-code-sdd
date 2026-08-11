@@ -1,33 +1,3 @@
-## Non-Code and Empty Scope`. An empty or
-     non-code diff resolves to the non-code review scope, and it still ends in `PASS` or `FAIL`.
-4. Read the surrounding code, not just the diff — a change is only correct in context.
-
-## What to Hunt For
-
-Read the changed code adversarially against each class. Do not stop at the first issue.
-
-### Correctness
-- Off-by-one errors, boundary conditions, empty/singleton inputs, overflow.
-- Null / undefined / missing-key handling; unchecked optionals.
-- Incorrect logic, inverted conditions, wrong operator, copy-paste errors.
-- Edge cases the happy-path tests would not exercise.
-
-### Robustness & error handling
-- Unhandled failures, swallowed exceptions, errors logged-and-continued when they should abort.
-- Concurrency: races, non-atomic read-modify-write, shared mutable state, missing locks.
-- Resource leaks: files, sockets, handles, connections not closed on all paths (including error paths).
-- Retry/timeout/idempotency gaps in anything that touches I/O or the network.
-
-### Maintainability & correctness-of-design
-- Duplicated logic that should be shared; reinventing something the codebase already provides.
-- Dead code, unreachable branches, leftover scaffolding or debug output.
-- Needless complexity or an algorithm materially worse than the obvious one (e.g. O(n²) on a hot path).
-- Violations of conventions in `tech.md`.
-
-### Integration (feature mode especially)
-- Contract drift between tasks — one task changed a signature/shape another still assumes.
-- Seams where two tasks' code meets and neither owns the boundary.
-- Duplicated or divergent implementations of the same concept across tasks.
 
 ## Non-Code and Empty Scope
 
