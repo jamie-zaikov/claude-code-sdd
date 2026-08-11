@@ -22,8 +22,13 @@ Stdlib-only. Run:
 """
 
 import re
+import subprocess
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sync_state import classify_sync_state  # noqa: E402
 
 # Repo-root docs resolve relative to this test:
 #   <root>/tests/test_docs_updates.py -> <root>/CLAUDE.md, <root>/README.md
@@ -224,17 +229,42 @@ class ClaudeOwnershipContentTest(unittest.TestCase):
                 f"  repo:   {repo_lines[key]}\n  global: {global_lines[key]}",
             )
 
-    def test_two_claude_files_byte_identical(self):
-        """Established sync convention: the two CLAUDE.md files are byte-identical (executor asserts so).
+    def test_two_claude_files_are_in_sync_or_pending_install(self):
+        """The repo and installed CLAUDE.md have not DRIFTED (FR-11.8 / NFR-10).
 
-        This is asserted in addition to (not instead of) the specific-line checks above, so the test
-        stays meaningful even if the byte-identical convention later changes.
+        This replaces a strict byte-identity assertion. That assertion could not distinguish real
+        divergence from the normal window in which the repository copy is ahead of the installed
+        copy, awaiting the operator's ./install.sh. Because it stayed RED for the whole of any
+        doc-touching feature, it created standing pressure to install the unmerged CLAUDE.md into
+        ~/.claude purely to get a green suite — and CLAUDE.md loads into EVERY agent, in every
+        project on this machine.
+
+        That pressure was acted on during this feature, and a security review caught the result:
+        live global doctrine announced a test exemption while not one installed contract carried
+        the fail-safes that make the exemption safe. The helper encodes the three-state model that
+        removes the pressure. `identical` and `pending` pass; `drift` fails.
         """
         if not self.global_available:
-            self.skipTest(f"global CLAUDE.md not readable at {GLOBAL_CLAUDE}; byte-identity skipped")
-        self.assertEqual(
-            self.repo_text, self.global_text,
-            "repo-root and global CLAUDE.md are not byte-identical (sync convention broken)",
+            self.skipTest(f"global CLAUDE.md not readable at {GLOBAL_CLAUDE}; sync check skipped")
+
+        # What ./install.sh would have installed: the file at the last merged revision.
+        merged_text = None
+        try:
+            merged_text = subprocess.run(
+                ["git", "show", "origin/main:CLAUDE.md"],
+                cwd=ROOT, capture_output=True, text=True, check=True,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError):
+            pass  # No git or no origin/main: any difference is reported as drift, which is safe.
+
+        invariants = ("### Phase Gates", "### Agent Ownership")
+        state = classify_sync_state(self.repo_text, self.global_text, invariants, merged_text)
+        self.assertIn(
+            state, ("identical", "pending"),
+            f"repo-root and installed CLAUDE.md have DRIFTED (state={state!r}). Either the "
+            "installed copy was hand-edited, or the repo copy lost a load-bearing section. A repo "
+            "copy that is merely ahead of the installed copy is 'pending' and passes; run "
+            "./install.sh after merge to clear it.",
         )
 
 

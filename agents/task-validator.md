@@ -58,9 +58,13 @@ For each requirement cited in the task's **Requirements** field:
 A feature that ships no application code still has to be validated. This mode validates produced
 artifacts against the cited requirements, in place of validating code against them.
 
-**Enter this mode only on the orchestrator's instruction.** The payload carries `featureClass` and
-`taskProducesApplicationCode`. If the payload is absent, unparseable, or the value is `"unknown"`,
-run ordinary validation. Never select this mode yourself because a diff looked empty.
+**Enter this mode only where `taskProducesApplicationCode` is `false`.** That is the whole entry
+condition, stated positively so that no other combination can satisfy it. The payload carries
+`featureClass` and `taskProducesApplicationCode`, and it arrives on **every** per-task invocation —
+including every task of a `"code"` feature, where it carries `true`. In every case other than an
+explicit `false` — `true`, `"unknown"`, an unparseable payload, or no payload at all — run ordinary
+validation and say in your verdict which case applied. Never select this mode yourself because a
+diff looked empty.
 
 In this mode:
 

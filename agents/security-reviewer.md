@@ -92,6 +92,21 @@ changes no verdict, and its presence never overrides what your diff shows.
    - the vault changelog entries for this feature in
      `.specs/features/<feature-name>/vault/.write-log.jsonl`.
 
+**What counts as a non-code artifact, and what to do when you cannot tell.** A non-code artifact is
+exactly one of: a spec artifact under `.specs/features/<feature-name>/`; a committed prose or
+documentation file that the project's layout or steering does **not** designate as source, agent or
+prompt contract, template, script, or configuration; or a knowledge-vault mutation recorded in the
+changelog. Everything else is application code — executable source, tests, scripts, hooks, CI
+workflows, templates, runtime configuration, and **any prose file the project designates as a
+behaviour-bearing contract**. In this repository `agents/*.md` and `commands/*.md` are application
+code, so a diff of nothing but markdown is **not** automatically a non-code diff.
+
+**Fail safe.** Any file whose designation you cannot settle is application code, and a diff holding
+even one such file is not a non-code diff — review it with your ordinary hunt. An undesignated file
+in a location a tool reads as agent instructions by convention (a `.github/` instructions directory,
+a prompts directory, a rules directory) is application code even though nothing names it. Silence is
+never an exemption.
+
 **Review scope is not produced output.** A plan document is always in scope for security review,
 and it never counts as produced output. The two sets are different. The rule below decides the
 second one, and it alone decides it.

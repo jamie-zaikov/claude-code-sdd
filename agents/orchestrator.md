@@ -133,8 +133,13 @@ APPLICATION CODE — any produced or changed file that is not a non-code artifac
 PRECEDENCE — asymmetric. The asymmetry is load-bearing. Do not make it symmetric.
   - A file named on the APPLICATION CODE side is application code
     UNCONDITIONALLY.
-  - A file named on the NON-CODE ARTIFACT side is a non-code artifact ONLY IF the
-    designation CHECK below is run and passes.
+  - LIMB 1 is a closed, named set of plan documents. It settles as a
+    non-code artifact WITHOUT the CHECK. A plan document is never
+    behaviour-bearing, and every project loads the feature directory into an
+    agent's context, so a CHECK over limb 1 would always fail and would
+    designate the feature's own requirements.md as application code.
+  - A file named on the NON-CODE ARTIFACT side by LIMB 2 or LIMB 3 is a
+    non-code artifact ONLY IF the designation CHECK below is run and passes.
   - A failed CHECK is itself the designation: the file is APPLICATION CODE. An
     UNRUN CHECK is a failed CHECK. There is no fallback to the category tests.
 
@@ -142,6 +147,13 @@ CHECK — bounded designation check. Read the worked project's repository-root
   `CLAUDE.md`, the files that `CLAUDE.md` imports, and `.specs/steering/*.md`.
   The CHECK FAILS if any of them designates the file a behaviour-bearing contract,
   or loads the file into an agent's context. The CHECK FAILS if it was not run.
+  The CHECK also FAILS, whether or not anything designates the file, where the
+  file sits in a location a tool reads as agent instructions BY CONVENTION — for
+  example a `.github/` instructions directory, a prompts directory, or a rules
+  directory. Silence is not an exemption: an undesignated file in such a
+  location is APPLICATION CODE.
+  Do not follow an import into a credential store. A denied, refused or
+  unreadable import is a FAILED CHECK, never a skipped one.
 
 OPEN ENUMERATIONS — both lists above are illustrative, not exhaustive. A file's
   absence from either list is evidence of nothing.
@@ -219,24 +231,22 @@ produced it.
   - The **classification payload**, appended to the existing prompt — no new channel and no new
     tool: `featureClass` (`"code"` or `"non-code"`), `taskProducesApplicationCode` (`true`, `false`
     or `"unknown"`), and `artifactClassification`, which is the `CLS` block above transmitted
-    verbatim. Where `featureClass` is `"non-code"` **and** the current task's declared outputs
-    contain no application code, send `taskProducesApplicationCode: false`; that is what puts the
-    tester into its no-code behaviour and the validator into artifact-conformance mode. Neither
-    receiver ever selects that behaviour for itself, and a `"code"` feature is routed exactly as it
+    verbatim. Send `taskProducesApplicationCode: false` where `featureClass` is `"non-code"`
+    **and** the current task's declared outputs contain no application code; that value, and only
+    that value, puts the tester into its no-code behaviour and the validator into
+    artifact-conformance mode. Send `true` where the task's declared outputs contain application
+    code, which includes every task of a `"code"` feature. Send `"unknown"` only where you cannot
+    determine it; the receivers treat `"unknown"` exactly as they treat an absent payload. Neither
+    receiver ever selects the exemption for itself, and a `"code"` feature is routed exactly as it
     is today, with no behavioural change and no extra prompt to the user.
 
   **Stage 3 — Validation:**
   Invoke the **task-validator** subagent. Pass it:
   - Everything above
   - Plus the tester's summary
-  - The **classification payload**, appended to the existing prompt — no new channel and no new
-    tool: `featureClass` (`"code"` or `"non-code"`), `taskProducesApplicationCode` (`true`, `false`
-    or `"unknown"`), and `artifactClassification`, which is the `CLS` block above transmitted
-    verbatim. Where `featureClass` is `"non-code"` **and** the current task's declared outputs
-    contain no application code, send `taskProducesApplicationCode: false`; that is what puts the
-    tester into its no-code behaviour and the validator into artifact-conformance mode. Neither
-    receiver ever selects that behaviour for itself, and a `"code"` feature is routed exactly as it
-    is today, with no behavioural change and no extra prompt to the user.
+  - The same **classification payload** sent to the tester in Stage 2, unchanged. Its rules are
+    stated once, in Stage 2, and Stage 3 inherits it under "Everything above". Do not restate them
+    here: one normative paragraph in two places is a drift surface.
 
   The validator confirms spec conformance. It does NOT hunt for bugs or security holes — that is
   Stages 4–5. Only run Stages 4–5 if validation passes; there is no point reviewing code that does

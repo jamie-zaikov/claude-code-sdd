@@ -191,11 +191,16 @@ class ProvenanceProhibition(unittest.TestCase):
             for n, line in enumerate(lines):
                 if line.startswith(anchor):
                     o = n
-                    while not lines[o].startswith("```"):
+                    while o > 0 and not lines[o].startswith("```"):
                         o -= 1
                     c = n
-                    while not lines[c].startswith("```"):
+                    while c < len(lines) - 1 and not lines[c].startswith("```"):
                         c += 1
+                    if not lines[o].startswith("```") or not lines[c].startswith("```"):
+                        self.fail(
+                            f"{path.name}: the anchor {anchor[:40]!r} is not inside a fenced "
+                            "block; an unbounded walk would run off the file."
+                        )
                     yield anchor, "\n".join(lines[max(0, o - 4):min(len(lines), c + 5)])
 
     def test_no_provenance_sentence_inside_or_adjacent_to_any_fence(self):

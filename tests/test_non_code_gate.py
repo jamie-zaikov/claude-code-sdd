@@ -1,43 +1,34 @@
 #!/usr/bin/env python3
-"""The feature-review gate: guarded by property, not by vocabulary.
+"""The single application point for the merge-gating label.
 
-Attempt 1's Task 5 shipped a 60-test module that stayed green under four separate bypasses. Two
-reviewers found three High findings in it. This module is built against those specific holes.
+**Scope of this module, stated exactly.** It asserts that the merge-gating label is applied in
+exactly one place, inside the feature-review PASS branch, and that no clause anywhere in the three
+contracts permits a reviewer, a stage, or the gate to be skipped or auto-passed.
 
-What went wrong then, and what is asserted here instead:
-
-1. **Verb blindness.** A census keyed on the verb `set` returned zero occurrences of the same
-   action phrased `apply` — which the contract's own prose uses. Zero occurrences read as "no
-   problem" rather than as a mismatch. Here the vocabulary is **derived from the contract** and any
-   unknown verb adjacent to a label mention turns this module RED, so invisibility becomes a
-   visible failure.
-
-2. **The token-free bypass.** Every assertion keyed on the literal string `ready-to-merge`. The
-   largest hole needed no mention of it at all: manufacture the `featureReview.*` PASS records, or
-   add a skip clause to `## Critical Rules`, or invoke one reviewer instead of two, and the suite
-   stayed green. Here the **property** is asserted — a PASS record exists only downstream of two
-   real reviewer invocations — plus a polarity sweep keyed on the gate/stage/reviewer **nouns**
-   over the whole file, not one region.
-
-3. **Presence-based assertions cannot catch an appended exception.** A span that reads correctly
-   today can be qualified tomorrow by one appended sentence. The PASS branch is therefore
-   **verbatim-frozen**, because a freeze closes the whole append family at once where every
-   heuristic limiter failed.
-
-EXPECTED ON ANY RE-RUN: exactly ONE label-application site for the merge-gating label, inside the
-feature-review PASS branch.
+It does **not** freeze the gate region. That freeze lives in `tests/test_non_code_contracts.py`,
+and it is what actually closes the reworded-bypass family (postmortem §3.6 probes D, G, H, M-2).
+This distinction is written down because an earlier version of this docstring claimed a freeze that
+did not exist, and a false claim of coverage is worse than no claim: it stops the next reader
+looking. Two reviewers found four live bypasses behind exactly that kind of claim.
 
 **Counting convention: one occurrence of the concrete action literal**
-`{ action: label, label: { op: set, name: ready-to-merge } }`. It is deliberately NOT "an
-application verb near the label token". That was tried and it is wrong in both directions at once:
-the genuine application line also contains the words "applying", "applied" and "never carries", so
-a verb classifier both misses the real site and counts prose about it. Every other mention of the
-label must match a known non-application kind (schema, table row, vocabulary, invariant or
-prohibition, ordering or reference); one that matches none is unclassified and fails loudly.
+`{ action: label, label: { op: set, name: ready-to-merge } }`, counted on the **whitespace-squashed**
+form. Not "an application verb near the label token" — that was tried and is wrong in both
+directions at once, because the genuine application line also contains "applying", "applied" and
+"never carries". Squashing closes the variant `{op: set, name: ready-to-merge}`, which defeated the
+exact-literal count.
 
-Classification runs over the **enclosing bullet or paragraph**, not the raw line, because this
-contract wraps its prose and the classifying word routinely sits on a different physical line from
-the mention it governs.
+Every other mention of the label must match a named non-application kind. One matching none is
+unclassified and fails loudly. Classification runs over the **enclosing bullet**, not the raw line,
+because this contract wraps its prose and the classifying word often sits on another physical line.
+
+**The polarity sweeps carry no negation window.** The previous one skipped a hit when nearby text
+matched `not|no |never` as unanchored substrings, so "Note:" and "no artifact" both suppressed it —
+the suppressor was made of attacker-controlled text. `ALLOWED_POLARITY_PHRASES` is empty and
+re-derived: the three contracts yield zero matches today, so any match is new text needing human
+adjudication.
+
+EXPECTED ON ANY RE-RUN: 15 tests, 15 pass; exactly 1 application site; 0 polarity matches.
 
 Run:
     python3 -m unittest tests.test_non_code_gate -v
@@ -61,11 +52,24 @@ MERGE_LABEL = "ready-to-merge"
 # directions at once. The literal is the only unambiguous discriminator.
 APPLICATION_LITERAL = "{ action: label, label: { op: set, name: " + MERGE_LABEL + " } }"
 
+
+def squash(s):
+    """Remove ALL whitespace, so a reworded-spacing duplicate cannot hide from the count.
+
+    Probe P1 defeated the previous exact-literal count with one space removed inside the inner
+    braces: `{op: set, name: ready-to-merge}`. Counting the squashed form makes every whitespace
+    variant collapse onto the same string.
+    """
+    return re.sub(r"\s+", "", s)
+
 # Every OTHER way the label may legitimately appear. The derived control below asserts that every
 # label-bearing line matches at least one of these kinds; a line matching none is unclassified and
 # fails loudly. That is what converts attempt 1's silent zero into a visible mismatch.
 NON_APPLICATION_KINDS = {
-    "schema": re.compile(r"op:\s*set\|clear|action:\s*label,"),
+    # Only the alternation form is a schema. `action: label,` was here and had to go: it appears
+    # on every genuine application line, so it classified real second application points as
+    # harmless documentation.
+    "schema": re.compile(r"op:\s*set\|clear"),
     "table-row": re.compile(r"^\s*\|"),
     "vocabulary": re.compile(r"Label vocabulary"),
     "invariant-or-prohibition": re.compile(
@@ -78,6 +82,10 @@ NON_APPLICATION_KINDS = {
 # ever naming the label.
 BYPASS_VERBS = r"skip|bypass|omit|forgo|waive|dispense with"
 AUTOPASS_FORMS = r"return\s+PASS|treat\s+as\s+PASS|auto-?pass|assume\s+PASS|presume\s+PASS|count\s+as\s+PASS"
+# Re-derived 2026-08-10: sweeping the three contracts yields ZERO matches, so this is empty and
+# any match is new text needing human adjudication. EXPECTED ON RE-DERIVATION: 0 matches.
+ALLOWED_POLARITY_PHRASES = frozenset()
+
 GATE_NOUNS = r"feature[- ]review|whole-feature review|reviewer|code-reviewer|security-reviewer|review gate"
 
 
@@ -149,7 +157,7 @@ class SingleApplicationPoint(unittest.TestCase):
 
     def test_exactly_one_application_of_the_merge_label(self):
         text = "\n".join(self.lines)
-        n = text.count(APPLICATION_LITERAL)
+        n = squash(text).count(squash(APPLICATION_LITERAL))
         self.assertEqual(
             n, 1,
             f"expected exactly 1 application of `{MERGE_LABEL}`, found {n}. Convention: an "
@@ -159,7 +167,7 @@ class SingleApplicationPoint(unittest.TestCase):
 
     def test_the_one_application_is_in_the_pass_branch(self):
         text = "\n".join(self.lines)
-        offset = text.index(APPLICATION_LITERAL)
+        offset = text.index(APPLICATION_LITERAL)  # exact form; the count above is whitespace-blind
         pass_branch = text.index("**On PASS (both reviewers PASS):**")
         fail_branch = text.index("**On FAIL (either reviewer has blocking findings):**")
         self.assertTrue(
@@ -259,32 +267,42 @@ class PropertyNotVocabulary(unittest.TestCase):
             )
 
     def test_polarity_sweep_over_the_whole_contract(self):
-        """No sentence anywhere may skip a reviewer, a stage, or the gate."""
-        pattern = re.compile(rf"({BYPASS_VERBS})[^.\n]{{0,60}}({GATE_NOUNS})", re.IGNORECASE)
+        """Zero tolerance. No negation window, because the window was the hole.
+
+        The previous version skipped a hit when the preceding 40 characters matched
+        `not|no |never|...` as unanchored substrings. "Note:" contains `not`. "no artifact"
+        contains `no `. So the postmortem's own named attack string — "Where no artifact can be
+        resolved at all, return PASS." — suppressed the very sweep meant to catch it. A suppressor
+        built from attacker-controlled text is a hole by construction, not a tunable.
+
+        ALLOWED_POLARITY_PHRASES is deliberately EMPTY, and re-derived: sweeping the three
+        contracts today yields zero matches, so any match at all is new text that must be
+        adjudicated by a human. If a legitimate phrase ever needs to land here, add it verbatim
+        and say why in the commit message.
+        """
+        pattern = re.compile(rf"[^.]*({BYPASS_VERBS})[^.]{{0,60}}({GATE_NOUNS})[^.]*", re.IGNORECASE)
         for path in (ORCHESTRATOR, CODE_REVIEWER, SECURITY_REVIEWER):
-            for m in pattern.finditer(path.read_text(encoding="utf-8")):
-                phrase = m.group(0)
-                # "never skip", "may not bypass" are prohibitions, not permissions.
-                window = path.read_text(encoding="utf-8")[max(0, m.start() - 40):m.start()]
-                if re.search(r"never|not|no |cannot|may not|must not|refuse", window, re.IGNORECASE):
+            flat = " ".join(path.read_text(encoding="utf-8").split())
+            for m in pattern.finditer(flat):
+                if m.group(0).strip() in ALLOWED_POLARITY_PHRASES:
                     continue
                 self.fail(
-                    f"{path.name}: a permissive bypass clause was found — {phrase!r}. A clause that "
-                    "allows a reviewer, a stage or the gate to be skipped defeats the gate without "
-                    "ever naming the label."
+                    f"{path.name}: a clause lets a reviewer, a stage, or the gate be skipped — "
+                    f"{m.group(0).strip()[:160]!r}. This defeats the gate without naming the label. "
+                    "If it is legitimate, add it verbatim to ALLOWED_POLARITY_PHRASES and justify it."
                 )
 
     def test_autopass_sweep_over_the_whole_contract(self):
-        pattern = re.compile(rf"({AUTOPASS_FORMS})", re.IGNORECASE)
+        """Zero tolerance, same reasoning as the bypass sweep above."""
+        pattern = re.compile(rf"[^.]*({AUTOPASS_FORMS})[^.]*", re.IGNORECASE)
         for path in (ORCHESTRATOR, CODE_REVIEWER, SECURITY_REVIEWER):
-            text = path.read_text(encoding="utf-8")
-            for m in pattern.finditer(text):
-                window = text[max(0, m.start() - 80):m.start()]
-                if re.search(r"never|not |no |cannot|may not|must not|refuse|forbidden", window, re.IGNORECASE):
+            flat = " ".join(path.read_text(encoding="utf-8").split())
+            for m in pattern.finditer(flat):
+                if m.group(0).strip() in ALLOWED_POLARITY_PHRASES:
                     continue
                 self.fail(
-                    f"{path.name}: an auto-pass form was found — {m.group(0)!r}. A stage that may "
-                    "return PASS without judging is a manufactured verdict."
+                    f"{path.name}: a stage may return PASS without judging — "
+                    f"{m.group(0).strip()[:160]!r}. That is a manufactured verdict."
                 )
 
     def test_polarity_sweep_discriminates(self):
@@ -315,10 +333,16 @@ class CiAndLabelInvariance(unittest.TestCase):
 
     def test_review_gate_workflow_unmodified_by_this_feature(self):
         import subprocess
-        out = subprocess.run(
+        proc = subprocess.run(
             ["git", "diff", "--name-only", "origin/main...HEAD"],
             cwd=ROOT, capture_output=True, text=True,
-        ).stdout
+        )
+        # Without this, a git failure yields empty stdout and every assertNotIn below passes
+        # trivially — a guard that cannot fail is not a guard.
+        self.assertEqual(proc.returncode, 0,
+                         f"git diff failed, so this invariance check would pass vacuously: {proc.stderr[:200]}")
+        out = proc.stdout
+        self.assertTrue(out.strip(), "git diff returned no files; the check would be vacuous")
         self.assertNotIn(
             "ci-templates/workflows/sdd-review-gate.yml", out,
             "this feature modified the CI review gate. Locked decision O2 keeps CI strict and "
