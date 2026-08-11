@@ -65,6 +65,27 @@ class ClassifySyncState(unittest.TestCase):
     def test_without_a_merged_revision_a_difference_is_drift(self):
         """Fail-safe direction: unproven means drift, never a silent pass."""
         self.assertEqual(classify_sync_state(AHEAD, MERGED, INVARIANTS, None), "drift")
+        self.assertEqual(classify_sync_state(AHEAD, MERGED, INVARIANTS, ()), "drift")
+
+    def test_installed_copy_one_revision_behind_the_tip_is_pending(self):
+        """The post-merge case. This is the bug that made the whole helper too strict.
+
+        Anchoring on the tip alone is right until a merge lands. Then the tip moves, and an
+        installed copy that is simply awaiting ./install.sh reads as drift. That fired for real on
+        the merge of the feature this helper was written for, and a false drift is corrosive: it
+        trains the reader to sync the live fleet reflexively, which is the hazard the helper exists
+        to prevent.
+        """
+        older = MERGED
+        tip = AHEAD                      # merged since; the repo is now at the tip
+        installed = older                # not yet re-installed
+        self.assertEqual(
+            classify_sync_state(tip, installed, INVARIANTS, (tip, older)), "pending",
+            "an installed copy matching an ANCESTOR of the tip must be pending, not drift",
+        )
+        # ...and a copy matching no revision at all is still drift.
+        self.assertEqual(
+            classify_sync_state(tip, HAND_EDITED, INVARIANTS, (tip, older)), "drift")
 
     def test_no_invariants_supplied_still_discriminates(self):
         """Validity control: the classifier must not collapse to 'everything passes'."""

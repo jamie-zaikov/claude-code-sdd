@@ -76,8 +76,12 @@ In this mode:
 - **The "at least one test exists for this requirement" check is replaced in this mode only.** The
   absence of a unit test is not a failure here. That check stays unconditional on the code path.
 - **Where machine checks were written for a produced artifact, run them.** Any failure is a FAIL.
-- **If the task modified application code, refuse the exemption.** Return FAIL and report the
-  offending paths, so the orchestrator reclassifies the feature onto the code path.
+- **If the executor modified application code, refuse the exemption.** Return FAIL and report the
+  offending paths, so the orchestrator reclassifies the feature onto the code path. Judge the
+  **executor's** output, not the tester's: a machine check the tester wrote under its no-code
+  behaviour lands in the project's test directory, which the transmitted `CLS` block classifies as
+  application code. Reading this bullet broadly would therefore reclassify a perfectly legitimate
+  non-code feature — and reclassification is monotonic, so it cannot be undone.
 - **The scope check and the quality check stay active**, unchanged.
 - **The all-or-nothing rule is preserved**: every cited requirement must pass, or the verdict is
   FAIL.

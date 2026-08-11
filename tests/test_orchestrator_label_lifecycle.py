@@ -33,7 +33,7 @@ from pathlib import Path
 # Resolve the sibling helper whether this module is run as `tests.<name>` from the repo root or
 # directly as `python3 tests/<name>.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sync_state import classify_sync_state  # noqa: E402
+from sync_state import classify_sync_state, merged_revisions  # noqa: E402
 
 # Resolve the orchestrator relative to this test so it survives consolidation / worktree layout:
 #   <root>/tests/test_orchestrator_label_lifecycle.py  ->  <root>/agents/orchestrator.md
@@ -300,16 +300,8 @@ class OrchestratorLabelLifecycleTest(unittest.TestCase):
             "FEATURE-REVIEW GATE INVARIANT",
         )
         # What ./install.sh would have installed: the file at the last merged revision.
-        merged_text = None
-        try:
-            merged_text = subprocess.run(
-                ["git", "show", "origin/main:agents/orchestrator.md"],
-                cwd=ORCH_PATH.resolve().parent.parent,
-                capture_output=True, text=True, check=True,
-            ).stdout
-        except (OSError, subprocess.CalledProcessError):
-            pass  # No git or no origin/main: fall back to strict comparison below.
-        state = classify_sync_state(repo_text, global_text, invariants, merged_text)
+        merged = merged_revisions(ORCH_PATH.resolve().parent.parent, "agents/orchestrator.md")
+        state = classify_sync_state(repo_text, global_text, invariants, merged)
         self.assertIn(
             state, ("identical", "pending"),
             f"repo agents/orchestrator.md and the installed global copy have DRIFTED "

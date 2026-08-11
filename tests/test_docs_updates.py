@@ -28,7 +28,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sync_state import classify_sync_state  # noqa: E402
+from sync_state import classify_sync_state, merged_revisions  # noqa: E402
 
 # Repo-root docs resolve relative to this test:
 #   <root>/tests/test_docs_updates.py -> <root>/CLAUDE.md, <root>/README.md
@@ -248,17 +248,10 @@ class ClaudeOwnershipContentTest(unittest.TestCase):
             self.skipTest(f"global CLAUDE.md not readable at {GLOBAL_CLAUDE}; sync check skipped")
 
         # What ./install.sh would have installed: the file at the last merged revision.
-        merged_text = None
-        try:
-            merged_text = subprocess.run(
-                ["git", "show", "origin/main:CLAUDE.md"],
-                cwd=ROOT, capture_output=True, text=True, check=True,
-            ).stdout
-        except (OSError, subprocess.CalledProcessError):
-            pass  # No git or no origin/main: any difference is reported as drift, which is safe.
+        merged = merged_revisions(ROOT, "CLAUDE.md")
 
         invariants = ("### Phase Gates", "### Agent Ownership")
-        state = classify_sync_state(self.repo_text, self.global_text, invariants, merged_text)
+        state = classify_sync_state(self.repo_text, self.global_text, invariants, merged)
         self.assertIn(
             state, ("identical", "pending"),
             f"repo-root and installed CLAUDE.md have DRIFTED (state={state!r}). Either the "

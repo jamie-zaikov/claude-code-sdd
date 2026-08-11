@@ -28,32 +28,46 @@ A caller must never treat an unreadable installed copy as a blanket skip of ever
 going to assert — report it, and assert what can still be asserted.
 """
 
-__all__ = ["classify_sync_state"]
+import subprocess
+
+__all__ = ["classify_sync_state", "merged_revisions"]
 
 
-def classify_sync_state(repo_text, global_text, invariants=(), merged_text=None):
+def classify_sync_state(repo_text, global_text, invariants=(), merged_texts=()):
     """Classify the relationship between a repository copy and its installed copy.
 
     Args:
-        repo_text:   contents of the repository copy (the source of truth).
-        global_text: contents of the installed copy under ``~/.claude/``.
-        invariants:  strings that must be present in the repository copy. A missing one is
-                     ``drift`` regardless of how the two copies otherwise relate.
-        merged_text: contents of the file at the last merged revision, if the caller can obtain
-                     them (``git show origin/main:<path>``). This is what ``install.sh`` would
-                     have installed. Without it, any difference can only be reported as ``drift``,
-                     because content alone cannot prove the installed copy is merely older.
+        repo_text:    contents of the repository copy (the source of truth).
+        global_text:  contents of the installed copy under ``~/.claude/``.
+        invariants:   strings that must be present in the repository copy. A missing one is
+                      ``drift`` regardless of how the two copies otherwise relate.
+        merged_texts: contents of the file at revisions reachable from the merged branch — most
+                      recent first. Any of these is something ``install.sh`` could legitimately
+                      have installed at some point. A single string is accepted for convenience.
+                      With none supplied, any difference can only be reported as ``drift``,
+                      because content alone cannot prove the installed copy is merely older.
 
     Returns:
         One of ``"identical"``, ``"pending"``, or ``"drift"``.
 
-    Why ``merged_text`` and not a content heuristic: an earlier version of this helper defined
-    ``pending`` as "the repository copy only added lines". That is wrong, because a real edit
-    *modifies* lines, so the previous wording survives only in the installed copy and looks exactly
-    like divergence. There is no way to tell "the repo edited this line" from "someone hand-edited
-    the installed copy" by comparing the two texts. The last merged revision settles it: that, and
-    only that, is what a correct install would have produced.
+    Why historical revisions and not a content heuristic: an earlier version defined ``pending``
+    as "the repository copy only added lines". That is wrong, because a real edit *modifies*
+    lines, so the previous wording survives only in the installed copy and looks exactly like
+    divergence. Comparing the two texts cannot distinguish "the repo edited this line" from
+    "someone hand-edited the installed copy". Only the history settles it.
+
+    Why a *set* of revisions and not just the tip: an earlier version compared against the tip of
+    the merged branch alone. That is correct right up until a merge lands — at which point the tip
+    moves, and an installed copy that is simply one revision behind and awaiting ``./install.sh``
+    is reported as ``drift``. That fired for real, on the merge of the feature this helper was
+    written for, and a false ``drift`` is corrosive: it trains the reader to sync the live fleet
+    reflexively, which is the exact hazard the helper exists to prevent.
     """
+    if merged_texts is None:
+        merged_texts = ()
+    elif isinstance(merged_texts, str):
+        merged_texts = (merged_texts,)
+
     if any(inv not in repo_text for inv in invariants):
         # Both copies agreeing on a lost invariant is not agreement worth having.
         return "drift"
@@ -61,9 +75,38 @@ def classify_sync_state(repo_text, global_text, invariants=(), merged_text=None)
     if repo_text == global_text:
         return "identical"
 
-    if merged_text is not None and global_text == merged_text:
-        # The installed copy is exactly the last merged revision. The repository copy carries
-        # unmerged work ahead of it. The operator owes an ./install.sh once that work merges.
+    if any(global_text == m for m in merged_texts):
+        # The installed copy matches a revision that was merged at some point. The repository copy
+        # is ahead of it, and the operator owes an ./install.sh.
         return "pending"
 
     return "drift"
+
+
+def merged_revisions(repo_root, path, limit=20):
+    """Return the file's contents at each recent revision on `origin/main`, newest first.
+
+    Used to give `classify_sync_state` the set of things `install.sh` could legitimately have
+    installed. Anchoring on the tip alone breaks the moment a merge lands: the installed copy is
+    then one revision behind and reads as drift rather than pending.
+
+    Returns an empty tuple if git is unavailable or `origin/main` cannot be resolved, in which
+    case the caller's classification degrades to `drift` on any difference — the safe direction.
+    """
+    try:
+        shas = subprocess.run(
+            ["git", "rev-list", f"-{limit}", "origin/main", "--", path],
+            cwd=repo_root, capture_output=True, text=True, check=True,
+        ).stdout.split()
+    except (OSError, subprocess.CalledProcessError):
+        return ()
+    out = []
+    for sha in shas:
+        try:
+            out.append(subprocess.run(
+                ["git", "show", f"{sha}:{path}"],
+                cwd=repo_root, capture_output=True, text=True, check=True,
+            ).stdout)
+        except (OSError, subprocess.CalledProcessError):
+            continue
+    return tuple(out)
