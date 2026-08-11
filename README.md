@@ -159,12 +159,21 @@ The orchestrator walks you through:
 4. **Consistency check** — runs automatically after tasks are confirmed. An independent, read-only
    auditor cross-checks requirements ↔ design ↔ tasks ↔ steering. A FAIL blocks implementation
    until the flagged issues are resolved; no extra action needed on PASS.
-5. **Implementation** — per task, a five-stage pipeline:
+5. **Feature classification** — runs automatically after tasks are confirmed, before
+   implementation. The orchestrator classifies the feature as code-bearing or non-code from what its
+   tasks declare they will produce, and records it in `.spec-state.json`. On the non-code track the
+   tester writes a machine check where one is feasible and otherwise states why none is, the
+   validator switches to artifact-conformance mode where a missing unit test is not a failure, and
+   both reviewers get a defined verdict for an empty or non-code scope instead of hedging. A
+   non-code feature reaches `ready-to-merge` through the **same audited path** as a code feature —
+   a real whole-feature review PASS — and **no bypass label exists**. A feature that turns out to
+   touch application code falls back to the full code path.
+6. **Implementation** — per task, a five-stage pipeline:
    `executor → tester → validator → code-reviewer → security-reviewer`. The validator checks spec
    conformance; the two reviewers (which run only after the validator passes) hunt the bugs and
    security holes a requirement-anchored check misses by construction. Any blocking review finding
    sends the task back to the executor on retry.
-6. **Feature review** — runs automatically after the last task, before the feature is marked
+7. **Feature review** — runs automatically after the last task, before the feature is marked
    complete. The code-reviewer and security-reviewer review the whole feature diff for
    composition-level issues (integration seams, dead code, cross-task exposure) no per-task pass can
    see. A blocking finding halts completion until resolved or explicitly overridden.

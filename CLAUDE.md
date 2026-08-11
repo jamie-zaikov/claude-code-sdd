@@ -37,6 +37,24 @@ before the feature is marked complete — a blocking finding there halts complet
 explicitly overridden. Validation checks spec conformance; the reviews hunt the bugs and security
 holes a requirement-anchored check misses by construction.
 
+Not every feature ships application code. After tasks are confirmed and before implementation
+starts, the orchestrator **classifies** the feature as code-bearing or non-code, from what its
+tasks declare they will produce, and records the decision in `.spec-state.json`. Classification is
+explicit, never inferred from an empty git diff.
+
+On the non-code track the stages do not change; what they check does:
+- the tester writes a real machine check where the artifact allows one, and otherwise states why no
+  automated check is feasible — it never writes a placeholder test to satisfy an expectation;
+- the validator runs in artifact-conformance mode, mapping every cited requirement to a named
+  produced artifact it has read; a missing unit test is not a failure in that mode only;
+- both reviewers have a defined, emittable verdict for an empty or non-code scope, reviewing spec
+  artifacts, committed documents and the vault changelog. A hedge is not a permitted outcome.
+
+The gate does not move. A non-code feature reaches `ready-to-merge` only through a **real**
+whole-feature review PASS, at the same single application point, and no bypass label exists. A
+feature classified non-code that turns out to touch application code **falls back to the full code
+path** and never keeps its exemption.
+
 ### Agent Ownership
 
 - orchestrator: coordinates lifecycle, never writes content or code
