@@ -23,6 +23,24 @@ Confirmed by grep: no occurrence of an empty-diff, no-code, or docs-only path an
 - O4: Should this change be made directly or through the SDD pipeline? → **Through the pipeline**, matching how `github-agent` was built in this repo. The change alters agent contracts and needs tests. (source: user decision, this conversation)
 - O5: Which evidence signals may establish that a feature's tasks produced an artifact (the FR-6.4 attribution question)? → **All five are in play**, and this is a requirements-level decision, settled before any design is written. The five: (1) the git diff, (2) the task's `**Files:**` declaration, (3) the executor's completion summary, (4) C1 item 3's task-body/sub-tasks fallback, and (5) **commit provenance**. Amendment A5 part 5's trilemma — that the attribution rule must re-open either BB1 (a false-FAIL reinstating the exact deadlock O1 exists to remove) or BB2 (a false-PASS reaching `ready-to-merge`) — was derived under two unstated constraints: that only signals (1)-(3) were available, and that commit archaeology was forbidden to it. Both constraints are lifted here. The trilemma therefore does **not** carry over as a proven impossibility; requirements-agent must re-derive it against all five signals and state plainly whether it still binds. (source: user decision, restart conversation 2026-08-09; postmortem §6.2 item 1, §3.2, and finding `F16`)
 
+- O6: How far should the anti-bypass hardening go? → **Cut it.** Keep the three things the feature
+  exists for — classification, artifact-conformance validation, and a defined reviewer verdict for
+  an empty or non-code scope — and **drop the machinery that tried to prove the merge gate cannot
+  be bypassed** (the property/vocabulary guard suite, the gate-region and Critical-Rules freezes,
+  and the adversarial probe runner). The behaviour is unchanged: `ready-to-merge` is still applied
+  in exactly one place, only on the feature-review PASS branch, and **the human merge remains the
+  backstop — no agent merges**. What is given up is the attempt to *enforce* that property by
+  testing prose. Two review rounds established the pattern: each fix closed the probed hole and
+  moved the class to the unprobed perimeter — round 2 found ten survivors, all sitting just outside
+  a span frozen in round 1. Every one of them requires an actor with write access to an agent
+  contract, which is a threat the human merge already gates. (source: user decision, 2026-08-11,
+  after the second code review returned FAIL)
+
+  **Consequence, stated plainly:** `requirements.md` FR-9.1, FR-16 and NFR-13, and `design.md`
+  ORC-4 and its pin table, now describe more than the implementation ships. They are **not**
+  retracted and **not** amended — the divergence is recorded here instead, because a reader who
+  trusts the requirements will otherwise expect guards that are absent.
+
 ## Restart provenance (read before authoring anything)
 
 This feature is a **restart**. A first attempt ran 4 of 11 tasks and was retired on 2026-08-09

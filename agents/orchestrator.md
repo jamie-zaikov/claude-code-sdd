@@ -133,11 +133,14 @@ APPLICATION CODE — any produced or changed file that is not a non-code artifac
 PRECEDENCE — asymmetric. The asymmetry is load-bearing. Do not make it symmetric.
   - A file named on the APPLICATION CODE side is application code
     UNCONDITIONALLY.
-  - LIMB 1 is a closed, named set of plan documents. It settles as a
-    non-code artifact WITHOUT the CHECK. A plan document is never
-    behaviour-bearing, and every project loads the feature directory into an
-    agent's context, so a CHECK over limb 1 would always fail and would
-    designate the feature's own requirements.md as application code.
+  - FEATURE-DIRECTORY RULE. Any file under `.specs/features/<feature-name>/`
+    that is not named on the APPLICATION CODE side settles as a NON-CODE
+    ARTIFACT WITHOUT the CHECK. This covers limb 1's plan documents and equally
+    a recon or investigation write-up placed in the feature's own directory.
+    The CHECK cannot be used here: every project loads the feature directory
+    into an agent's context, so a CHECK over that directory always fails, and
+    it would designate the feature's own requirements.md — and the very recon
+    write-up this track exists to serve — as application code.
   - A file named on the NON-CODE ARTIFACT side by LIMB 2 or LIMB 3 is a
     non-code artifact ONLY IF the designation CHECK below is run and passes.
   - A failed CHECK is itself the designation: the file is APPLICATION CODE. An
@@ -156,7 +159,10 @@ CHECK — bounded designation check. Read the worked project's repository-root
   unreadable import is a FAILED CHECK, never a skipped one.
 
 OPEN ENUMERATIONS — both lists above are illustrative, not exhaustive. A file's
-  absence from either list is evidence of nothing.
+  absence from either list is evidence of nothing. The single exception is the
+  FEATURE-DIRECTORY RULE in PRECEDENCE, which is closed by LOCATION rather than
+  by list: it settles files under `.specs/features/<feature-name>/`, and nothing
+  else. It does not make either list exhaustive.
 ```
 
 **Ambiguity triggers.** Exactly three. Their scope differs, and the difference matters: the two
