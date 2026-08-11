@@ -13,6 +13,12 @@ name: sdd-review-gate
 on:
   pull_request:
     branches: [ main ]          # PR events targeting the protected branch
+    # `labeled` / `unlabeled` are NOT in GitHub's default type set (opened,
+    # synchronize, reopened). Without them this gate cannot re-evaluate when a
+    # label changes, and since it reads labels from the event payload on disk
+    # rather than the API, a re-run replays the original label-free payload.
+    # The result: applying `ready-to-merge` could never turn this check green.
+    types: [ opened, synchronize, reopened, labeled, unlabeled ]
   push:
     branches-ignore: [ main ]   # pushes to feature branches, for fast feedback
 
