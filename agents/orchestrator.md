@@ -75,6 +75,10 @@ Invoke the **spec-consistency-checker** subagent. Pass it only:
 Do NOT pass planning conversation context. The checker reads files independently.
 
 **On PASS:**
+- **Then immediately run the Feature Classification Gate (see below) before advancing phase.** It
+  is not optional and it is not skippable: it is what writes `featureClass`, and every stage from
+  here on reads that value. Advancing to `implementation` without it leaves the feature unclassified
+  and silently on the code path.
 - Update `phase` to `implementation`.
 - Initialize `taskStatus` in state for each top-level task.
 - Report to the user: "Consistency check passed. Starting implementation."
@@ -182,8 +186,14 @@ fail-safe direction, which preserves today's behaviour exactly.
 honoured **only** if every confirmed task's declared outputs are entirely non-code artifacts;
 otherwise refuse it and say why. Record the override either way, honoured or refused.
 
-**Legacy state files.** A state file with no `classification` object that is already past the tasks
-gate is treated as `"code"`, recorded with `basis: "legacy-state-file"`, and runs the unchanged code
+**Legacy state files.** A state file belonging to a feature **started before this change** — one
+already past the tasks gate whose `classification` object has never existed — is treated as
+`"code"`, recorded with `basis: "legacy-state-file"`, and runs the unchanged code path.
+
+This rule applies **only** to that pre-existing case. It is **not** a fallback for a feature whose
+gate simply has not run yet: that state is *undecided*, and the answer is to run the gate, never to
+record `"legacy-state-file"`. Without this restriction the rule matches the same state as the gate's
+own run/skip predicate, and any mid-feature resume would cement a non-code feature onto the code
 path.
 
 #### Reclassification
@@ -198,7 +208,12 @@ feature whose recorded `featureClass` is `"non-code"`:
 
 - `RT-1` — the task-tester reports that the task in fact produced application code.
 - `RT-2` — the task-validator returns FAIL citing application-code modification in
-  artifact-conformance mode.
+  artifact-conformance mode. **This FAIL is a reclassification signal, not a task failure.** Handle
+  it here and do **not** enter the per-task fail branch for it: do not increment `retryCount`, do
+  not set `blocked:validation`, and do not re-run the executor. The task did nothing wrong — the
+  feature was classified wrongly. Reclassify, then re-run this task's test and validation stages
+  under the code path. Treating it as a task failure would send the executor back to delete
+  legitimate application code in order to clear the verdict.
 - `RT-3` — you see an application-code path in the executor's changed-files summary.
 
 On any trigger: set `featureClass` to `"code"`; record the triggering path(s), the task number, and

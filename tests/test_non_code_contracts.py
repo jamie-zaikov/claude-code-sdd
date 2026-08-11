@@ -224,5 +224,60 @@ class ReviewerScopeDefinition(unittest.TestCase):
                          "the two reviewers' definitions of a non-code artifact have diverged")
 
 
+class GateIsActuallyWired(unittest.TestCase):
+    """A section nothing invokes is dead text. Every earlier test here asserted the gate's WORDS.
+
+    A feature-mode review found the gate had never been wired into the phase machine: the string
+    "Feature Classification Gate" appeared only as its own heading and one passing mention, while
+    the consistency gate right above it IS chained explicitly. `featureClass` was therefore never
+    written and every feature fell to the code path — the whole feature was inert, and the entire
+    suite was green. These tests assert invocation, not prose.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = ORCHESTRATOR.read_text(encoding="utf-8")
+        cls.flat = " ".join(cls.text.split())
+
+    def test_consistency_pass_branch_runs_the_classification_gate_before_advancing(self):
+        start = self.text.index("**On PASS:**")
+        branch = self.text[start:self.text.index("**On FAIL", start)]
+        self.assertIn(
+            "Feature Classification Gate", branch,
+            "the consistency-gate PASS branch does not invoke the Feature Classification Gate. The "
+            "gate then never runs, `featureClass` is never written, and every feature — including "
+            "a non-code one — silently takes the code path and deadlocks on the missing test. This "
+            "is exactly how the feature shipped inert with a green suite.",
+        )
+        self.assertLess(
+            branch.index("Feature Classification Gate"), branch.index("Update `phase` to `implementation`"),
+            "the classification gate is invoked AFTER the phase advances to implementation. It must "
+            "run before, or the stages that read `featureClass` run first.",
+        )
+
+    def test_gate_is_referenced_somewhere_other_than_its_own_heading(self):
+        """Validity control: a heading plus a passing mention is what the broken version had."""
+        heading = self.text.count("### Feature Classification Gate")
+        total = self.text.count("Feature Classification Gate")
+        self.assertGreaterEqual(
+            total - heading, 2,
+            f"'Feature Classification Gate' appears {total} times, {heading} of them as its own "
+            "heading. A section referenced nowhere but its own title is never invoked.",
+        )
+
+    def test_legacy_rule_is_restricted_to_pre_existing_features(self):
+        """FR-1.7's qualifier. Without it the rule matches the gate's own run/skip state."""
+        self.assertIn("started before this change", self.flat,
+                      "the legacy-state-file rule dropped FR-1.7's qualifier, so it now also "
+                      "matches a feature whose gate merely has not run yet, and a mid-feature "
+                      "resume would cement a non-code feature onto the code path")
+        self.assertIn("not** a fallback for a feature whose gate simply has not run yet", self.flat)
+
+    def test_rt2_does_not_also_trigger_the_per_task_fail_branch(self):
+        """RT-2 is defined as a validator FAIL, which otherwise drives retry + blocked:validation."""
+        self.assertIn("This FAIL is a reclassification signal, not a task failure.", self.flat)
+        self.assertIn("do not increment `retryCount`", self.flat)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
