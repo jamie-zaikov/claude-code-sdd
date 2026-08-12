@@ -19,7 +19,7 @@ Each frozen span lives in `tests/frozen/`. To change a frozen span deliberately:
 edit, re-run `tests/frozen/REGENERATE.md`'s command, and say in the commit message which span moved
 and why. Regenerating without saying so defeats the entire mechanism.
 
-EXPECTED ON ANY RE-RUN: 5 frozen spans, all matching. A mismatch is a real
+EXPECTED ON ANY RE-RUN: 4 frozen spans, all matching. A mismatch is a real
 change to a safety-bearing span, never a formatting artefact — the comparison is byte-exact.
 
 Run:
@@ -67,9 +67,6 @@ def frozen(name):
 
 # (fixture, path, start bound, end bound, why it is frozen)
 SPANS = [
-    ("cls_block.md", ORCHESTRATOR, "CLS — ARTIFACT CLASSIFICATION", "\n```",
-     "the artifact classification, its asymmetric PRECEDENCE, the FEATURE-DIRECTORY RULE, and the "
-     "CHECK. Attempt 1 shipped a symmetric PRECEDENCE and had to fix it; nothing held it in place"),
     ("tester_failsafe.md", TESTER, "\n## When the Task Produces No Application Code\n",
      "\n## Completion Summary",
      "the WHOLE no-code section, not just the entry condition. The narrow version froze 5 lines "
@@ -127,53 +124,32 @@ class FrozenSpans(unittest.TestCase):
         )
 
 class ClassificationProperties(unittest.TestCase):
-    """Semantic pins, in addition to the freeze — they survive a deliberate regeneration."""
+    """What remains prose after the classifier moved into scripts/classify_feature.py.
+
+    The artifact categories, the asymmetric precedence, the designation check and the
+    feature-directory rule are no longer asserted here: they are executable now, and
+    tests/test_classify_feature.py exercises them with real tasks.md content instead of grepping
+    for wording. What stays here is the wiring — that the orchestrator actually runs the script,
+    and that the triggers around it are present.
+    """
 
     @classmethod
     def setUpClass(cls):
         cls.orch = ORCHESTRATOR.read_text(encoding="utf-8")
-        cls.cls_block = between(ORCHESTRATOR, "CLS — ARTIFACT CLASSIFICATION", "\n```")
 
-    def test_precedence_is_asymmetric(self):
-        """Application code settles unconditionally; non-code needs a passing CHECK."""
-        flat = " ".join(self.cls_block.split())
-        self.assertIn(
-            "is application code UNCONDITIONALLY", flat,
-            "the APPLICATION CODE limb is no longer unconditional",
-        )
-        self.assertIn(
-            "ONLY IF the designation CHECK below is run and passes", flat,
-            "the NON-CODE limb no longer requires a passing CHECK",
-        )
+    def test_the_contract_runs_the_classifier_rather_than_restating_the_rules(self):
+        """The rules are executable now; the contract must invoke them, not paraphrase them."""
+        self.assertIn("scripts/classify_feature.py", self.orch,
+                      "the contract no longer invokes the classifier, so nothing classifies")
+        self.assertNotIn("CLS — ARTIFACT CLASSIFICATION", self.orch,
+                         "the superseded prose rules have returned alongside the script; two "
+                         "copies of a classification rule is the drift surface this removed")
 
-    def test_unrun_check_is_a_failed_check(self):
-        """The load-bearing half of the asymmetry. Attempt 1 lost exactly this."""
-        flat = " ".join(self.cls_block.split())
-        self.assertIn("An UNRUN CHECK is a failed CHECK", flat)
-        self.assertIn("There is no fallback to the category tests", flat)
-        self.assertIn("A failed CHECK is itself the designation: the file is APPLICATION CODE", flat)
-
-    def test_enumerations_stay_open(self):
-        flat = " ".join(self.cls_block.split())
-        self.assertIn("for example `agents/*.md` and `commands/*.md`", flat,
-                      "'for example' was dropped, converting an illustrative list into a closed one")
-        self.assertIn("illustrative, not exhaustive", flat)
-
-    def test_deixis_is_the_worked_project(self):
-        """This block installs into other projects, so it must never say 'this repository'."""
-        self.assertNotIn("this repository", self.cls_block.lower())
-        self.assertIn("the project being worked on", self.cls_block)
-
-    def test_silence_is_not_an_exemption(self):
-        """Security review, Medium: steering is usually a set of empty stubs."""
-        flat = " ".join(self.cls_block.split())
-        self.assertIn("Silence is not an exemption", flat)
-        self.assertIn("BY CONVENTION", flat)
-
-    def test_check_refuses_to_follow_an_import_into_a_credential_store(self):
-        flat = " ".join(self.cls_block.split())
-        self.assertIn("Do not follow an import into a credential store", flat)
-        self.assertIn("is a FAILED CHECK, never a skipped one", flat)
+    def test_classifier_unavailable_falls_back_to_code(self):
+        """The fail-safe direction survives the move to code."""
+        flat = " ".join(self.orch.split())
+        self.assertIn("classifier-unavailable", flat)
+        self.assertIn("treat the feature as `\"code\"`", flat)
 
     def test_feature_level_ambiguity_triggers_are_not_subordinate(self):
         for trigger in ("`AMB-F1` *(feature-level; always applies)*",

@@ -112,71 +112,32 @@ non-null timestamp. Key this on a **recorded decision**, never on the presence o
 state file has no `featureClass` key at all, so a predicate keyed on bare absence would skip the gate
 for every new feature. `featureClass` is **never** written as `null`. `null` is not a permitted value.
 
-**Derivation.** Read each confirmed task's declared outputs in `tasks.md`. Classify each declared
-output with the `CLS` block below. If **every** task's declared outputs are entirely non-code
-artifacts, the feature is `"non-code"`. If **any** task declares application code, it is `"code"`.
-Classify on the declared outputs, never on a git diff — at this point nothing has been produced yet.
+**Derivation — run the classifier, do not do this by hand.**
 
 ```
-CLS — ARTIFACT CLASSIFICATION
-
-Deixis: every reference below is to the project being worked on, never to the
-repository in which this contract happens to be stored. This block is installed
-into other projects, so "the worked project" is always the subject.
-
-NON-CODE ARTIFACT — exactly one of:
-  1. a spec artifact under `.specs/features/<feature-name>/` (`requirements.md`,
-     `design.md`, `tasks.md`, `scope.md`, `.spec-state.json`);
-  2. a committed prose/documentation file (for example a markdown write-up under a
-     documentation directory or the feature's own directory) that the worked
-     project's layout or steering does NOT designate as source, agent/prompt
-     contract, template, script, or configuration;
-  3. a knowledge-vault mutation recorded by `vault-writer` in
-     `.specs/features/<feature-name>/vault/.write-log.jsonl`.
-
-APPLICATION CODE — any produced or changed file that is not a non-code artifact:
-  executable source, tests, scripts, hooks, CI workflows, templates, runtime
-  configuration, and any prose file the worked project designates as a
-  behaviour-bearing contract (for example `agents/*.md` and `commands/*.md`).
-
-PRECEDENCE — asymmetric. The asymmetry is load-bearing. Do not make it symmetric.
-  - A file named on the APPLICATION CODE side is application code
-    UNCONDITIONALLY.
-  - FEATURE-DIRECTORY RULE. Any file under `.specs/features/<feature-name>/`
-    that is not named on the APPLICATION CODE side settles as a NON-CODE
-    ARTIFACT WITHOUT the CHECK. This covers limb 1's plan documents and equally
-    a recon or investigation write-up placed in the feature's own directory.
-    The CHECK cannot be used here: every project loads the feature directory
-    into an agent's context, so a CHECK over that directory always fails, and
-    it would designate the feature's own requirements.md — and the very recon
-    write-up this track exists to serve — as application code.
-  - A file named on the NON-CODE ARTIFACT side by LIMB 2 or LIMB 3 is a
-    non-code artifact ONLY IF the designation CHECK below is run and passes.
-    The FEATURE-DIRECTORY RULE above takes precedence where both apply: a
-    LIMB-3 vault changelog lives under `.specs/features/<feature-name>/`, so
-    it settles there, without the CHECK. The CHECK governs LIMB 2 and LIMB 3
-    only OUTSIDE the feature directory.
-  - A failed CHECK is itself the designation: the file is APPLICATION CODE. An
-    UNRUN CHECK is a failed CHECK. There is no fallback to the category tests.
-
-CHECK — bounded designation check. Read the worked project's repository-root
-  `CLAUDE.md`, the files that `CLAUDE.md` imports, and `.specs/steering/*.md`.
-  The CHECK FAILS if any of them designates the file a behaviour-bearing contract,
-  or loads the file into an agent's context. The CHECK FAILS if it was not run.
-  The CHECK also FAILS, whether or not anything designates the file, where the
-  file sits in a location a tool reads as agent instructions BY CONVENTION — for
-  example a `.github/` instructions directory, a prompts directory, or a rules
-  directory. Silence is not an exemption: an undesignated file in such a
-  location is APPLICATION CODE.
-  Do not follow an import into a credential store. A denied, refused or
-  unreadable import is a FAILED CHECK, never a skipped one.
-
-OPEN ENUMERATIONS — both lists above are illustrative, not exhaustive. A file's
-  absence from either list is evidence of nothing. The single exception is the
-  FEATURE-DIRECTORY RULE in PRECEDENCE, which is closed by LOCATION rather than
-  by list: it settles files under `.specs/features/<feature-name>/`, and nothing
-  else. It does not make either list exhaustive.
+python3 scripts/classify_feature.py <feature-name>
 ```
+
+It reads each confirmed task's declared outputs from `tasks.md` and emits JSON:
+`featureClass` (`"code"` or `"non-code"`), `basis` (per task: the declared outputs, the class, and
+the reason for each path), and `ambiguity` (any `AMB-*` trigger that fired). Record its output.
+
+The classification rules — the artifact categories, the asymmetric precedence, the designation
+check, the feature-directory rule — live **in that script**, which is unit-tested against real
+`tasks.md` content in `tests/test_classify_feature.py`. They are deliberately not restated here.
+Prose you must follow correctly cannot be tested: an earlier version of this section carried fifty
+lines of rules behind a verbatim freeze and eight pins, and every one of those pins could only
+prove the paragraph existed, never that it was applied. The script can be run, and a wrong answer
+is a failing test rather than a misreading.
+
+The safety property is unchanged and is enforced by the script: application code settles
+unconditionally, non-code settles only if the designation check passes, and a failed **or unrun**
+check designates application code. Every uncertain path resolves to `"code"`, so the failure
+direction is always toward more checking.
+
+**If the script cannot run** — missing, erroring, or a non-zero exit — treat the feature as
+`"code"`, record `basis: "classifier-unavailable"`, and say so. Never guess a classification by
+reading the rules yourself; that is the failure mode this replaced.
 
 **Ambiguity triggers.** Exactly three. Their scope differs, and the difference matters: the two
 feature-level triggers always apply and are **never** subordinate to the enumeration, while the

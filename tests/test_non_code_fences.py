@@ -241,18 +241,23 @@ class ProvenanceProhibition(unittest.TestCase):
 class SingleSiteBlocks(unittest.TestCase):
     """CLS and NCT are single-site: exactly one copy, in exactly one contract."""
 
-    def test_cls_block_exists_once_and_only_in_the_orchestrator(self):
-        for path in (CODE_REVIEWER, SECURITY_REVIEWER, ROOT / "agents/task-tester.md",
-                     ROOT / "agents/task-validator.md"):
-            self.assertEqual(
-                sum(1 for b in fenced_bodies(path) if b.startswith("CLS — ARTIFACT CLASSIFICATION")), 0,
-                f"{path.name} carries a copy of the CLS block. CLS is single-site: the orchestrator "
-                "transmits it in the invocation payload, so no other contract replicates it.",
-            )
-        self.assertEqual(
-            sum(1 for b in fenced_bodies(ORCHESTRATOR) if b.startswith("CLS — ARTIFACT CLASSIFICATION")), 1,
-            "orchestrator.md must carry exactly one CLS block",
-        )
+    def test_no_contract_carries_the_superseded_cls_block(self):
+        """CLS moved out of prose into scripts/classify_feature.py, so NO contract should carry it.
+
+        This assertion used to require exactly one copy, in the orchestrator. Inverted rather than
+        deleted: the risk is no longer "a second copy drifts from the first" but "the prose rules
+        come back alongside the script", which is the same drift surface wearing a new hat.
+        """
+        for path in (CODE_REVIEWER, SECURITY_REVIEWER, ORCHESTRATOR,
+                     ROOT / "agents/task-tester.md", ROOT / "agents/task-validator.md"):
+            with self.subTest(contract=path.name):
+                self.assertEqual(
+                    sum(1 for b in fenced_bodies(path)
+                        if b.startswith("CLS — ARTIFACT CLASSIFICATION")), 0,
+                    f"{path.name} carries the superseded CLS block. The classification rules are "
+                    "executable now, in scripts/classify_feature.py; a prose copy alongside it can "
+                    "disagree with it, and only one of them is tested.",
+                )
 
     def test_nct_block_exists_once_and_only_in_the_tester(self):
         tester = ROOT / "agents/task-tester.md"
