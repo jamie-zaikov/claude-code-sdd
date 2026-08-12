@@ -33,7 +33,6 @@ hooks/                    # Secret-handling safeguards (installed manually — s
 ci-templates/             # CI enforcement layer — distributed by /sdd-init, dogfooded in .github/
   workflows/
     sdd-secret-scan.yml     # Fails the check when a secret is detected in the diff
-    sdd-review-gate.yml     # Requires ready-to-merge + no blocked:* label on PRs to main
     sdd-build-test-lint.yml # Runs the project's build/test/lint entrypoint
   scripts/
     sdd-secret-scan.py      # Shared scanner — same code the pre-push hook runs locally
@@ -308,10 +307,6 @@ CI layer that re-runs the quality gates server-side.
     `path:line`, never the value. The scanner supports an inline `pragma: allowlist secret`
     suppression (which drops only its own line) and an explicit path-exclude list for the framework's
     own pattern/fixture files, so its detection stays tight without false positives on itself.
-  - **`sdd-review-gate`** — runs on pull requests to `main` and **fails unless the `ready-to-merge`
-    label is present and no `blocked:*` label remains**. This is the server-side backstop to the
-    human merge gate. **Branch protection on `main` must require the `sdd-review-gate` check** — the
-    job's `name:` is `sdd-review-gate` so the required-check name can be pinned exactly.
   - **`sdd-build-test-lint`** — runs the project's build/test/lint entrypoint (`scripts/ci.sh` if
     present) and fails on any failure.
 

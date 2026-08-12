@@ -283,7 +283,7 @@ class ReadmeContentTest(unittest.TestCase):
 
     def test_three_gates_named(self):
         """FR-24/NFR-3: each of the three CI workflow gates is named."""
-        for gate in ("sdd-secret-scan", "sdd-review-gate", "sdd-build-test-lint"):
+        for gate in ("sdd-secret-scan", "sdd-build-test-lint"):
             self.assertIn(gate, self.text, f"README does not mention the {gate} gate")
 
     def test_pre_push_hook_covered(self):
@@ -313,13 +313,18 @@ class ReadmeContentTest(unittest.TestCase):
             "README does not state that CI mirrors — never replaces — the local gates",
         )
 
-    def test_review_gate_required_check_and_branch_protection(self):
-        """FR-24/NFR-3: README ties sdd-review-gate to a required check + branch protection."""
-        low = self.text.lower()
-        self.assertIn("branch protection", low, "README does not mention branch protection")
-        self.assertTrue(
-            "required" in low and "sdd-review-gate" in self.text,
-            "README does not describe sdd-review-gate as a required check",
+    def test_readme_does_not_document_the_removed_review_gate(self):
+        """The sdd-review-gate workflow was removed; the README must not still promise it.
+
+        It demanded a review-earned label on every pull request, including one-line chores, so it
+        was red on almost every PR while `main` was unprotected and it enforced nothing. A check
+        that is always red teaches everyone to ignore it, and an ignored check cannot warn you on
+        the day it is right. Superseded assertion: the README used to be required to describe it
+        as a required status check.
+        """
+        self.assertNotIn(
+            "sdd-review-gate", self.text,
+            "README still documents the removed sdd-review-gate workflow",
         )
 
     def test_allowlist_pragma_mentioned(self):

@@ -138,9 +138,14 @@ The **merge to a protected branch is a human action** — no agent merges. It is
 `ready-to-merge` label, which the orchestrator has github-agent apply **only** after a whole-feature
 review passes. A blocking finding at any stage sets a `blocked:<stage>` label
 (`blocked:validation`, `blocked:code-review`, `blocked:security-review`, `blocked:feature-review`)
-and keeps the PR in draft; the label is cleared when the finding is resolved. A CI review-gate job
-plus GitHub branch protection enforce these label semantics server-side, so CI mirrors — never
-replaces — the local gates.
+and keeps the PR in draft; the label is cleared when the finding is resolved.
+
+**These label semantics are a record, not an enforcement.** There is no CI gate behind them: the
+merge is prevented by the human, and by nothing else. A `sdd-review-gate` job existed and was
+removed, because it demanded a review-earned label on *every* pull request including one-line
+chores, so it was red on almost every PR while enforcing nothing — a check that is always red
+teaches everyone to ignore it, and an ignored check cannot warn you on the day it is right. CI
+still runs `sdd-secret-scan` and `sdd-build-test-lint`, which fail on real defects.
 
 ### Key Commands
 
