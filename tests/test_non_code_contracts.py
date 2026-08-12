@@ -201,6 +201,26 @@ class ReceiverFailSafes(unittest.TestCase):
         self.assertIn("**Enter this mode only where `taskProducesApplicationCode` is `false`.**", t)
         self.assertIn("Never select this mode yourself", t)
 
+    def test_exemption_refusal_judges_the_executor_not_the_task(self):
+        """One word, and it decides whether a legitimate non-code feature survives.
+
+        The tester's own FR-4.2 machine check lands in the project's test directory, which the
+        transmitted CLS block calls application code. If the validator refuses the exemption
+        whenever "the task" modified application code, the tester's legitimate output triggers a
+        reclassification of the very feature it was validating — and reclassification is monotonic,
+        so nothing undoes it. Judging the EXECUTOR's output is what keeps that closed.
+        """
+        flat = " ".join(VALIDATOR.read_text(encoding="utf-8").split())
+        self.assertIn(
+            "If the executor modified application code, refuse the exemption.", flat,
+            "the exemption-refusal bullet no longer names the executor. Worded as 'the task', the "
+            "tester's own machine check spuriously reclassifies a legitimate non-code feature.",
+        )
+        self.assertNotIn(
+            "If the task modified application code", flat,
+            "the superseded 'the task' wording has returned",
+        )
+
     def test_code_path_test_coverage_line_is_untouched(self):
         """Discrimination control: removing it would make the mode assertions prove nothing."""
         t = VALIDATOR.read_text(encoding="utf-8")
