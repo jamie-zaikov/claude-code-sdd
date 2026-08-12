@@ -32,6 +32,10 @@ PRECEDENCE — asymmetric. The asymmetry is load-bearing. Do not make it symmetr
     write-up this track exists to serve — as application code.
   - A file named on the NON-CODE ARTIFACT side by LIMB 2 or LIMB 3 is a
     non-code artifact ONLY IF the designation CHECK below is run and passes.
+    The FEATURE-DIRECTORY RULE above takes precedence where both apply: a
+    LIMB-3 vault changelog lives under `.specs/features/<feature-name>/`, so
+    it settles there, without the CHECK. The CHECK governs LIMB 2 and LIMB 3
+    only OUTSIDE the feature directory.
   - A failed CHECK is itself the designation: the file is APPLICATION CODE. An
     UNRUN CHECK is a failed CHECK. There is no fallback to the category tests.
 

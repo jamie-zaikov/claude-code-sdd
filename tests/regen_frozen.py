@@ -36,6 +36,9 @@ def main():
     if changed and not write:
         print(f"\n{changed} span(s) differ. Re-run with --write to accept, and say which and why "
               "in the commit message.")
+        # Exit non-zero so a dry run can gate: exiting 0 while reporting differences means no
+        # caller can act on the result, which made the dry run advisory-only by accident.
+        return 1
     return 0
 
 

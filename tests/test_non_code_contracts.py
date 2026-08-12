@@ -309,6 +309,32 @@ class GateIsActuallyWired(unittest.TestCase):
         i = self.text.index("### `implementation`")
         return self.text[i:self.text.index("### Feature Review Gate", i)]
 
+    def test_resume_path_has_a_classification_checkpoint(self):
+        """The gate hangs off the consistency PASS branch, so resume can bypass it entirely.
+
+        Reachable on one path and unreachable on another is the same defect as the gate that was
+        never invoked at all — it just needs a different entry point to expose it.
+        """
+        start = self.text.index("## On Session Start")
+        section = self.text[start:self.text.index("## Phase Routing", start)]
+        self.assertIn(
+            "Classification checkpoint on resume", section,
+            "On Session Start has no classification checkpoint. A session resumed at "
+            "`implementation` never passes the gate, so `featureClass` is never written and every "
+            "stage that reads it falls back to the code path.",
+        )
+        self.assertIn("classification.decidedAt", section)
+
+    def test_rt1_is_consumed_between_the_tester_and_the_validator(self):
+        """RT-1 was defined and never acted on: wiring RT-2 and RT-3 created the asymmetry."""
+        impl = self._implementation_section()
+        between = impl[impl.index("**Stage 2 — Testing:**"):impl.index("**Stage 3 — Validation:**")]
+        self.assertIn(
+            "RT-1", between,
+            "nothing consumes RT-1. The tester can report that the task produced application code "
+            "and the validator is still handed taskProducesApplicationCode: false.",
+        )
+
     def test_rt2_exception_is_stated_INSIDE_the_per_task_fail_branch(self):
         """Sliced, not file-wide. The previous version of this test was the defect it was meant to catch.
 

@@ -25,6 +25,11 @@ You delegate all content work to specialist agents.
 1. Read every file in `.specs/steering/`.
 2. If the user names a feature, read `.specs/features/<feature-name>/.spec-state.json`.
    - If the state file exists, report the current phase and progress, then resume from where it left off.
+     - **Classification checkpoint on resume.** If the recorded phase is `implementation` or later
+       **and** `classification.decidedAt` is absent or null, run the *Feature Classification Gate*
+       (below) **before** doing anything else. The gate is chained off the consistency-gate PASS
+       branch, so a session that resumes past that point would otherwise never pass through it, and
+       every stage from here on reads `featureClass`. Resuming is the one path that can skip it.
    - If it does not exist, this is a new feature. Create the feature directory and initialize the state file.
      - **GitHub (scaffold, FR-7):** once the local feature branch exists (created by `/sdd-feature`, deterministically named `feature/<feature-name>`, FR-3.1), invoke **github-agent** `{ action: push, feature, branch: feature/<feature-name> }` to push it to the remote and set upstream. This fires **only** on first scaffold of a new feature (this branch) — never on resume, so a resumed session does not re-push. No `base` field: `base` is meaningful for `open-pr`, not for a raw branch push. Never run `git push` yourself — see *GitHub Integration* below.
 3. If `.specs/features/<feature-name>/scope.md` exists, read it. This artifact is produced by the main session during pre-orchestrator scoping and captures resolved open questions, scope boundaries, discrepancies reconciled, and cross-cutting rules. Treat it as authoritative input alongside steering, and pass it to every specialist agent you invoke.
@@ -147,6 +152,10 @@ PRECEDENCE — asymmetric. The asymmetry is load-bearing. Do not make it symmetr
     write-up this track exists to serve — as application code.
   - A file named on the NON-CODE ARTIFACT side by LIMB 2 or LIMB 3 is a
     non-code artifact ONLY IF the designation CHECK below is run and passes.
+    The FEATURE-DIRECTORY RULE above takes precedence where both apply: a
+    LIMB-3 vault changelog lives under `.specs/features/<feature-name>/`, so
+    it settles there, without the CHECK. The CHECK governs LIMB 2 and LIMB 3
+    only OUTSIDE the feature directory.
   - A failed CHECK is itself the designation: the file is APPLICATION CODE. An
     UNRUN CHECK is a failed CHECK. There is no fallback to the category tests.
 
@@ -192,7 +201,13 @@ already past the tasks gate whose `classification` object has never existed — 
 
 This rule applies **only** to that pre-existing case. It is **not** a fallback for a feature whose
 gate simply has not run yet: that state is *undecided*, and the answer is to run the gate, never to
-record `"legacy-state-file"`. Without this restriction the rule matches the same state as the gate's
+record `"legacy-state-file"`.
+
+**Where the two cannot be told apart from what is recorded, treat the feature as undecided and run
+the gate.** Nothing in the state file distinguishes "predates this change" from "the gate has not
+run", so resolve the ambiguity toward running the gate: the gate is cheap, it classifies an
+ambiguous feature as `"code"` anyway, and running it needlessly costs one step while skipping it
+needlessly puts a non-code feature back on the deadlocking path. Without this restriction the rule matches the same state as the gate's
 own run/skip predicate, and any mid-feature resume would cement a non-code feature onto the code
 path.
 
@@ -250,7 +265,7 @@ produced it.
   - Everything the executor received
   - Plus the executor's completion summary
   - **First, check `RT-3` (Reclassification, above).** You now hold the executor's changed-files
-    summary — this is the only stage that does. If it contains an application-code path while
+    summary — the first stage that does. If it contains an application-code path while
     `featureClass` is `"non-code"`, reclassify to `"code"` **before** computing the payload below,
     and send `taskProducesApplicationCode: true`. Computing the payload from the task's *declared*
     outputs alone would grant the exemption to a task that in fact produced application code.
@@ -265,6 +280,11 @@ produced it.
     determine it; the receivers treat `"unknown"` exactly as they treat an absent payload. Neither
     receiver ever selects the exemption for itself, and a `"code"` feature is routed exactly as it
     is today, with no behavioural change and no extra prompt to the user.
+
+  **Between Stages 2 and 3 — check `RT-1`.** If the tester reports that the task in fact produced
+  application code, that is `RT-1` (Reclassification, above). Handle it there before validating:
+  reclassify, then run Stage 3 under the code path. Do not carry a `taskProducesApplicationCode:
+  false` payload into the validator after the tester has told you it is false no longer.
 
   **Stage 3 — Validation:**
   Invoke the **task-validator** subagent. Pass it:
