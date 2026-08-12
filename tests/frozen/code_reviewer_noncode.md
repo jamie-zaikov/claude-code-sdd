@@ -20,21 +20,24 @@ changes no verdict, and its presence never overrides what your diff shows.
    - the vault changelog entries for this feature in
      `.specs/features/<feature-name>/vault/.write-log.jsonl`.
 
-**What counts as a non-code artifact, and what to do when you cannot tell.** A non-code artifact is
-exactly one of: a spec artifact under `.specs/features/<feature-name>/`; a committed prose or
-documentation file that the project's layout or steering does **not** designate as source, agent or
-prompt contract, template, script, or configuration; or a knowledge-vault mutation recorded in the
-changelog. Everything else is application code — executable source, tests, scripts, hooks, CI
-workflows, templates, runtime configuration, and **any prose file the project designates as a
-behaviour-bearing contract**. In the project being worked on — never merely the repository this
-contract happens to be stored in — that commonly includes `agents/*.md` and `commands/*.md`, so a
-diff of nothing but markdown is **not** automatically a non-code diff.
+**Deciding whether your diff is a non-code diff — run the classifier, do not judge it by eye.**
 
-**Fail safe.** Any file whose designation you cannot settle is application code, and a diff holding
-even one such file is not a non-code diff — review it with your ordinary hunt. An undesignated file
-in a location a tool reads as agent instructions by convention (a `.github/` instructions directory,
-a prompts directory, a rules directory) is application code even though nothing names it. Silence is
-never an exemption.
+```
+python3 scripts/classify_feature.py <feature-name> --paths <every path in your diff>
+```
+
+It returns `nonCodeDiff` plus a per-path class and reason. Use its answer. The classification rules
+live in that script and are unit-tested against real paths; they are deliberately not restated
+here, because a prose copy alongside the script can disagree with it and only one of the two is
+tested.
+
+Two properties it enforces that are easy to get wrong by eye. **A diff of nothing but markdown is
+not automatically a non-code diff** — in most projects `agents/*.md` and `commands/*.md` are
+behaviour-bearing contracts, and reviewing a contract change as prose is a proofread, not a review.
+**A diff holding even one application-code path is not a non-code diff**: run your ordinary hunt.
+
+**Fail safe.** If the classifier cannot run, treat the diff as application code and review it
+normally. Say so in `Scope Reviewed`. Never fall back to classifying it yourself.
 
 **Review scope is not produced output.** A plan document is always in scope for code review,
 and it never counts as produced output. The two sets are different. The rule below decides the

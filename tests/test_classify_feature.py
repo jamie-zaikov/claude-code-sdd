@@ -11,7 +11,7 @@ non-code settles only if the designation check passes, and a failed or unrun che
 application code. Every uncertain input must come out `"code"`. Attempt 1 shipped a symmetric
 version of this rule and had to fix it, and nothing held the fix in place.
 
-EXPECTED ON ANY RE-RUN: 21 tests, 21 pass. Counting convention: one test method each.
+EXPECTED ON ANY RE-RUN: 28 tests, 28 pass. Counting convention: one test method each.
 
 Run:
     python3 -m unittest tests.test_classify_feature -v
@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from classify_feature import (  # noqa: E402
-    classify_feature, classify_path, parse_declared_outputs,
+    classify_feature, classify_path, classify_paths, parse_declared_outputs,
 )
 
 FEATURE = "demo-feature"
@@ -150,6 +150,33 @@ class Parsing(unittest.TestCase):
         self.assertEqual(got, [(1, ["agents/a.md"])])
 
 
+class ReviewerMode(unittest.TestCase):
+    """The reviewers use the SAME rules over their own diff, instead of a second prose copy."""
+
+    def r(self, *paths):
+        return classify_paths(list(paths), FEATURE, "")
+
+    def test_an_all_prose_diff_is_a_non_code_diff(self):
+        self.assertTrue(self.r("docs/a.md", f".specs/features/{FEATURE}/recon.md")["nonCodeDiff"])
+
+    def test_one_application_code_path_makes_the_whole_diff_code(self):
+        """The fail-safe direction, at diff level. One contract change is not a proofread."""
+        self.assertFalse(self.r("docs/a.md", "agents/orchestrator.md")["nonCodeDiff"])
+
+    def test_an_all_markdown_diff_is_not_automatically_non_code(self):
+        """The exact mistake a reviewer would make reading prose: markdown != non-code."""
+        self.assertFalse(self.r("agents/a.md", "commands/b.md")["nonCodeDiff"])
+
+    def test_an_empty_diff_is_not_reported_as_a_non_code_diff(self):
+        """Emptiness is the reviewer's AT-5 case, not a licence to switch hunts."""
+        self.assertFalse(self.r()["nonCodeDiff"])
+
+    def test_every_path_carries_its_reason(self):
+        out = self.r("docs/a.md", "scripts/b.py")
+        self.assertEqual([p["class"] for p in out["paths"]], ["non-code", "code"])
+        self.assertTrue(all(p["reason"] for p in out["paths"]))
+
+
 class CommandLine(unittest.TestCase):
     """The contract tells the orchestrator to run this. Prove it runs."""
 
@@ -163,6 +190,13 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         data = json.loads(r.stdout)
         self.assertIn(data["featureClass"], ("code", "non-code"))
+
+    def test_paths_mode_runs_and_emits_json(self):
+        r = subprocess.run([sys.executable, "scripts/classify_feature.py", "x",
+                            "--paths", "agents/a.md", "docs/b.md"],
+                           cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(json.loads(r.stdout)["nonCodeDiff"])
 
     def test_missing_feature_exits_non_zero(self):
         r = subprocess.run([sys.executable, "scripts/classify_feature.py", "no-such-feature"],

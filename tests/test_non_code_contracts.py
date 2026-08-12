@@ -208,154 +208,52 @@ class ReceiverFailSafes(unittest.TestCase):
 
 
 class ReviewerScopeDefinition(unittest.TestCase):
-    """Code review, High 4: the reviewers branched on an undefined term, in the unsafe direction."""
+    """Both reviewers must INVOKE the classifier, not carry a second copy of its rules.
 
-    def test_both_reviewers_define_the_term_and_state_the_fail_safe(self):
-        """Matched on whitespace-normalised text: these contracts wrap their prose, so any edit
-        that changes where a line breaks would otherwise fail an assertion about meaning."""
-        required = (
-            "diff of nothing but markdown is **not** automatically a non-code diff",
-            "Any file whose designation you cannot settle is application code",
-            "Silence is never an exemption.",
-        )
-        for path in (CODE_REVIEWER, SECURITY_REVIEWER):
-            flat = " ".join(path.read_text(encoding="utf-8").split())
-            for phrase in required:
-                with self.subTest(contract=path.name, phrase=phrase[:40]):
-                    self.assertIn(phrase, flat, f"{path.name} lost: {phrase[:60]!r}")
-
-    def test_the_definition_is_identical_in_both_contracts(self):
-        """Same normative content in both. Deliberately prose, not a fifth fence: NFR-12 caps
-        replicated fences at exactly four, so adding one would break a stated constraint to fix a
-        finding. The divergence from the reviewer's suggested remedy is recorded here on purpose."""
-        spans = []
-        for path in (CODE_REVIEWER, SECURITY_REVIEWER):
-            spans.append(between(path, "**What counts as a non-code artifact",
-                                 "\n**Review scope is not produced output.**"))
-        self.assertEqual(spans[0], spans[1],
-                         "the two reviewers' definitions of a non-code artifact have diverged")
-
-
-class GateIsActuallyWired(unittest.TestCase):
-    """A section nothing invokes is dead text. Every earlier test here asserted the gate's WORDS.
-
-    A feature-mode review found the gate had never been wired into the phase machine: the string
-    "Feature Classification Gate" appeared only as its own heading and one passing mention, while
-    the consistency gate right above it IS chained explicitly. `featureClass` was therefore never
-    written and every feature fell to the code path — the whole feature was inert, and the entire
-    suite was green. These tests assert invocation, not prose.
+    They used to hold a prose definition of a non-code artifact. It was correct, and it was a
+    second source of truth: a prose copy alongside the script can disagree with it, and only one
+    of the two is tested. Those assertions are replaced, not deleted — the risk changed direction
+    rather than disappearing.
     """
 
-    @classmethod
-    def setUpClass(cls):
-        cls.text = ORCHESTRATOR.read_text(encoding="utf-8")
-        cls.flat = " ".join(cls.text.split())
+    def test_both_reviewers_run_the_classifier_over_their_diff(self):
+        for path in (CODE_REVIEWER, SECURITY_REVIEWER):
+            with self.subTest(contract=path.name):
+                t = path.read_text(encoding="utf-8")
+                self.assertIn(
+                    "scripts/classify_feature.py", t,
+                    f"{path.name} does not invoke the classifier, so it decides by eye whether its "
+                    "diff is non-code — and an all-markdown diff of agent contracts reads as prose.",
+                )
+                self.assertIn("--paths", t, f"{path.name} does not use the reviewer mode")
 
-    def test_consistency_pass_branch_runs_the_classification_gate_before_advancing(self):
-        start = self.text.index("**On PASS:**")
-        branch = self.text[start:self.text.index("**On FAIL", start)]
-        self.assertIn(
-            "Feature Classification Gate", branch,
-            "the consistency-gate PASS branch does not invoke the Feature Classification Gate. The "
-            "gate then never runs, `featureClass` is never written, and every feature — including "
-            "a non-code one — silently takes the code path and deadlocks on the missing test. This "
-            "is exactly how the feature shipped inert with a green suite.",
-        )
-        self.assertLess(
-            branch.index("Feature Classification Gate"), branch.index("Update `phase` to `implementation`"),
-            "the classification gate is invoked AFTER the phase advances to implementation. It must "
-            "run before, or the stages that read `featureClass` run first.",
-        )
+    def test_neither_reviewer_restates_the_classification_rules(self):
+        """A second copy of the rules is the drift surface this change removes."""
+        for path in (CODE_REVIEWER, SECURITY_REVIEWER):
+            with self.subTest(contract=path.name):
+                flat = " ".join(path.read_text(encoding="utf-8").split())
+                for superseded in ("A non-code artifact is exactly one of",
+                                   "CLS — ARTIFACT CLASSIFICATION"):
+                    self.assertNotIn(
+                        superseded, flat,
+                        f"{path.name} has reintroduced the classification rules in prose alongside "
+                        "the script that owns them",
+                    )
 
-    def test_gate_is_referenced_somewhere_other_than_its_own_heading(self):
-        """Validity control: a heading plus a passing mention is what the broken version had."""
-        heading = self.text.count("### Feature Classification Gate")
-        total = self.text.count("Feature Classification Gate")
-        self.assertGreaterEqual(
-            total - heading, 2,
-            f"'Feature Classification Gate' appears {total} times, {heading} of them as its own "
-            "heading. A section referenced nowhere but its own title is never invoked.",
-        )
+    def test_both_reviewers_state_the_fail_safe_direction(self):
+        """If the classifier cannot run, review it as code. Never self-classify."""
+        for path in (CODE_REVIEWER, SECURITY_REVIEWER):
+            with self.subTest(contract=path.name):
+                flat = " ".join(path.read_text(encoding="utf-8").split())
+                self.assertIn("If the classifier cannot run, treat the diff as application code", flat)
+                self.assertIn("Never fall back to classifying it yourself.", flat)
 
-    def test_legacy_rule_is_restricted_to_pre_existing_features(self):
-        """FR-1.7's qualifier. Without it the rule matches the gate's own run/skip state."""
-        self.assertIn("started before this change", self.flat,
-                      "the legacy-state-file rule dropped FR-1.7's qualifier, so it now also "
-                      "matches a feature whose gate merely has not run yet, and a mid-feature "
-                      "resume would cement a non-code feature onto the code path")
-        self.assertIn("not** a fallback for a feature whose gate simply has not run yet", self.flat)
-
-    def _implementation_section(self):
-        i = self.text.index("### `implementation`")
-        return self.text[i:self.text.index("### Feature Review Gate", i)]
-
-    def test_resume_path_has_a_classification_checkpoint(self):
-        """The gate hangs off the consistency PASS branch, so resume can bypass it entirely.
-
-        Reachable on one path and unreachable on another is the same defect as the gate that was
-        never invoked at all — it just needs a different entry point to expose it.
-        """
-        start = self.text.index("## On Session Start")
-        section = self.text[start:self.text.index("## Phase Routing", start)]
-        self.assertIn(
-            "Classification checkpoint on resume", section,
-            "On Session Start has no classification checkpoint. A session resumed at "
-            "`implementation` never passes the gate, so `featureClass` is never written and every "
-            "stage that reads it falls back to the code path.",
-        )
-        self.assertIn("classification.decidedAt", section)
-
-    def test_rt1_is_consumed_between_the_tester_and_the_validator(self):
-        """RT-1 was defined and never acted on: wiring RT-2 and RT-3 created the asymmetry."""
-        impl = self._implementation_section()
-        between = impl[impl.index("**Stage 2 — Testing:**"):impl.index("**Stage 3 — Validation:**")]
-        self.assertIn(
-            "RT-1", between,
-            "nothing consumes RT-1. The tester can report that the task produced application code "
-            "and the validator is still handed taskProducesApplicationCode: false.",
-        )
-
-    def test_rt2_exception_is_stated_INSIDE_the_per_task_fail_branch(self):
-        """Sliced, not file-wide. The previous version of this test was the defect it was meant to catch.
-
-        It asserted two substrings existed ANYWHERE in the contract. They did — 76 lines away,
-        under a heading for a phase already left — while the fail branch itself still stated the
-        general rule unqualified. That is the "asserts the WORDS, not the WIRING" pattern this
-        whole class exists to replace, and a reviewer caught it here for the second time.
-        """
-        impl = self._implementation_section()
-        fail_idx = impl.index("On **fail**")
-        # The exception must appear in the fail branch's immediate vicinity, before the rule.
-        window = impl[max(0, fail_idx - 900):fail_idx]
-        self.assertIn(
-            "RT-2", window,
-            "the per-task fail branch does not reference RT-2. A validator FAIL that is really a "
-            "reclassification signal then drives retryCount, blocked:validation and an executor "
-            "re-run, whose only way to clear the verdict is deleting legitimate application code.",
-        )
-        self.assertRegex(window, r"do \*\*not\*\* apply the branch below|not a task failure")
-
-    def test_rt3_is_checked_at_stage_2_where_the_changed_files_summary_exists(self):
-        """RT-3 is defined on the executor's changed-files summary; Stage 2 is the only holder."""
-        impl = self._implementation_section()
-        stage2 = impl[impl.index("**Stage 2 — Testing:**"):impl.index("**Stage 3 — Validation:**")]
-        self.assertIn(
-            "RT-3", stage2,
-            "Stage 2 computes the classification payload from the task's DECLARED outputs without "
-            "checking the executor's changed-files summary. A task that in fact produced "
-            "application code still receives the exemption.",
-        )
-
-    def test_reclassification_is_referenced_from_the_implementation_pipeline(self):
-        """A section referenced only from its own heading is never reached in practice."""
-        impl = self._implementation_section()
-        hits = sum(impl.count(k) for k in ("Reclassif", "RT-1", "RT-2", "RT-3"))
-        self.assertGreaterEqual(
-            hits, 2,
-            f"the implementation pipeline references reclassification {hits} times. The triggers "
-            "are defined under a heading scoped to a phase already left, so nothing in the "
-            "per-task loop reaches them.",
-        )
+    def test_the_instruction_is_identical_in_both_contracts(self):
+        spans = [between(p, "**Deciding whether your diff is a non-code diff",
+                         "\n**Review scope is not produced output.**")
+                 for p in (CODE_REVIEWER, SECURITY_REVIEWER)]
+        self.assertEqual(spans[0], spans[1],
+                         "the two reviewers' classifier instructions have diverged")
 
 
 if __name__ == "__main__":

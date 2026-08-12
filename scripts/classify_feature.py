@@ -17,8 +17,8 @@ or one that could not run — designates application code. Every uncertain path 
 which is today's behaviour, so the failure direction is always toward more checking.
 
 Usage:
-    python3 scripts/classify_feature.py <feature-name> [--repo <path>]
-    python3 scripts/classify_feature.py --self-test
+    python3 scripts/classify_feature.py <feature-name>                 # classify a feature
+    python3 scripts/classify_feature.py <feature-name> --paths a b c   # classify a reviewer's diff
 
 Emits JSON on stdout:
     {"featureClass": "code"|"non-code", "basis": [...], "ambiguity": [...]}
@@ -168,6 +168,22 @@ def classify_feature(tasks_md: str, feature: str, designations: str = "") -> dic
     return {"featureClass": feature_class, "basis": basis, "ambiguity": ambiguity}
 
 
+def classify_paths(paths, feature: str, designations: str) -> dict:
+    """Classify an arbitrary set of paths — a reviewer's diff — with the same rules.
+
+    Returns the per-path classification and whether the set as a whole is a non-code diff. A diff
+    holding even ONE application-code path is not a non-code diff: the reviewer must run its
+    ordinary hunt. That is the fail-safe direction, and it is the same asymmetry `classify_path`
+    applies to a single file.
+    """
+    results = []
+    for path in paths:
+        cls, why = classify_path(path, feature, designations)
+        results.append({"path": path, "class": cls, "reason": why})
+    non_code = bool(results) and all(r["class"] == NON_CODE for r in results)
+    return {"nonCodeDiff": non_code, "paths": results}
+
+
 def read_designations(repo: Path) -> str:
     """Concatenate the corpus the designation check reads. Returns None if it cannot be read."""
     parts = []
@@ -185,10 +201,18 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("feature", nargs="?", help="feature name under .specs/features/")
     ap.add_argument("--repo", default=".", help="repository root (default: cwd)")
+    ap.add_argument("--paths", nargs="+", metavar="PATH",
+                    help="classify these paths instead of a feature's tasks.md (reviewer mode)")
     args = ap.parse_args(argv)
 
     if not args.feature:
         ap.error("a feature name is required")
+
+    if args.paths:
+        repo = Path(args.repo).resolve()
+        print(json.dumps(
+            classify_paths(args.paths, args.feature, read_designations(repo)), indent=2))
+        return 0
 
     repo = Path(args.repo).resolve()
     tasks_path = repo / ".specs" / "features" / args.feature / "tasks.md"
