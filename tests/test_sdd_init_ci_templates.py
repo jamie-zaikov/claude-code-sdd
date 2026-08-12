@@ -46,10 +46,9 @@ WORKFLOWS_SRC = ROOT / "ci-templates" / "workflows"
 HOOK_SRC = ROOT / "ci-templates" / "hooks" / "pre-push"
 SCANNER_SRC = ROOT / "ci-templates" / "scripts" / "sdd-secret-scan.py"
 
-# The three workflow templates Task 5 authored; Task 8 stages all sdd-*.yml.
+# The workflow templates Task 5 authored; Task 8 stages all sdd-*.yml.
 EXPECTED_WORKFLOWS = (
     "sdd-secret-scan.yml",
-    "sdd-review-gate.yml",
     "sdd-build-test-lint.yml",
 )
 
@@ -247,34 +246,6 @@ class SddInitCiSectionContentTest(unittest.TestCase):
         self.assertIn("permissions", self.lower, "missing the write-`permissions:` warning")
         self.assertIn("secrets", self.lower, "missing the `secrets:` exposure warning")
 
-    def test_f_security_review_gate_required_check(self):
-        """Security: sdd-review-gate must be a REQUIRED status check on main."""
-        self.assertIn(
-            "sdd-review-gate",
-            self.section,
-            "the review-gate job is not named in the branch-protection guidance",
-        )
-        self.assertRegex(
-            self.lower,
-            r"required",
-            "sdd-review-gate is not documented as a REQUIRED status check",
-        )
-        self.assertIn(
-            "main",
-            self.lower,
-            "the required-check guidance does not mention the `main` branch",
-        )
-        # The skipped-non-PR-run caveat is the load-bearing security nuance.
-        self.assertIn(
-            "skipped",
-            self.lower,
-            "missing the caveat that a skipped non-PR run must not count as passing",
-        )
-
-
-# ==========================================================================
-# Part B — install.sh workflow-staging behaviour (sandboxed real installer)
-# ==========================================================================
 class InstallerSandbox:
     """A disposable SCRIPT_DIR + HOME that runs the real install.sh with injected answers."""
 
@@ -384,7 +355,7 @@ class WorkflowStagingTest(SandboxTestBase):
             f"installer failed:\n{self.proc.stdout}\n{self.proc.stderr}",
         )
 
-    def test_all_three_workflows_staged(self):
+    def test_all_workflows_staged(self):
         """FR-20/FR-21: every sdd-*.yml template lands under ~/.claude/ci-templates/workflows/."""
         for name in EXPECTED_WORKFLOWS:
             dest = self.sb.staged_workflows_dir / name
@@ -427,9 +398,11 @@ class WorkflowStagingTest(SandboxTestBase):
     def test_report_counts_the_staged_workflows(self):
         """The installer reports how many workflow templates were staged."""
         self.assertIn("Templates staged in", self.proc.stdout)
+        # Derived from EXPECTED_WORKFLOWS, never hardcoded: a literal count silently goes stale
+        # the moment a workflow is added or removed, which is exactly what happened here.
         self.assertRegex(
             self.proc.stdout,
-            r"\b3\s+workflow\(s\)",
+            rf"\b{len(EXPECTED_WORKFLOWS)}\s+workflow\(s\)",
             "installer did not report 3 staged workflows",
         )
 

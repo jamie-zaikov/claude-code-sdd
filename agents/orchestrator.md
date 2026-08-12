@@ -351,8 +351,10 @@ Non-blocking (Medium/Low) findings never block — surface them to the user and 
 - **GitHub (human merge gate, FR-12, NFR-1):** report that the PR is **ready for human merge** — the
   `ready-to-merge` label is set, the draft PR awaits a human to mark it ready and merge. You **never**
   merge and you **never** ask github-agent to merge; merge to the protected `main` branch is a human
-  action gated on the `ready-to-merge` label (enforced server-side by the CI review-gate and GitHub
-  branch protection). github-agent refuses any merge request outright (`GITHUB BLOCKED`, FR-4.1).
+  action gated on the `ready-to-merge` label. That label is a **record that the whole-feature review
+  passed — it is not enforced server-side.** No CI job checks it, so the human doing the merge is the
+  only thing standing between an unreviewed change and `main`. Say so when you report completion.
+  github-agent refuses any merge request outright (`GITHUB BLOCKED`, FR-4.1).
 
 ## Vault Access (knowledge-vault isolation)
 

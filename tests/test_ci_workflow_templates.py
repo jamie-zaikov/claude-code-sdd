@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Structural / workflow lint for the three CI GitHub Actions templates (Task 5, sub-task 5.5).
+"""Structural / workflow lint for the CI GitHub Actions templates (Task 5, sub-task 5.5).
 
 These are config artifacts (GitHub Actions workflow YAML), so the "test" is a YAML/workflow
 structure lint, not a unit test — the Actions runtime cannot be executed here. The suite asserts,
-for `ci-templates/workflows/sdd-{secret-scan,review-gate,build-test-lint}.yml`:
+for `ci-templates/workflows/sdd-{secret-scan,build-test-lint}.yml`:
 
   * each file is valid YAML (parsed with PyYAML when importable);
   * the shared trigger block matches the spec (PR on `main`; push branches-ignore [main]);
   * exactly one gate/job per file, with `sdd-`/gate naming;
-  * the review-gate requires `ready-to-merge` AND forbids `blocked:*`, gated to pull_request;
   * the secret-scan job invokes the shared `sdd-secret-scan.py` via `--diff-file`;
   * every file declares least-privilege `permissions: contents: read` and none uses
     `pull_request_target`;
@@ -45,10 +44,9 @@ except ImportError:  # pragma: no cover - depends on the runner environment
 WORKFLOW_DIR = Path(__file__).resolve().parent.parent / "ci-templates" / "workflows"
 
 SECRET_SCAN = WORKFLOW_DIR / "sdd-secret-scan.yml"  # pragma: allowlist secret
-REVIEW_GATE = WORKFLOW_DIR / "sdd-review-gate.yml"
 BUILD_TEST_LINT = WORKFLOW_DIR / "sdd-build-test-lint.yml"
 
-ALL_FILES = (SECRET_SCAN, REVIEW_GATE, BUILD_TEST_LINT)
+ALL_FILES = (SECRET_SCAN, BUILD_TEST_LINT)
 
 ACTIONLINT = shutil.which("actionlint")
 
@@ -105,7 +103,7 @@ def iter_run_blocks(text):
 
 
 class WorkflowFilesExistTest(unittest.TestCase):
-    def test_all_three_workflow_files_exist(self):
+    def test_all_workflow_files_exist(self):
         for path in ALL_FILES:
             self.assertTrue(path.exists(), f"workflow template not found: {path}")
 
@@ -148,7 +146,7 @@ class ActionlintTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not importable — trigger-block parse checks skipped")
 class TriggerBlockTest(unittest.TestCase):
-    """5.5(3): the shared trigger block matches the spec in all three files (FR-16.1, FR-19)."""
+    """5.5(3): the shared trigger block matches the spec in both files (FR-16.1, FR-19)."""
 
     def test_pull_request_targets_main(self):
         for path in ALL_FILES:
@@ -180,7 +178,6 @@ class SingleGatePerFileTest(unittest.TestCase):
 
     EXPECTED_JOB = {
         SECRET_SCAN.name: "secret-scan",  # pragma: allowlist secret
-        REVIEW_GATE.name: "review-gate",
         BUILD_TEST_LINT.name: "build-test-lint",
     }
 
@@ -252,60 +249,6 @@ class LeastPrivilegeTest(unittest.TestCase):
                     f"{path.name}: must not use the pull_request_target trigger",
                 )
 
-
-class ReviewGateLogicTest(unittest.TestCase):
-    """5.5(5): review-gate requires ready-to-merge AND forbids blocked:*, PR-gated (FR-14, FR-12)."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.text = REVIEW_GATE.read_text(encoding="utf-8")
-
-    def test_references_ready_to_merge(self):
-        self.assertIn(
-            "ready-to-merge",
-            self.text,
-            "review-gate must reference the ready-to-merge label",
-        )
-
-    def test_references_blocked_label(self):
-        self.assertIn(
-            "blocked:",
-            self.text,
-            "review-gate must reference the blocked:* label prefix",
-        )
-
-    def test_gated_to_pull_request_events(self):
-        # The job must be conditioned on pull_request events (no-op on push-to-feature-branch).
-        self.assertRegex(
-            self.text,
-            r"github\.event_name\s*==\s*'pull_request'",
-            "review-gate job must be gated to pull_request events",
-        )
-
-    @unittest.skipUnless(HAVE_YAML, "PyYAML not importable")
-    def test_job_if_condition_present(self):
-        job = load_yaml(REVIEW_GATE)["jobs"]["review-gate"]
-        cond = str(job.get("if", ""))
-        self.assertIn(
-            "pull_request",
-            cond,
-            "review-gate job `if:` must restrict to pull_request events",
-        )
-
-    def test_fails_on_blocked_and_requires_ready(self):
-        # The enforcement logic must contain both a failure path keyed to blocked labels and a
-        # failure path when ready-to-merge is absent (both exit non-zero).
-        self.assertRegex(
-            self.text,
-            r"blocked",
-            "review-gate must key a failure on blocked labels",
-        )
-        # A ready-to-merge membership test drives the required-label check.
-        self.assertRegex(
-            self.text,
-            r'"ready-to-merge"\s+in\s+labels|ready-to-merge.*in\s+labels|not\s+ready',
-            "review-gate must check membership of ready-to-merge",
-        )
 
 
 class SecretScanScannerTest(unittest.TestCase):

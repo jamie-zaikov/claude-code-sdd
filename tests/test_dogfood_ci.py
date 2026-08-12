@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Structural test for the Task 9 dogfood: CI workflows + shared scanner + scripts/ci.sh (FR-21).
 
-Task 9 instantiates the three CI workflow templates and the shared secret scanner into this
+Task 9 instantiates the CI workflow templates and the shared secret scanner into this
 repository's OWN `.github/`, and adds a concrete `scripts/ci.sh` for the dogfood build-test-lint
 job. These are config / shell artifacts, so the "test" is a YAML/workflow structure lint plus a
 `bash -n` syntax check and a clean-tree run of ci.sh — not a unit test (the Actions runtime cannot
@@ -14,7 +14,7 @@ The suite asserts, per Task 9 sub-task 9.3 and FR-21 / FR-16.1 / FR-15:
   * each dogfood workflow is byte-identical to its `ci-templates/workflows/` counterpart, and the
     dogfood `.github/scripts/sdd-secret-scan.py` is byte-identical to the template scanner — FR-21;
   * the seam fix: every workflow (template AND dogfood copy) carries a job-level `name:` equal to
-    the documented required-check name (`sdd-secret-scan` / `sdd-review-gate` /
+    the documented required-check name (`sdd-secret-scan` /
     `sdd-build-test-lint`) so GitHub's emitted check-run context matches branch protection;
   * `scripts/ci.sh` is executable, has the `#!/usr/bin/env bash` shebang, references the framework's
     own checks (py_compile, the scanner path, install.sh, and the guard/redact smoke test), passes
@@ -63,7 +63,6 @@ CI_SH = ROOT / "scripts" / "ci.sh"
 # Workflow basename -> documented required-check / job-level name.
 WORKFLOW_NAMES = {
     "sdd-secret-scan.yml": "sdd-secret-scan",
-    "sdd-review-gate.yml": "sdd-review-gate",
     "sdd-build-test-lint.yml": "sdd-build-test-lint",
 }
 
@@ -88,7 +87,7 @@ def get_on_block(data):
 
 
 class DogfoodWorkflowsExistTests(unittest.TestCase):
-    """The three workflows and the shared scanner must be instantiated into `.github/` (FR-21)."""
+    """The workflows and the shared scanner must be instantiated into `.github/` (FR-21)."""
 
     def test_dogfood_workflows_present(self):
         for name in WORKFLOW_NAMES:
@@ -163,10 +162,6 @@ class JobNameSeamFixTests(unittest.TestCase):
             with self.subTest(workflow=name, where="template"):
                 self._assert_job_name(TEMPLATE_WORKFLOWS / name, expected)
 
-    def test_review_gate_job_name_is_sdd_review_gate(self):
-        # Explicit per the task: the review-gate job name must be `sdd-review-gate`.
-        self._assert_job_name(DOGFOOD_WORKFLOWS / "sdd-review-gate.yml", "sdd-review-gate")
-        self._assert_job_name(TEMPLATE_WORKFLOWS / "sdd-review-gate.yml", "sdd-review-gate")
 
 
 class ByteIdentityTests(unittest.TestCase):

@@ -110,7 +110,7 @@ Because each file is added-or-skipped independently and every merge is append-on
 When reporting what was added, warn the user about two things:
 
 - **Do not add write `permissions:`, `secrets:`, or a `pull_request_target:` trigger to these workflows.** The templates are safe because their token is read-only (`contents: read`) and no secret is exposed to the fork-controlled `scripts/ci.sh` or scanner. Granting write permissions, exposing secrets, or switching to `pull_request_target` would turn the fork-controlled build/scan step into an exfiltration/write vector.
-- **Configure `sdd-review-gate` as a REQUIRED status check on `main`** in the repository's branch-protection settings, and choose the required-check name so that a **skipped** run on a non-PR event is **not** treated as a passing check. The review-gate job runs only on `pull_request` events targeting `main`; without this branch-protection setting the server-side human merge gate (the `ready-to-merge` / `blocked:*` label enforcement) is not actually enforced.
+- **The `ready-to-merge` / `blocked:*` labels are a record, not an enforcement.** No CI job checks them. If you want the merge gate enforced server-side, configure branch protection on `main` yourself and decide which checks are required — and be aware that a check demanding a review-earned label will be red on every chore PR unless you scope it to the paths that change behaviour. A `sdd-review-gate` template existed and was removed for exactly that reason.
 
 ## After creation
 
@@ -118,4 +118,4 @@ Tell the user:
 1. Fill in the three steering templates in `.specs/steering/`
 2. Use `/sdd-feature <name>` to start a new feature
 3. Or say "New feature: <description>" to begin the SDD workflow
-4. If CI templates were added: activate the pre-push hook (see above) and set `sdd-review-gate` as a required status check on `main` in branch protection, so the merge gate is enforced server-side
+4. If CI templates were added: activate the pre-push hook (see above), and decide for yourself whether to protect `main` and which checks to require — the merge gate is not enforced server-side

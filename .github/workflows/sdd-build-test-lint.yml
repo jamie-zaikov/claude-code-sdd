@@ -1,7 +1,7 @@
 # SDD CI gate — build / test / lint (FR-15, FR-16, NFR-3).
 #
 # One gate per file (design DD-1): shares the `sdd-` prefix and the identical
-# trigger block with sdd-secret-scan.yml and sdd-review-gate.yml.
+# trigger block with sdd-secret-scan.yml.
 #
 # Downstream stacks vary, so this template invokes a CONVENTIONAL entrypoint:
 # it runs `scripts/ci.sh` when the project provides one and fails on any check
