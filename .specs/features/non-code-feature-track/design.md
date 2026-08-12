@@ -302,22 +302,83 @@ review, add the classification step and the non-code track, and state that a non
 
 Stdlib-only Python `unittest` modules resolving contract paths **relative to the test file**
 (`Path(__file__).resolve().parent.parent / …`), mirroring `tests/test_orchestrator_label_lifecycle.py`
-and `tests/test_github_agent_def.py` (FR-11, FR-11.1, NFR-6). Named assertions below are the ones
-the traceability table cites; each must actually exist.
+and `tests/test_github_agent_def.py` (FR-11, FR-11.1, NFR-6). This section describes the modules that
+**exist**, measured against `tests/` on 2026-08-12. The T1–T11 plan it previously carried is recorded
+as superseded at the end of the section.
 
-| Module | Purpose | Named assertions cited in traceability |
+```
+A TRACEABILITY ENTRY IS A CLAIM, NOT EVIDENCE.
+Before relying on any assertion named anywhere in this document — this section, the Requirement
+Traceability table, the Pinning table, the probe-discharge table — grep `tests/` for that exact
+name. Where the name is absent, treat the requirement as UNCOVERED, whatever the row says.
+```
+
+*Rationale, outside the rule (postmortem §3.6; §6.2 item 8, first rider): this section previously
+named 115 assertions and stated that each must actually exist. One does. The other tables in this
+document still cite the superseded names and are stale on exactly this point; they are left in place
+so the divergence stays visible, and they must not be read as coverage.*
+
+**Modules that exist.**
+
+| Module | What it asserts | Assertions |
 |---|---|---|
-| **T1** `tests/test_orchestrator_feature_class.py` | ORC-1, ORC-2, ORC-3, ORC-6 | `test_classification_gate_defined`, `test_feature_class_key_and_two_values_in_schema`, `test_feature_class_null_forbidden`, `test_decision_recorded_predicate_not_key_presence`, `test_classification_derives_from_declared_outputs_not_diff`, `test_every_task_rule_pinned`, `test_ambiguity_triggers_default_to_code`, `test_feature_level_triggers_not_subordinate`, `test_precedence_stanza_is_asymmetric`, `test_cls_block_frozen_verbatim`, `test_cls_enumerations_stay_open`, `test_cls_deixis_is_worked_project`, `test_absent_classification_treated_as_code`, `test_override_asymmetry_pinned`, `test_basis_recorded_and_reported`, `test_payload_transmitted_to_tester_validator_reviewers`, `test_arming_predicate_frozen_verbatim`, `test_three_reclassification_triggers_present`, `test_reclassification_records_paths_task_and_trigger`, `test_reclassification_reruns_test_and_validation`, `test_exempt_tasks_recorded_and_recovered`, `test_reclassification_monotonic`, `test_scaffold_changes_never_trigger_reclassification`, `test_code_class_path_unchanged`, `test_stage_order_unchanged` |
-| **T2** `tests/test_non_code_tester_and_validator.py` | TST-1, VAL-1 | `test_tester_no_code_section_defined`, `test_tester_entered_only_on_payload`, `test_tester_forbids_vacuous_tests`, `test_tester_writes_machine_checks_where_feasible`, `test_nct_block_frozen_verbatim`, `test_tester_still_runs_existing_tests`, `test_tester_reports_application_code`, `test_validator_mode_named_and_defined`, `test_validator_mode_entered_only_on_instruction`, `test_validator_maps_each_requirement_to_named_artifact`, `test_validator_placeholder_is_fail`, `test_missing_tests_not_a_fail_in_that_mode_only`, `test_code_path_test_coverage_line_still_present` *(discrimination control)*, `test_validator_runs_machine_checks`, `test_validator_refuses_exemption_on_application_code`, `test_validator_scope_and_quality_checks_retained`, `test_artifact_conformance_verdict_fields_present`, `test_mode_line_emitted_only_on_non_code_path`, `test_all_or_nothing_rule_retained` |
-| **T3** `tests/test_reviewers_non_code_scope.py` | REV-1, REV-3, REV-4 (both contracts, parametrised over the two paths) | `test_non_code_scope_defined_in_both`, `test_scope_is_not_produced_output_stated`, `test_resolution_order_diff_first`, `test_scope_triggers_on_diff_not_on_instruction`, `test_mandatory_verdict_span_frozen`, `test_scope_reviewed_enumerates_changelog_entries`, `test_severity_model_unchanged`, `test_reviewer_tool_lists_unchanged`, `test_bash_present_in_both_tool_lists` *(validity control)*, `test_vault_changelog_only_and_vault_request`, `test_code_reviewer_finding_classes`, `test_security_reviewer_finding_classes`, `test_blocking_finding_requires_concrete_scenario`, `test_secret_redaction_preserved` |
-| **T4** `tests/test_attribution_rule_pin.py` | REV-2, fences F1/F2 | `test_canonical_constants_match_requirements_source` *(hub + validity control)*, `test_attribution_fence_byte_identical_in_code_reviewer`, `test_attribution_fence_byte_identical_in_security_reviewer`, `test_signal_roles_fence_byte_identical_in_both`, `test_fences_are_adjacent_and_uninterrupted`, `test_fence_is_closed_no_appended_limb`, `test_no_provenance_sentence_inside_or_adjacent_to_fence`, `test_no_paraphrase_of_any_limb_outside_the_fence`, `test_paraphrase_detector_discriminates` *(control)*, `test_task_marker_token_recognised_in_both_reviewers`, `test_at2b_degradation_note_present`, `test_attribution_report_columns_required_in_both_templates` |
-| **T5** `tests/test_gate_invariant_property.py` | ORC-4, FR-16 probe discharge | `test_gate_invariant_fence_verbatim_in_orchestrator`, `test_pass_branch_body_frozen_verbatim`, `test_both_reviewers_named_as_invoked_in_gate`, `test_feature_review_records_written_only_inside_frozen_branches`, `test_single_application_point_whole_file`, `test_application_verb_vocabulary_covers_contract_verbs` *(derived control)*, `test_reference_forms_not_counted_as_applications` *(discrimination control)*, `test_polarity_sweep_over_all_changed_contracts`, `test_polarity_sweep_ignores_negated_forms` *(discrimination control)*, `test_clear_blocked_precedes_application`, `test_human_merge_gate_preserved`, `test_probe_table_recorded_and_complete` |
-| **T6** `tests/test_plan_set_drift.py` | FR-14 | `test_scaffolded_set_derived_from_sdd_feature_command`, `test_derivation_is_non_empty` *(validity control)*, `test_plan_set_superset_of_scaffolded_set`, `test_scaffolded_set_superset_of_plan_set`, `test_gitignore_scratch_limb_present`, `test_expected_counts_and_convention_documented` |
-| **T7** `tests/test_task_marker_and_scope_window.py` | ORC-5, FR-17 | `test_marker_specified_in_per_task_commit_push`, `test_marker_is_fixed_greppable_text`, `test_planning_commit_push_forbids_marker`, `test_github_agent_definition_unmodified`, `test_no_new_github_agent_action_or_field`, `test_no_commit_references_undefined_non_code_scope`, `test_commit_walk_examined_at_least_one_commit` *(validity control)* |
-| **T8** `tests/test_review_gate_invariance.py` | FR-10, FR-11.7, NFR-2 | `test_review_gate_yaml_unmodified_in_feature_diff`, `test_review_gate_requires_ready_to_merge`, `test_review_gate_fails_on_any_blocked_label`, `test_review_gate_has_no_bypass_or_exemption_label`, `test_no_new_label_name_anywhere`, `test_no_new_workflow_file`, `test_install_sh_unmodified_in_feature_diff` |
-| **T9** `tests/test_non_code_docs.py` | DOC-1, DOC-2 | `test_claude_md_describes_classification_and_non_code_track`, `test_claude_md_restates_real_pass_requirement`, `test_claude_md_states_fallback_to_code_path`, `test_claude_md_states_installer_syncs_global_copy`, `test_readme_describes_classification_step`, `test_readme_states_same_audited_path_no_bypass_label` |
-| **T10** `tests/sync_state.py` *(helper, not a test module)* + `tests/test_sync_state_carve_out.py` | FR-11.8 carve-out discriminator | helper `classify_sync_state(repo_text, global_text, invariants) -> "identical" \| "pending" \| "drift"`; tests `test_identical_is_identical`, `test_repo_ahead_is_pending`, `test_omitted_invariant_is_drift`, `test_contradicted_invariant_is_drift`, `test_unreadable_global_is_reported_not_skipped_blanket` |
-| **T11** *modifications only* — `tests/test_docs_updates.py::test_two_claude_files_byte_identical` and `tests/test_orchestrator_label_lifecycle.py::test_repo_and_global_copies_are_byte_identical` | FR-11.8's two carve-outs | each reworked to call `classify_sync_state`, resolve its global path from `Path.home()`, and carry a docstring citing FR-11.8 and NFR-10. No other assertion in either module is touched. |
+| `tests/test_non_code_contracts.py` | `FrozenSpans` — the 5 spans in the module's `SPANS`, each byte-compared to a fixture under `tests/frozen/`: the `CLS` block, the tester's entry condition, the validator's entry condition, and each reviewer's **whole** `## Non-Code and Empty Scope` section. `ClassificationProperties` — `PRECEDENCE` asymmetry, unrun-`CHECK`-is-a-failed-`CHECK`, open enumerations, worked-project deixis, silence-is-not-an-exemption, the `CHECK` not following an import into a credential store, feature-level ambiguity triggers not subordinate, all three `RT-*` present, scaffolding never triggering. `ReceiverFailSafes` — tester and validator each enter only on an explicit `false`, exemption refusal judges the executor not the task, plus the code-path test-coverage line as discrimination control. `ReviewerScopeDefinition` — both reviewers define the scope and its fail-safe, identically. `GateIsActuallyWired` — the gate is reached from the consistency PASS branch, referenced outside its own heading, the legacy rule is bounded to pre-existing features, the resume path checkpoints it, and `RT-1`/`RT-2`/`RT-3` are each consumed at the stage where their evidence exists. | 26 |
+| `tests/test_non_code_fences.py` | The fence hub: authoritative bodies non-vacuous (validity control), F1 and F2 byte-identical in both reviewers, F3 and F4 byte-identical in the orchestrator, 6 instances across 3 files, no replica carrying an appended limb, F1 immediately preceding F2, the R-1…R-6 provenance prohibition with a detector-discrimination control, and `CLS` / `NCT` each present exactly once and only in its owning contract. | 11 |
+| `tests/test_plan_set_drift.py` | FR-14. Derives the scaffolded set from `commands/sdd-feature.md`, checks both drift directions, checks the `.gitignore` scratch limb, and carries `test_derivation_is_non_empty` as its validity control. | 5 |
+| `tests/sync_state.py` + `tests/test_sync_state.py` | FR-11.8 / NFR-10 carve-out. Helper `classify_sync_state(repo_text, global_text, invariants=(), merged_texts=()) -> "identical" \| "pending" \| "drift"`, with `merged_revisions()`; the tests discriminate identical, repo-ahead-is-pending, and the drift cases — including a lost invariant that is *pending-shaped*, and a difference with no merged revision. | 9 |
+| `tests/test_tasks_agent_non_code_tasks.py` | The upstream F2 fix (`agents/tasks-agent.md` Task Design Rule 5), landed on PR #8. **Not this feature's work** — listed because this design depends on it (see *Dependencies*). | 4 |
+| *modifications only* — `tests/test_docs_updates.py::test_two_claude_files_are_in_sync_or_pending_install`, `tests/test_orchestrator_label_lifecycle.py::test_repo_and_global_copies_are_in_sync_or_pending_install` | FR-11.8's two carve-outs, each reworked to call `classify_sync_state`. No third live-global identity assertion exists. | 2 reworked |
+
+**Figures.**
+
+| Figure | Value | Counting convention / expected on re-derivation |
+|---|---|---|
+| Assertions in the four modules this feature owns | **51** = 26 + 11 + 5 + 9 | `grep -c '^    def test_'` over the first four rows above. Expected 51. |
+| Assertions in the upstream F2 module | **4** | the same command over `tests/test_tasks_agent_non_code_tasks.py`. Expected 4, and excluded from the 51 because the fix is not this feature's. |
+| Existing assertions reworked | **2** | one per FR-11.8 carve-out. Expected 2. |
+| Byte-frozen spans | **5** | `len(SPANS)` in `tests/test_non_code_contracts.py`, one fixture each under `tests/frozen/`. Expected 5, matching that module's docstring. |
+| Fence instances asserted byte-identical | **6** across 3 files | the fence inventory's convention, unchanged. Expected 6. |
+| Assertion names the superseded T1–T11 table cited | **115** | distinct `test_*` identifiers in that table's third column; the T10 helper `classify_sync_state` is a function and is counted separately, not among the 115. Expected 115. |
+| Of those 115, present in `tests/` | **1** — `test_derivation_is_non_empty` | grep each of the 115 names in `tests/`. Expected 1. An earlier report of *0 of 113* differs in both terms: 113 undercounts the column, and one cited name did land. |
+
+**Gaps — requirement areas no assertion covers.**
+
+```
+UNCOVERED, measured 2026-08-12:
+  FR-12, FR-12.1, FR-12.2, FR-13, FR-13.1 — DOC-1 and DOC-2 landed in CLAUDE.md and README.md,
+    but no assertion reads them. Deleting the non-code paragraphs breaks no test.
+  FR-6.10 — the `### Attribution` table exists in both reviewers' verdict templates, which sit
+    OUTSIDE the frozen `## Non-Code and Empty Scope` span (the freeze ends at `## Severity`).
+    Nothing asserts its columns or its mandatory-on-FAIL rule.
+  FR-7 / FR-7.1-FR-7.5 and FR-8 / FR-8.1-FR-8.5 — the per-reviewer finding classes fall INSIDE
+    the frozen span, so their bytes are held against silent drift, but no assertion is keyed on
+    the classes themselves: a deliberate fixture regeneration drops them with nothing to object.
+```
+
+*Scope of that list, outside the rule: it records the three areas established by name-checking, not a
+full FR-by-FR coverage audit. No such audit is recorded in this document — do not infer coverage for
+any requirement from its absence here. Separately, the requirements the O6 cut knowingly overstates
+(FR-9.1, FR-16, NFR-13, and this design's ORC-4 and pin table) are recorded in `scope.md` O6 and are
+deliberately neither retracted nor amended.*
+
+**Superseded plan (T1–T11), recorded not deleted.** The feature was implemented outside the SDD
+pipeline, in consolidated modules with their own names, and the anti-bypass gate machinery was cut by
+`scope.md` O6 — `tests/test_non_code_gate.py` and `tests/probes.py` were built and then removed. No
+planned path survives except T6's module and T10's helper, and no planned assertion name except one.
+
+| Planned | Planned target | Disposition |
+|---|---|---|
+| **T1** `tests/test_orchestrator_feature_class.py` | ORC-1, ORC-2, ORC-3, ORC-6 | absorbed into `test_non_code_contracts.py` (`ClassificationProperties`, `GateIsActuallyWired`) and `test_non_code_fences.py` (`CLS` single-site); no planned name kept |
+| **T2** `tests/test_non_code_tester_and_validator.py` | TST-1, VAL-1 | absorbed into `test_non_code_contracts.py` (`FrozenSpans`, `ReceiverFailSafes`); `NCT` is checked single-site, **not** byte-frozen — PIN-14 unimplemented |
+| **T3** `tests/test_reviewers_non_code_scope.py` | REV-1, REV-3, REV-4 | absorbed into `test_non_code_contracts.py::ReviewerScopeDefinition` plus the two whole-section freezes; the FR-7 / FR-8 classes are a gap above |
+| **T4** `tests/test_attribution_rule_pin.py` | REV-2, fences F1/F2 | absorbed into `test_non_code_fences.py`; the FR-6.10 report columns are a gap above |
+| **T5** `tests/test_gate_invariant_property.py` | ORC-4, FR-16 probe discharge | **cut by O6**, together with `tests/probes.py`, the gate-region freeze and the Critical-Rules freeze |
+| **T6** `tests/test_plan_set_drift.py` | FR-14 | landed under the planned path; assertion names differ except `test_derivation_is_non_empty` |
+| **T7** `tests/test_task_marker_and_scope_window.py` | ORC-5, FR-17 | no module exists |
+| **T8** `tests/test_review_gate_invariance.py` | FR-10, FR-11.7, NFR-2 | no module exists |
+| **T9** `tests/test_non_code_docs.py` | DOC-1, DOC-2 | no module exists — the FR-12 / FR-13 gap above |
+| **T10** `tests/sync_state.py` + `tests/test_sync_state_carve_out.py` | FR-11.8 | helper landed as planned; the test module landed as `tests/test_sync_state.py`, with different assertion names |
+| **T11** *modifications* to `tests/test_docs_updates.py`, `tests/test_orchestrator_label_lifecycle.py` | FR-11.8's two carve-outs | landed; both target assertions were **renamed** to the `…_are_in_sync_or_pending_install` form, so neither planned name resolves |
 
 ### Data Model
 
@@ -978,6 +1039,15 @@ and adds one line here.)*
   mandated postmortem ranges §3.1, §3.4, §3.5, §3.6, §4.6, §4.8, §6.1, §6.2. Attempt 1's
   `design.md` was consulted only by targeted grep, for `DD-5`'s rejected alternatives; no text was
   carried over and no attempt-1 identifier is reused.
+- **2026-08-12 — `#### Tests` corrected against the shipped suite.** The section's T1–T11 plan named
+  115 assertions and asserted each must exist; measured against `tests/`, **1 of 115** did. The
+  feature was implemented outside the pipeline in consolidated modules, and the gate machinery (T5,
+  `tests/probes.py`) was cut by `scope.md` O6. The section now states the modules that exist, names
+  FR-12/FR-13, FR-6.10 and FR-7/FR-8 as uncovered, records the superseded plan row by row, and opens
+  with the rule that a traceability entry is a claim, not evidence. **Only `#### Tests`, this entry
+  and the size figures below changed** — the Requirement Traceability, Pinning and probe-discharge
+  tables still cite the superseded names and are stale on that point by design, so the divergence
+  stays visible to a reader comparing this document with the retrospective.
 
 **Size against the declared budget.** Counting convention: physical lines as numbered by a
 sequential read of this file, including blank lines and all tables; the final line is the last line
@@ -985,30 +1055,32 @@ of this section.
 
 | Figure | Declared | Actual | Expected on re-derivation |
 |---|---|---|---|
-| Lines | ≤ 820 | **1014** | `wc -l` = 1014. A sequential read may render a trailing empty line 1015; that is the trailing-newline rendering, not an extra line. |
-| Overshoot | — | **+194 lines (+23.7 %)** | recompute as `(actual − 820) / 820` |
+| Lines | ≤ 820 | **1086** | `wc -l` = 1086. A sequential read may render a trailing empty line 1087; that is the trailing-newline rendering, not an extra line. |
+| Overshoot | — | **+266 lines (+32.4 %)** | recompute as `(actual − 820) / 820` |
 
 *(This row was wrong twice before it was right: first **971**, an estimate taken before this section
 existed, then **1007**, measured before the correcting paragraph was itself added. Both were
 re-derived against the file and fixed. Recorded rather than silently corrected, because steering
 rule 1 names plausible unchecked figures as the dominant cost of attempt 1 — and a self-referential
-size figure is the easiest of all to leave stale.)*
+size figure is the easiest of all to leave stale. It moved a third time on 2026-08-12, from **1014**
+to **1086**, when the `#### Tests` correction grew that section from 20 to 81 lines — a
+re-measurement of a changed document, not a prior error.)*
 
 **Justification for exceeding the budget, and for exceeding ~900 lines.** The overshoot is
 tabular, not narrative. Four tables the requirements make mandatory account for **167 rows** — 114
 traceability rows (one per requirement ID; every requirement must trace to a component), 17
 acceptance-criteria rows, 24 pin rows (NFR-13: a pin is unproven until its mutation is named), and
 12 probe-discharge rows (FR-16.3: every row demonstrated RED) — i.e. roughly **175 lines with their
-headers and separators, 17 % of the document**. Removing any of them would either drop a
+headers and separators, 16 % of the document**. Removing any of them would either drop a
 requirement from traceability (a defect) or leave a pin unproven (NFR-13). Two further checks that
 the overshoot is not attempt 1's failure mode:
 
-1. **No section describes this document's own history.** The changelog is five lines; attempt 1's
+1. **No section describes this document's own history.** The changelog is fourteen lines; attempt 1's
    `design.md` spent hundreds on amendment narrative and had only a fenced block that was normative.
 2. **This document carries zero fence bodies** (DD-A), so it cannot be the source of a divergence,
    and an amendment to any normative fragment edits **one fence in `requirements.md` plus its
    replica targets** — never an anchored row here. That is NFR-12's actual objective, and it is met
    independently of line count.
 
-At 1014 lines this document is **2.7× smaller** than the 2723 lines that retired attempt 1
-(2723 / 1014 = 2.69; expected on re-derivation: 2.7, recomputed from the two line counts).
+At 1086 lines this document is **2.5× smaller** than the 2723 lines that retired attempt 1
+(2723 / 1086 = 2.51; expected on re-derivation: 2.5, recomputed from the two line counts).
