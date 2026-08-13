@@ -23,32 +23,48 @@ Rule: never scatter non-functional artifacts into the repo root or working tree 
 
 ### Phase Gates
 
-Requirements → Design → Tasks → [Consistency Check] → Implementation → [Feature Review] → Complete.
+Requirements → Design → Tasks → [Consistency Check] → [Classification] → Implementation → [Feature Review] → Complete.
 Each planning phase requires explicit user confirmation before advancing.
 The consistency check runs automatically after tasks are confirmed — no extra user action needed,
 but a FAIL blocks implementation until resolved.
 Never start implementation if any prior phase is unconfirmed.
 
-Within Implementation, every task runs a five-stage pipeline:
+**Feature class — the user declares the track.** Right after the consistency check passes, the
+Classification Gate locks `featureClass`: `code` (the default) or `non-code`. It is a declared human
+decision, never inferred — a `non-code` feature ships no application code (a write-up, documentation,
+a diagram, a knowledge-vault update). A `non-code` feature found to touch application code
+reclassifies to `code` (monotonic; never back).
+
+Within Implementation, a **code** task runs the five-stage pipeline:
 Execute → Test → Validate → Code Review → Security Review. The two reviews run automatically
 after the validator passes; any blocking finding sends the task back to the executor on retry.
-After the last task, a whole-feature review (code + security, over the full diff) runs automatically
-before the feature is marked complete — a blocking finding there halts completion until resolved or
+
+A **non-code** task runs a **two-gate** pipeline: Execute → Validate → Security scan. Prose and
+diagrams have no compiler, so the tester and the per-task code-review stage are skipped — an
+open-ended adversarial pass over prose does not converge. Instead every non-code task carries a
+finite `Acceptance:` checklist authored at plan time, and the validator checks exactly that list
+(plus a diagram render / lint and a closed coherence rubric) in artifact-conformance mode; the
+security-reviewer runs a closed, mechanical disclosure/secret scan. A missing unit test is not a
+FAIL on this track.
+
+After the last task, a whole-feature review runs automatically before the feature is marked complete:
+code + security over the full diff on the code track; one closed-rubric coherence pass + the
+mechanical scan on the non-code track. A blocking finding halts completion until resolved or
 explicitly overridden. Validation checks spec conformance; the reviews hunt the bugs and security
 holes a requirement-anchored check misses by construction.
 
 ### Agent Ownership
 
-- orchestrator: coordinates lifecycle, never writes content or code
+- orchestrator: coordinates lifecycle, never writes content or code; runs the Classification Gate that locks `featureClass` and routes each track
 - requirements-agent: owns requirements.md exclusively
 - design-agent: owns design.md exclusively
-- tasks-agent: owns tasks.md exclusively
+- tasks-agent: owns tasks.md exclusively; for a non-code feature, gives every task a finite `Acceptance:` checklist instead of a testing sub-task
 - spec-consistency-checker: read-only cross-document auditor; fires after tasks confirmed, before implementation; receives no planning context
 - task-executor: implements one task at a time in the shared feature-branch checkout (tasks run sequentially, so each executor inherits prior tasks' committed output)
-- task-tester: writes tests for one task, never modifies implementation
-- task-validator: validates against requirements, read-only, returns pass/fail
-- code-reviewer: adversarial correctness/robustness/maintainability review, read-only, returns pass/fail; runs per task and over the whole feature diff, after the validator passes
-- security-reviewer: security review (authz, secrets, injection, unsafe defaults, network/cloud exposure), read-only, returns pass/fail; runs per task and over the whole feature diff, after the validator passes
+- task-tester: writes tests for one task, never modifies implementation; **not invoked for a non-code task**
+- task-validator: validates against requirements, read-only, returns pass/fail; on a non-code task runs artifact-conformance mode (the `Acceptance:` checklist + render/lint + a closed coherence rubric)
+- code-reviewer: adversarial correctness/robustness/maintainability review, read-only, returns pass/fail; **per-task code-review is skipped on the non-code track**; at feature review a non-code feature gets one closed-rubric coherence pass
+- security-reviewer: security review (authz, secrets, injection, unsafe defaults, network/cloud exposure), read-only, returns pass/fail; on the non-code track runs a closed, mechanical disclosure/secret scan, per task and over the whole feature diff
 - vault-reader: read-only knowledge-vault interface; reads in isolation, returns a distilled report
 - vault-writer: the only component that writes to the knowledge vault; a scribe, never an author
 - github-agent: the audited remote choke-point scribe — performs branch/commit/push/PR/label mechanics and transcribes existing validator/reviewer verdicts verbatim; never merges, never authors content, never judges quality
@@ -106,23 +122,26 @@ context either — it asks the operator to provision the env var, then re-invoke
 PostToolUse redaction hook scrubs secret-shaped strings from tool output as a backstop. Prefer a
 shell `export` or a gitignored `.env` over putting real secrets in `settings.json` (plaintext at rest).
 
-### GitHub Integration (remote choke-point)
+### GitHub Integration (remote choke-point, local-first)
 
-When a project is wired to GitHub, every remote mutation flows through **github-agent**, the single
-audited choke-point (built in the shape of vault-writer). It is invoked only by the orchestrator and
-performs branch/commit/push, opens and updates pull requests (as **draft** during active
-development), transcribes existing validator/reviewer verdicts verbatim into PR comments, and
-sets/clears labels. It never merges, never authors content, and never judges quality — and it is the
-only component that runs `gh` or `git push`. Tokens are used, never read: `gh` reads `GH_TOKEN` /
-`GITHUB_TOKEN` by name, and a missing token triggers a `SECRET REQUEST` halt.
+When a project is wired to GitHub, every git and remote mutation flows through **github-agent**, the
+single audited choke-point (built in the shape of vault-writer). It is invoked only by the
+orchestrator, never merges, never authors content, never judges quality, and is the only component
+that runs `gh` or `git push`. Tokens are used, never read: `gh` reads `GH_TOKEN` / `GITHUB_TOKEN` by
+name, and a missing token triggers a `SECRET REQUEST` halt.
+
+**The build is local-first.** The feature branch is created locally and is **not pushed**. Through
+the whole lifecycle github-agent makes **local commits only** — every planning confirmation and
+every per-task pass commits locally, and the verdicts accumulate in `spec-memory/` and the commit
+messages. A blocking finding **halts locally**; there is no PR, so no `blocked:*` label. GitHub is
+touched **once**, at the whole-feature-review PASS — the single **publish point**: github-agent
+pushes the branch, opens the PR **ready** (not draft), transcribes the accumulated verdicts,
+applies `ready-to-merge`, and requests a human review. GitHub only ever sees a finished, ready PR.
 
 The **merge to a protected branch is a human action** — no agent merges. It is gated by the
-`ready-to-merge` label, which the orchestrator has github-agent apply **only** after a whole-feature
-review passes. A blocking finding at any stage sets a `blocked:<stage>` label
-(`blocked:validation`, `blocked:code-review`, `blocked:security-review`, `blocked:feature-review`)
-and keeps the PR in draft; the label is cleared when the finding is resolved. A CI review-gate job
-plus GitHub branch protection enforce these label semantics server-side, so CI mirrors — never
-replaces — the local gates.
+`ready-to-merge` label, which the orchestrator has github-agent apply **only** at the publish point,
+coincident with the PR's creation. A CI review-gate job plus GitHub branch protection can enforce
+the label server-side, so CI mirrors — never replaces — the local gates.
 
 ### Key Commands
 

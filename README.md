@@ -159,18 +159,34 @@ The orchestrator walks you through:
 4. **Consistency check** — runs automatically after tasks are confirmed. An independent, read-only
    auditor cross-checks requirements ↔ design ↔ tasks ↔ steering. A FAIL blocks implementation
    until the flagged issues are resolved; no extra action needed on PASS.
-5. **Implementation** — per task, a five-stage pipeline:
-   `executor → tester → validator → code-reviewer → security-reviewer`. The validator checks spec
-   conformance; the two reviewers (which run only after the validator passes) hunt the bugs and
-   security holes a requirement-anchored check misses by construction. Any blocking review finding
-   sends the task back to the executor on retry.
-6. **Feature review** — runs automatically after the last task, before the feature is marked
-   complete. The code-reviewer and security-reviewer review the whole feature diff for
-   composition-level issues (integration seams, dead code, cross-task exposure) no per-task pass can
-   see. A blocking finding halts completion until resolved or explicitly overridden.
+5. **Classification** — right after the consistency check passes, you declare the track: a normal
+   **code** feature (the default), or a **non-code** feature (a write-up, documentation, a diagram, a
+   knowledge-vault update — no application code). The orchestrator records it and routes on it; it is
+   never inferred. A non-code feature later found to touch application code reclassifies to code.
+6. **Implementation** — per task, the pipeline depends on the track:
+   - **code:** a five-stage pipeline `executor → tester → validator → code-reviewer →
+     security-reviewer`. The validator checks spec conformance; the two reviewers (which run only
+     after the validator passes) hunt the bugs and security holes a requirement-anchored check
+     misses. Any blocking review finding sends the task back to the executor on retry.
+   - **non-code:** a two-gate pipeline `executor → validator → security scan`. Prose and diagrams
+     have no compiler, so the tester and the per-task code-review stage are skipped. Instead each
+     task carries a finite `Acceptance:` checklist, and the validator checks exactly it (plus a
+     diagram render / lint and a closed coherence rubric); the security-reviewer runs a closed,
+     mechanical disclosure/secret scan. A missing unit test is not a failure here.
+7. **Feature review** — runs automatically after the last task, before the feature is marked
+   complete: code + security over the whole diff on the code track, or one closed-rubric coherence
+   pass + the mechanical scan on the non-code track. A blocking finding halts completion until
+   resolved or explicitly overridden.
 
-Each planning phase requires your explicit confirmation; the consistency check, the per-task
-reviews, and the feature review are automatic gates. The state is saved to `.spec-state.json` so you can resume anytime.
+Each planning phase requires your explicit confirmation; the consistency check, the classification
+gate, the per-task gates, and the feature review are automatic. The state is saved to
+`.spec-state.json` so you can resume anytime.
+
+**Local-first GitHub flow.** The whole lifecycle runs locally — the branch is never pushed and no PR
+is opened during the build. Only when the feature review passes does the orchestrator publish: it
+pushes the branch, opens the PR **ready** (not draft) already carrying `ready-to-merge` and the
+transcribed verdicts, and requests a human review. GitHub only ever sees a finished feature; the
+human does the merge.
 
 ### Resume work
 
@@ -274,23 +290,27 @@ for the exact `settings.json` block.
 The framework bridges the local SDD lifecycle to GitHub through a single audited choke-point and a
 CI layer that re-runs the quality gates server-side.
 
-- **`github-agent` — the remote scribe.** Built in the exact shape of `vault-writer`, `github-agent`
-  is the **only** component that runs `gh` or `git push`. Invoked only by the orchestrator, it
-  performs the remote mechanics — create/switch branches, commit and push to a feature branch, open
-  and update pull requests (as **draft** during active development), transcribe existing
-  validator/reviewer verdicts verbatim into PR comments, and set/clear labels. It is a scribe, not
-  an author: it never invents content, never judges quality, and **never merges**. Tokens are used,
+- **`github-agent` — the remote scribe (local-first).** Built in the exact shape of `vault-writer`,
+  `github-agent` is the **only** component that runs `gh` or `git push`. Invoked only by the
+  orchestrator, it performs the git/remote mechanics — create/switch branches, make **local commits**
+  during the build, and at the single publish point push, open the PR, transcribe existing
+  validator/reviewer verdicts verbatim, and set the `ready-to-merge` label. It is a scribe, not an
+  author: it never invents content, never judges quality, and **never merges**. Tokens are used,
   never read — `gh` reads `GH_TOKEN` / `GITHUB_TOKEN` by name, and a missing token triggers a
   `SECRET REQUEST` halt (same "use, don't read" discipline as the secret-handling layer above). The
   `secret-guard.py` hook additionally blocks GitHub-token dump vectors (e.g. `gh auth token`,
   `printenv GH_TOKEN`) while leaving sanctioned `gh` use untouched.
 
+- **Local-first — the remote is touched once.** The branch stays local through the whole build; every
+  planning confirmation and per-task pass is a local commit, and verdicts accumulate in `spec-memory/`
+  and the commit messages. A blocking finding halts locally — no PR, so no `blocked:*` label. Only at
+  the whole-feature-review PASS does the orchestrator publish: push the branch, open the PR **ready**
+  (not draft) already carrying `ready-to-merge` and the transcribed verdicts, and request a human
+  review. GitHub only ever sees a finished feature.
+
 - **Human merge gate.** Merge to a protected branch (`main`) is always a **human** action — no agent
   merges. It is gated by the `ready-to-merge` label, which the orchestrator has `github-agent` apply
-  **only** after a whole-feature review passes. A blocking finding at any pipeline stage sets a
-  `blocked:<stage>` label (`blocked:validation`, `blocked:code-review`, `blocked:security-review`,
-  `blocked:feature-review`) and keeps the PR in draft; the label is cleared when the finding is
-  resolved.
+  **only** at the publish point, after the whole-feature review passes.
 
 - **Three CI workflow gates** (`ci-templates/workflows/`), each its own file so a future gate slots
   in without touching the others:

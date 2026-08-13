@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
-"""Structural lint for Task 12's orchestrator fixes (label-lifecycle + scaffold-push).
+"""Structural lint for the orchestrator's local-first GitHub flow.
 
 agents/orchestrator.md is a markdown/config artifact — an agent-instruction doc, not executable
-code — so this "test" is a structure/ordering lint over the markdown text. It asserts the three
-Task-12 fixes and the invariants they must preserve:
+code — so this "test" is a structure/ordering lint over the markdown text. It asserts the
+local-first invariants (the build runs locally; the remote is touched exactly once, at publish):
 
-  Fix 1 (FR-10/FR-10.1/FR-11.1): in the Feature Review Gate PASS branch, `blocked:feature-review`
-         is CLEARED *before* `ready-to-merge` is SET (an ordering assertion, not mere presence).
-  Fix 2 (FR-9/FR-11.1): the per-task pass branch clears EVERY recorded `blocked:*` label for the
-         task (all-not-singular wording), not merely the last stage's label.
-  Fix 3 (FR-7): the scaffold `push` is scoped to the NEW-feature case ("only on first scaffold",
-         "never on resume") and the raw scaffold push carries NO `base` field.
+  (2) Feature Review Gate PASS is the single PUBLISH point: push -> open ready PR -> comment
+      verdicts -> set `ready-to-merge` -> request review, in that order.
+  (3) A per-task pass is a LOCAL commit only — no push, and no label op (there is no PR yet).
+  (4) The feature scaffold does NOT push — the branch stays local until publish.
   Invariant (NFR-1/NFR-4): the orchestrator never runs `gh`/`git push` itself; github-agent is the
          sole choke-point.
 
@@ -96,13 +94,12 @@ class OrchestratorLabelLifecycleTest(unittest.TestCase):
             f"unbalanced ``` code fences (found {len(fence_lines)})",
         )
 
-    # --- (2) Fix 1: feature-review PASS clears blocked:feature-review BEFORE ready-to-merge ---
+    # --- (2) Feature Review Gate PASS is the single publish point --------------
 
-    def test_feature_review_pass_clears_blocked_before_ready_to_merge(self):
-        """(2) Fix 1 / FR-11.1 / FR-10.1: within the Feature Review Gate PASS branch, a
-        clear of blocked:feature-review appears and PRECEDES the set of ready-to-merge."""
-        # Isolate the Feature Review Gate PASS branch specifically (there is also a Consistency
-        # Gate 'On PASS'): anchor on the '(both reviewers PASS)' qualifier, up to its 'On FAIL'.
+    def test_feature_review_pass_is_the_publish_point(self):
+        """(2) Local-first: within the Feature Review Gate PASS branch, the publish sequence runs
+        in order — push, then open the ready PR, then comment verdicts, then set ready-to-merge,
+        then request review."""
         region = region_between(
             self.body,
             r"\*\*On PASS \(both reviewers PASS\)",
@@ -110,41 +107,33 @@ class OrchestratorLabelLifecycleTest(unittest.TestCase):
         )
         self.assertIsNotNone(region, "could not locate the feature-review 'On PASS' branch region")
 
-        # A clear instruction for blocked:feature-review must exist in the PASS branch.
-        clear_m = re.search(
-            r"(?is)(op:\s*clear[^}]*blocked:feature-review|clear[^.]*blocked:feature-review)",
-            region,
-        )
-        self.assertIsNotNone(
-            clear_m,
-            "PASS branch does not clear blocked:feature-review before ready-to-merge",
-        )
-        # A set of ready-to-merge must exist in the PASS branch.
-        set_m = re.search(
-            r"(?is)(op:\s*set[^}]*ready-to-merge|set\b[^.]*ready-to-merge)",
-            region,
-        )
-        self.assertIsNotNone(set_m, "PASS branch does not set ready-to-merge")
-
-        # Ordering: the clear must come before the set.
-        self.assertLess(
-            clear_m.start(), set_m.start(),
-            "blocked:feature-review is cleared AFTER ready-to-merge is set — "
-            "Fix 1 requires clearing the stale blocked:* label BEFORE applying ready-to-merge",
-        )
-        # The region should carry the 'before' scoping wording tying the two together.
+        # It must be named the single publish point.
         self.assertRegex(
-            region,
-            r"(?is)before\b[^.]*ready-to-merge",
-            "PASS branch lacks explicit 'before ... ready-to-merge' ordering language",
+            region, r"(?is)single publish point",
+            "the feature-review PASS branch is not framed as the single publish point",
+        )
+        # Ordered publish sequence: push -> open-pr -> comment -> ready-to-merge -> request-review.
+        push_m = re.search(r"(?is)action:\s*push\b", region)
+        openpr_m = re.search(r"(?is)action:\s*open-pr\b", region)
+        rtm_m = re.search(r"(?is)(op:\s*set[^}]*ready-to-merge|set[^.]*ready-to-merge)", region)
+        review_m = re.search(r"(?is)action:\s*request-review\b", region)
+        for m, name in ((push_m, "push"), (openpr_m, "open-pr"), (rtm_m, "ready-to-merge"),
+                        (review_m, "request-review")):
+            self.assertIsNotNone(m, f"publish sequence missing the {name} step")
+        self.assertLess(push_m.start(), openpr_m.start(), "push must precede open-pr")
+        self.assertLess(openpr_m.start(), rtm_m.start(), "open-pr must precede ready-to-merge")
+        self.assertLess(rtm_m.start(), review_m.start(), "ready-to-merge must precede request-review")
+        # The PR is opened ready, not draft.
+        self.assertRegex(
+            region, r"(?is)draft:\s*false",
+            "the published PR is not opened ready (draft: false)",
         )
 
-    # --- (3) Fix 2: per-task pass clears ALL recorded blocked:* labels ---------
+    # --- (3) A per-task pass is a LOCAL commit only, no label op ---------------
 
-    def test_per_task_pass_clears_all_blocked_labels(self):
-        """(3) Fix 2 / FR-9 / FR-11.1: the per-task pass branch clears EVERY recorded blocked:*
-        label for the task (all-not-singular), not merely the last stage's label."""
-        # Isolate the per-task 'On pass' branch: from 'On **pass**' up to 'On **fail**'.
+    def test_per_task_pass_is_local_commit_no_label_op(self):
+        """(3) Local-first: the per-task pass branch makes a LOCAL commit (action: commit) and
+        performs no label op — there is no PR during the build, so nothing to label."""
         region = region_between(
             self.body,
             r"On \*\*pass\*\*",
@@ -152,80 +141,46 @@ class OrchestratorLabelLifecycleTest(unittest.TestCase):
         )
         self.assertIsNotNone(region, "could not locate the per-task 'On pass' branch region")
 
-        # All-not-singular wording: clearing every recorded blocked:* label.
-        self.assertRegex(
-            region,
-            r"(?is)(every one of them|clear\s+\*\*every\b|each\b[^.]*blocked:|"
-            r"once per (recorded )?label|all\b[^.]*blocked:)",
-            "per-task pass branch does not convey clearing EVERY recorded blocked:* label",
+        # Local commit only, carrying the SDD-Task:<N> trailer.
+        self.assertRegex(region, r"(?is)action:\s*commit\b", "per-task pass does not use action: commit")
+        self.assertRegex(region, r"(?is)local commit only", "per-task pass is not a local commit only")
+        self.assertRegex(region, r"SDD-Task:\s*<N>", "per-task commit lacks the SDD-Task:<N> trailer")
+        # No label op in the per-task pass branch (no ready-to-merge, no blocked:* set/clear).
+        self.assertNotRegex(
+            region, r"(?is)action:\s*label\b",
+            "per-task pass still performs a label op — local-first has no PR to label during the build",
         )
-        # Explicit disclaimer that it is not merely the last stage's label.
-        self.assertRegex(
-            region,
-            r"(?is)not merely the last stage",
-            "per-task pass branch lacks the 'not merely the last stage' all-not-singular clarifier",
+        self.assertNotIn(
+            "ready-to-merge", region,
+            "ready-to-merge appears in the per-task pass branch — it belongs only at the publish point",
         )
-        # Enumerates the per-stage blocked:* variants that may need clearing.
-        for token in ("blocked:validation", "blocked:code-review", "blocked:security-review"):
-            self.assertIn(
-                token, region,
-                f"per-task pass branch does not enumerate {token} among the labels to clear",
-            )
-        # No stale blocked:* should be orphaned on the PR after the task passes.
+        # Verdicts are recorded locally rather than posted as a PR comment.
         self.assertRegex(
-            region,
-            r"(?is)(stale|orphan)",
-            "per-task pass branch does not state that no stale/orphaned blocked:* is left behind",
+            region, r"(?is)spec-memory",
+            "per-task pass does not record verdicts locally in spec-memory",
         )
-        # It is anchored to FR-11.1 (label-clear) and lives in the FR-9 per-task pass branch.
-        self.assertRegex(region, r"FR-11\.1\b", "FR-11.1 not cited in the per-task label-clear")
 
-    # --- (4) Fix 3: scaffold push scoped to new-feature case, no base ---------
+    # --- (4) The scaffold does NOT push — the branch stays local --------------
 
-    def test_scaffold_push_scoped_to_new_feature_no_base(self):
-        """(4) Fix 3 / FR-7 / FR-3.1: the scaffold push is scoped to the NEW-feature case
-        ('only on first scaffold' / 'never on resume') and the raw push carries NO base."""
-        # Isolate the scaffold-push instruction within the 'On Session Start' new-feature branch:
-        # from the FR-7 scaffold marker up to the next numbered top-level step ("3." at line start).
+    def test_scaffold_does_not_push_branch_stays_local(self):
+        """(4) Local-first: the 'On Session Start' new-feature path does NOT push the branch; it
+        stays local until the publish point."""
+        # Isolate the On Session Start section (up to the Phase Routing heading).
         region = region_between(
             self.body,
-            r"GitHub \(scaffold, FR-7\)",
-            r"(?m)^\s*3\.",
+            r"(?mi)^##\s+On Session Start",
+            r"(?mi)^##\s+Phase Routing",
         )
-        self.assertIsNotNone(region, "could not locate the scaffold-push (FR-7) instruction region")
-
-        # New-feature scoping: fires only on first scaffold, never on resume.
+        self.assertIsNotNone(region, "could not locate the On Session Start section")
         self.assertRegex(
-            region,
-            r"(?is)(only\b[^.]*first scaffold|first scaffold[^.]*new feature)",
-            "scaffold push is not scoped to the first-scaffold / new-feature case",
+            region, r"(?is)not pushed",
+            "On Session Start does not state the scaffolded branch is not pushed",
         )
         self.assertRegex(
-            region,
-            r"(?is)never\b[^.]*resume",
-            "scaffold push does not state it never fires on resume",
+            region, r"(?is)(stays local|local through the whole build)",
+            "On Session Start does not state the branch stays local",
         )
-        # The push action is present and cites FR-7.
-        self.assertRegex(region, r"action:\s*push\b", "scaffold region does not invoke action: push")
-        self.assertRegex(region, r"FR-7\b", "FR-7 not cited in the scaffold-push region")
-
-        # The raw scaffold push must NOT carry a base field. The push request object is
-        # `{ action: push, feature, branch: ... }` — assert `base` is absent from that object and
-        # that the prose explains base does not apply to a raw push.
-        push_obj = re.search(r"\{\s*action:\s*push\b[^}]*\}", region, re.IGNORECASE | re.DOTALL)
-        self.assertIsNotNone(push_obj, "scaffold push request object not found")
-        self.assertNotRegex(
-            push_obj.group(0),
-            r"(?i)\bbase\b",
-            "raw scaffold push request still carries a `base` field — Fix 3 dropped it",
-        )
-        self.assertRegex(
-            region,
-            r"(?is)no\s+`?base`?",
-            "scaffold region does not explain that no base applies to a raw push",
-        )
-
-        # The GitHub Integration table's scaffold row must match: new-feature-only + no base.
+        # The GitHub Integration table's scaffold row must record no push action.
         table_row = region_between(
             self.body,
             r"\|\s*\*\*Feature scaffold\*\*",
@@ -234,13 +189,8 @@ class OrchestratorLabelLifecycleTest(unittest.TestCase):
         self.assertIsNotNone(table_row, "scaffold row not found in the GitHub Integration table")
         self.assertRegex(
             table_row,
-            r"(?is)new feature only",
-            "scaffold table row not scoped to 'new feature only'",
-        )
-        self.assertRegex(
-            table_row,
-            r"(?is)no\s+`?base`?",
-            "scaffold table row does not state 'no base' for the raw push",
+            r"(?is)(none|stays local|nothing is pushed)",
+            "scaffold table row does not record 'no push' for local-first",
         )
 
     # --- (5) Invariant preserved: orchestrator never runs gh / git push -------

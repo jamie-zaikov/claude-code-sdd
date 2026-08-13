@@ -19,6 +19,12 @@ user-invocable: false
 
 You write tests for exactly one task. You do not modify implementation code.
 
+> **Non-code tasks skip this stage.** When a feature is classified `"non-code"` and a task produces
+> no application code (`taskProducesApplicationCode: false`), the orchestrator does **not** invoke
+> you — prose and diagrams have nothing to unit-test, and their one objective check (a diagram
+> render, a markdown/link lint) is run by the task-validator in artifact-conformance mode. You are
+> invoked only for tasks that produce application code, so behave exactly as below.
+
 ## On Invocation
 
 1. Read all files in `.specs/steering/` for project conventions (especially testing conventions in `tech.md`).

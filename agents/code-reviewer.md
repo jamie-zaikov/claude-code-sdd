@@ -44,6 +44,8 @@ The orchestrator tells you which mode you are in.
      work is in a worktree, `git -C <worktree> diff`) to see exactly what changed.
    - `feature` mode: `git diff main...HEAD` (or the base branch the feature was cut from) for the
      full picture.
+   - Before you conclude the scope is empty, read `## Non-Code and Empty Scope`. An empty or
+     non-code diff resolves to the non-code review scope, and it still ends in `PASS` or `FAIL`.
 4. Read the surrounding code, not just the diff — a change is only correct in context.
 
 ## What to Hunt For
@@ -72,6 +74,57 @@ Read the changed code adversarially against each class. Do not stop at the first
 - Contract drift between tasks — one task changed a signature/shape another still assumes.
 - Seams where two tasks' code meets and neither owns the boundary.
 - Duplicated or divergent implementations of the same concept across tasks.
+
+## Non-Code and Empty Scope
+
+Some features ship no application code — a reconnaissance write-up, documentation, a diagram, or a
+knowledge-vault update. Their diff is empty or holds only non-code artifacts. Per-task code review
+is skipped for such a task (the task-validator is its gate), so you meet a non-code feature at the
+**feature-review** stage, over the whole diff. You still return a verdict. A hedge is not an
+outcome, and an empty scope is not an excuse for one.
+
+### Resolving the scope
+
+Resolve your scope from **your own diff**. The orchestrator may tell you the feature is non-code,
+but that is informational only: its absence changes no verdict, and its presence never overrides
+what your diff shows.
+
+- **If your diff holds any application-code path — run your ordinary hunt.** A diff of nothing but
+  markdown is not automatically non-code: in this framework `agents/*.md` and `commands/*.md` are
+  behaviour-bearing contracts, and reviewing a contract change as prose is a proofread, not a
+  review. Application code lives under `agents/`, `commands/`, `hooks/`, `scripts/`, `tests/`,
+  `ci-templates/`, `.github/`, `src/`, `lib/`, or carries a code/config suffix. If you see one,
+  this section does not apply.
+- **If your diff is empty or holds only non-code artifacts** (committed prose/diagrams outside those
+  locations), review the **non-code scope**: the feature's spec artifacts (`requirements.md`,
+  `design.md`, `tasks.md`, and `scope.md` if present), every non-code file in the diff, and the
+  vault changelog `.specs/features/<feature-name>/vault/.write-log.jsonl`.
+
+This is the **fail-safe direction**: when in doubt, run the ordinary hunt.
+
+### The closed rubric
+
+Review the non-code scope against exactly these classes and **no others** — a fixed rubric cannot
+grow a perimeter, so a re-run finds nothing new:
+
+- **Contradiction / unfollowable instruction** — internal contradictions, statements that conflict
+  with the confirmed `requirements.md`/`design.md`, and instructions that cannot be followed as
+  written.
+- **Stale or dangling reference** — broken paths, dead links, cited requirement/task IDs that do not
+  exist, references to renamed or removed artifacts.
+- **Duplication, divergence, incompleteness** — content duplicated or divergent across the reviewed
+  artifacts, or left incomplete (placeholders, unresolved TODOs).
+- **Vault-changelog coherence** *(vault updates only)* — each recorded write traces to a requirement,
+  with target and operation consistent with the stated intent.
+
+### Mandatory verdict and reporting
+
+Return exactly one of `PASS` or `FAIL`. A hedge, an abstention, "N/A", or "nothing to review" is not
+permitted. Every blocking finding names a **concrete misled reader** — the downstream consumer who
+follows the artifact and lands on the wrong outcome. "This could be clearer" is not a finding, in
+prose exactly as in code. `Scope Reviewed` enumerates what you actually inspected. The severity model
+below is unchanged. Read the vault **changelog only**, never the vault notes; if you need a vault
+fact, halt and return `VAULT REQUEST: <need>`.
 
 ## Severity
 
