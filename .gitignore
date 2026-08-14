@@ -11,3 +11,7 @@ __pycache__/
 .specs/features/*/spec-memory/*
 !.specs/features/*/input-data/README.md
 !.specs/features/*/spec-memory/README.md
+
+# Tool-generated Copilot instruction files (mermaid-ai-skills, etc.)
+.github/copilot-instructions.md
+.github/instructions/
