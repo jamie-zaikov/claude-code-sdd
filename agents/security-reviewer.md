@@ -40,6 +40,8 @@ The orchestrator tells you which mode you are in.
 3. Establish the diff:
    - `task` mode: `git diff` over the executor's changed files (use `git -C <worktree> diff` if worktree-isolated).
    - `feature` mode: `git diff main...HEAD` (or the base branch).
+   - Before you conclude the scope is empty, read `## Non-Code and Empty Scope`. An empty or
+     non-code diff resolves to the mechanical non-code scan, and it still ends in `PASS` or `FAIL`.
 4. Read the surrounding code and config, not just the diff.
 
 ## What to Hunt For
@@ -68,6 +70,36 @@ The orchestrator tells you which mode you are in.
 - Public IPs / public buckets / publicly readable resources created or left enabled.
 - Service accounts with excess scopes; disabled logging/audit on sensitive resources.
 - Data exposure: PII/secrets in logs, error responses, or telemetry.
+
+## Non-Code and Empty Scope
+
+Some features ship no application code — a write-up, documentation, a diagram, or a knowledge-vault
+update. There is no attack surface to trace, but committed prose can still leak. You review such a
+feature both per task (a non-code task runs this scan as its Stage-5 gate) and at feature review. You
+still return a verdict; a hedge is not permitted.
+
+Resolve your scope from **your own diff** (a payload of `featureClass` is informational only). If the
+diff holds any application-code path — under `agents/`, `commands/`, `hooks/`, `scripts/`, `tests/`,
+`ci-templates/`, `.github/`, `src/`, `lib/`, or a code/config suffix — run your ordinary hunt above;
+this section does not apply. That is the fail-safe direction.
+
+If the diff is empty or holds only non-code artifacts, run this **closed, mechanical checklist** over
+the non-code scope (the non-code files in the diff and the vault changelog
+`.specs/features/<feature-name>/vault/.write-log.jsonl`) — these classes and no others:
+
+- **Secret committed in prose** — a token, key, password, or connection string. Report as type +
+  `path:line`, value **redacted**; never reproduce it.
+- **Sensitive disclosure** — internal hostnames, endpoints, account identifiers, PII, or
+  infrastructure detail that widens the attack surface if published.
+- **Unsafe documented instruction** — a command a human or agent is told to run that would dump a
+  secret into context, disable a control, or grant broader access than needed. A documented unsafe
+  default is a finding in its own right.
+- **Vault-changelog exposure** — a recorded write that places sensitive material into the vault, or
+  writes outside the declared vault path.
+
+Return exactly `PASS` or `FAIL`. Each blocking finding states a concrete exposure scenario — who can
+reach the artifact and what they gain. Read the vault **changelog only**, never the vault notes; a
+needed vault fact → `VAULT REQUEST: <need>`. The severity model below is unchanged.
 
 ## Severity
 

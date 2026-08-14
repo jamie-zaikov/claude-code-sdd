@@ -102,88 +102,92 @@ class OrchestratorGithubIntegrationTest(unittest.TestCase):
 
     # --- Lifecycle invocation points (2.7(3)) ---------------------------------
 
-    def test_scaffold_pushes_branch(self):
-        """FR-7, FR-3.1: feature scaffold invokes github-agent to push the feature branch + upstream."""
+    def test_scaffold_does_not_push_branch_stays_local(self):
+        """Local-first: the feature scaffold does NOT push; the branch stays local until publish."""
         self._assert_any(
-            [r"(?is)scaffold.*?\bpush\b.*?(branch|upstream)",
-             r"(?is)branch already created locally.*?push",
-             r"(?is)push.*?feature branch.*?upstream"],
-            "feature-scaffold -> push branch / set upstream invocation",
+            [r"(?is)branch is created by `/sdd-feature`.*?not pushed",
+             r"(?is)local feature branch.*?not pushed",
+             r"(?is)branch stays local"],
+            "scaffold creates the branch locally and does not push it",
         )
-        self.assertRegex(self.body, r"FR-7\b", "FR-7 not cited for scaffold trigger")
+        # The lifecycle table row for scaffold must record no github-agent action.
+        self._assert_any(
+            [r"(?is)Feature scaffold.*?\bnone\b.*?stays local",
+             r"(?is)Feature scaffold.*?nothing is pushed"],
+            "the scaffold lifecycle row performs no push",
+        )
 
-    def test_planning_confirm_commit_push_and_first_draft_pr(self):
-        """FR-8, FR-3.2: planning-phase confirm commit-pushes, and the first confirm opens a DRAFT PR."""
-        self.assertIn("commit-push", self.body, "no commit-push invocation documented")
+    def test_planning_confirm_is_local_commit_only_no_pr(self):
+        """Local-first: a planning-phase confirm makes a LOCAL commit only — no push, no PR opened."""
         self._assert_any(
-            [r"(?is)first\b.*?confirmation.*?open-pr",
-             r"(?is)open-pr.*?draft:\s*true",
-             r"(?is)first\b.*?confirm.*?draft"],
-            "first planning confirm -> open-pr as draft",
+            [r"(?is)phase confirmed, local-first.*?action:\s*commit\b.*?local commit only",
+             r"(?is)action:\s*commit\b.*?local commit only.*?no PR is opened"],
+            "planning confirm -> local commit only, no PR",
         )
-        self.assertRegex(self.body, r"(?i)draft", "draft PR not mentioned for first confirm")
-        self.assertRegex(self.body, r"FR-8\b", "FR-8 not cited for planning-confirm trigger")
+        # No draft PR is ever opened — the build never opens a PR, and publish opens it ready.
+        self.assertNotRegex(
+            self.body, r"draft:\s*true",
+            "a draft PR is still opened — local-first opens the PR ready, only at publish",
+        )
+        self.assertNotIn("commit-push", self.body,
+                         "the superseded commit-push action is still referenced")
 
-    def test_per_task_pass_commit_push_and_verdict_comment(self):
-        """FR-9, FR-6, FR-6.1, NFR-8: per-task pass commit-pushes changes and comments the verdict blocks."""
+    def test_per_task_pass_is_local_commit_with_task_trailer_and_local_verdicts(self):
+        """Local-first: a per-task pass is a LOCAL commit (SDD-Task trailer), verdicts recorded locally."""
         self._assert_any(
-            [r"(?is)per-task.*?pass.*?commit-push.*?comment",
-             r"(?is)validator PASS.*?both reviewers PASS.*?commit-push",
-             r"(?is)commit-push.*?task'?s changes.*?comment"],
-            "per-task pass -> commit-push + comment verdicts",
+            [r"(?is)per-task pass, local-first.*?action:\s*commit\b.*?local commit only, no push",
+             r"(?is)action:\s*commit\b.*?local commit only, no push.*?SDD-Task"],
+            "per-task pass -> local commit only, no push",
         )
-        # The three verdict blocks must be transcribed verbatim and stage-attributed.
+        self.assertRegex(self.body, r"SDD-Task:\s*<N>",
+                         "per-task commit does not carry the SDD-Task:<N> trailer")
         self._assert_any(
-            [r"(?is)three verbatim.*?verdict", r"(?is)verbatim.*?verdict",
-             r"(?is)transcribed.*?verdict", r"(?is)stage-attributed verdict"],
-            "verbatim / stage-attributed verdict transcription",
+            [r"(?is)Record the verdict blocks locally.*?spec-memory",
+             r"(?is)verdicts.*?recorded.*?spec-memory",
+             r"(?is)accumulated verdicts are transcribed to the PR once, at the publish point"],
+            "verdicts recorded locally, transcribed at publish (not per-task PR comments)",
         )
-        self.assertRegex(self.body, r"FR-9\b", "FR-9 not cited for per-task trigger")
 
-    def test_feature_review_pass_sets_ready_to_merge_and_requests_review(self):
-        """FR-10, FR-10.1, NFR-1: feature-review PASS sets ready-to-merge and requests human review."""
+    def test_publish_point_sequence_at_feature_review_pass(self):
+        """Local-first: the whole-feature-review PASS is the single publish point — push, ready PR,
+        transcribe verdicts, set ready-to-merge, request review."""
         self.assertIn("ready-to-merge", self.body, "'ready-to-merge' label token absent")
         self._assert_any(
-            [r"(?i)request-review", r"(?i)request\s+review\s+from a human",
-             r"(?i)human[- ]review request"],
-            "request human review on feature-review PASS",
+            [r"(?is)single publish point.*?push.*?open-pr.*?comment.*?ready-to-merge.*?request-review",
+             r"(?is)publish point.*?action:\s*push.*?open-pr.*?ready-to-merge"],
+            "publish sequence: push -> open-pr (ready) -> comment -> ready-to-merge -> request-review",
         )
-        # FR-10.1 / NFR-1: ready-to-merge is set ONLY at feature-review PASS, never earlier.
+        # The PR is opened READY, not draft.
         self._assert_any(
-            [r"(?is)only\b.*?ready-to-merge.*?never (earlier|before)",
-             r"(?is)ready-to-merge.*?\bonly\b.*?feature[- ]?review",
-             r"(?is)only\b.*?feature[- ]?review.*?ready-to-merge",
-             r"(?is)never\b.*?ready-to-merge.*?before",
-             r"(?is)ready-to-merge.*?never\b.*?(earlier|before)"],
-            "ready-to-merge set only at feature-review PASS, never earlier (FR-10.1/NFR-1)",
+            [r"(?is)open-pr.*?draft:\s*false", r"(?is)open the PR \*\*ready\*\*, not draft"],
+            "the published PR is ready, not draft",
         )
-        self._assert_all([r"FR-10\b", r"FR-10\.1\b"], "FR-10 / FR-10.1 citations")
+        # ready-to-merge is applied ONLY at the publish point, never earlier.
+        self._assert_any(
+            [r"(?is)ready-to-merge.*?only.*?publish point",
+             r"(?is)only place `ready-to-merge` is ever applied",
+             r"(?is)only.*?at the publish point.*?whole-feature review"],
+            "ready-to-merge applied only at the publish point (FR-10.1/NFR-1)",
+        )
+        self._assert_any(
+            [r"(?i)request-review", r"(?i)request\s+a human review"],
+            "request human review at publish",
+        )
 
-    def test_blocking_finding_sets_blocked_label_and_keeps_draft(self):
-        """FR-11: any blocking finding sets a blocked:<stage> label and keeps the PR in draft."""
-        self.assertRegex(self.body, r"blocked:", "'blocked:' label family token absent")
+    def test_blocking_finding_halts_locally_no_remote_label(self):
+        """Local-first: a blocking finding halts locally — there is no PR, so no blocked:* label."""
         self._assert_any(
-            [r"(?is)blocked:.*?keep.*?draft", r"(?is)keep.*?draft.*?blocked:",
-             r"(?is)stays draft", r"(?is)keep the PR (in )?\*?\*?draft",
-             r"(?is)keep PR \*?\*?draft"],
-            "blocking finding keeps PR in draft",
+            [r"(?is)No remote label.*?no PR during the build.*?halts locally",
+             r"(?is)blocking finding.*?halts locally",
+             r"(?is)no PR.*?so.*?no\b.*?blocked:\*?\*? label"],
+            "a blocking finding halts locally with no remote label",
         )
-        # The blocked family should name at least the per-stage variants.
+        # The blocked:* family is explicitly framed as legacy / not applied during the build.
         self._assert_any(
-            [r"blocked:validation", r"blocked:code-review",
-             r"blocked:security-review", r"blocked:feature-review"],
-            "blocked:<stage> family naming the failing stage",
+            [r"(?is)blocked:\*?\*?.*?legacy of the old draft-PR flow.*?no longer applied",
+             r"(?is)no longer applied during the build"],
+            "blocked:* framed as legacy, not applied during the local-first build",
         )
-        self.assertRegex(self.body, r"FR-11\b", "FR-11 not cited for blocking-finding trigger")
-
-    def test_blocked_label_cleared_on_resolution(self):
-        """FR-11.1: on resolution the orchestrator clears the blocked:<stage> label."""
-        self._assert_any(
-            [r"(?i)label clear blocked:", r"(?is)clear.*?blocked:",
-             r"(?is)op:\s*clear,\s*name:\s*blocked:", r"(?is)blocked:.*?cleared"],
-            "blocked:<stage> label cleared on resolution",
-        )
-        self.assertRegex(self.body, r"FR-11\.1\b", "FR-11.1 not cited for label-clear")
 
     # --- Invariants: choke-point + human merge gate (2.7(4), 2.7(3) complete) --
 
