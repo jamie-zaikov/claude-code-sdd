@@ -58,6 +58,11 @@ and **none lost data**, because of this discipline:
   propagation** (see the duplication hazard in rule 3).
 - Silence is not death: check the report's mtime and the process list before replacing a quiet
   agent.
+- This recovery is now **automated, not manual**: the Orchestrator runs in the main session and
+  drives every specialist through the *Specialist Execution Contract* (`agents/orchestrator.md`) —
+  background launch, ledger-mtime heartbeat, kill-plus-respawn-once, idempotent resume. A nested
+  Orchestrator subagent could not do this: frozen inside a blocking call to a quiet specialist, it
+  deadlocked the whole chain. That is why the main session, not a subagent, is the Orchestrator.
 
 ## 5. Prose contracts have no compiler. Mutate to verify.
 

@@ -240,6 +240,15 @@ Everything installs to `~/.claude/`:
 
 Project-level files override global ones if they share the same name. So if a specific project needs a custom orchestrator, put it in `<project>/.claude/agents/orchestrator.md` and it takes priority.
 
+**The main session acts as the Orchestrator — it is never spawned as a nested subagent.** The
+Orchestrator file is a playbook the main session reads and follows. This is deliberate: a nested
+Orchestrator, frozen inside a blocking call to a specialist that has gone quiet, cannot recover it,
+and the whole chain deadlocks (specialist idle → Orchestrator idle → main session idle). Keeping
+orchestration in the main loop keeps the recovery tools (`Monitor`, `TaskStop`, `SendMessage`,
+`ScheduleWakeup`) at the layer that waits, so a stalled specialist is launched in the background,
+watched by its ledger mtime, then killed and respawned once — resuming idempotently from disk. See
+the *Execution Model* and *Specialist Execution Contract* in `agents/orchestrator.md`.
+
 Per-project artifacts live in the project repo:
 
 ```
