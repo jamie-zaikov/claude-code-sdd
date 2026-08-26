@@ -14,6 +14,6 @@ Report to the user:
 - Which phases are confirmed
 - If in implementation: which task is current, how many complete, any pending retries
 
-Then invoke the orchestrator to continue from the current phase. If the phase is `implementation` and a task has `retryCount > 0`, inform the user about the previous failure before proceeding.
+Then **act as the Orchestrator in this main session** to continue from the current phase: read the Orchestrator playbook (`~/.claude/agents/orchestrator.md`, or the project copy under `.claude/agents/` if present) and follow it directly. Do **not** spawn the Orchestrator as a nested subagent — the main session must keep the background and recovery tools so a stalled specialist can be detected and respawned (see the playbook's *Execution Model* and *Specialist Execution Contract*). If the phase is `implementation` and a task has `retryCount > 0`, inform the user about the previous failure before proceeding.
 
 If the feature directory or state file does not exist, tell the user and suggest `/sdd-feature $ARGUMENTS` to create it.

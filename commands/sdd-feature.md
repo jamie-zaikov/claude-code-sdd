@@ -163,7 +163,7 @@ After the branch is created and checked out, confirm to the user:
 
 Then ask the user to describe what the feature should do, and offer two paths:
 
-- **(a) Scope first (recommended for non-trivial features):** Stay in main session to do scoping work — resolve open questions, reconcile source documents, set boundaries. Populate `scope.md` as you go. When scoping feels complete, invoke the orchestrator with `Resume feature: $ARGUMENTS`.
-- **(b) Skip to requirements:** If the feature is small or scope is already clear (e.g., parameterized variants of an existing feature), leave `scope.md` minimal and invoke the orchestrator now.
+- **(a) Scope first (recommended for non-trivial features):** Stay in main session to do scoping work — resolve open questions, reconcile source documents, set boundaries. Populate `scope.md` as you go. When scoping feels complete, act as the Orchestrator in the main session (`Resume feature: $ARGUMENTS`; see `/sdd-resume`) — do not spawn a nested Orchestrator subagent.
+- **(b) Skip to requirements:** If the feature is small or scope is already clear (e.g., parameterized variants of an existing feature), leave `scope.md` minimal and act as the Orchestrator in the main session now (see `/sdd-resume`) — do not spawn a nested Orchestrator subagent.
 
 Default to (a) unless the user indicates the feature is well-scoped already.

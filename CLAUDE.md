@@ -55,7 +55,7 @@ holes a requirement-anchored check misses by construction.
 
 ### Agent Ownership
 
-- orchestrator: coordinates lifecycle, never writes content or code; runs the Classification Gate that locks `featureClass` and routes each track
+- orchestrator: coordinates lifecycle, never writes content or code; runs the Classification Gate that locks `featureClass` and routes each track. The **main session runs this playbook directly** — never as a nested subagent — so it keeps the recovery tools, and it drives every specialist through the *Specialist Execution Contract* (background launch, ledger-mtime heartbeat, kill-plus-respawn-once) so a stalled specialist cannot deadlock the pipeline
 - requirements-agent: owns requirements.md exclusively
 - design-agent: owns design.md exclusively
 - tasks-agent: owns tasks.md exclusively; for a non-code feature, gives every task a finite `Acceptance:` checklist instead of a testing sub-task
@@ -71,6 +71,32 @@ holes a requirement-anchored check misses by construction.
 
 github-agent is the only component that runs `gh` or `git push`.
 No agent modifies another agent's artifact.
+
+### Orchestration Execution Model (stall-safe)
+
+The **main session acts as the Orchestrator** and follows the Orchestrator playbook directly. It is
+**never** spawned as a nested subagent. The reason is a real stall: a specialist goes quiet (it
+reads a large file, or it dies on a transient error), the caller is frozen inside a blocking `Agent`
+call, and when the caller is itself a subagent the whole chain deadlocks — the specialist idles, the
+Orchestrator cannot recover it, and the main session idles too. The main loop is the one layer the
+user can interrupt, and the recovery tools (`Monitor`, `TaskOutput`, `TaskStop`, `SendMessage`,
+`ScheduleWakeup`) live there.
+
+Specialists stay subagents. The main session launches each one in the background — its transcript
+never floods the main session, and the launch never blocks the loop — and drives it through the
+**Specialist Execution Contract**:
+
+- **Launch non-blocking**; proceed on the completion notice.
+- **Judge liveness by evidence, not a hunch** — the incremental ledger's mtime under `spec-memory/`
+  and the process list. Silence is not death (process-lesson 4). Re-check on a cadence with
+  `ScheduleWakeup`, never in a blocking call.
+- **Nudge, then time out** — `SendMessage` a stale specialist; if the mtime stays stale and no live
+  process remains, treat it as dead.
+- **Kill, then respawn once** — `TaskStop`, confirm the process is gone (process-lesson 3), then
+  re-invoke the same specialist once. It resumes idempotently from its on-disk ledger, so recovery
+  costs one step.
+- **Halt, do not loop** — if the single respawn also stalls, halt and surface the ledger path and
+  its last mtime to the user.
 
 ### Knowledge-Vault Isolation
 
