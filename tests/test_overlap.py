@@ -106,6 +106,38 @@ class OverlapTest(unittest.TestCase):
         self.assertEqual((self.repo / "src" / "m.py").read_text(), "m = 1\n")
         self.assertEqual((self.repo / "AGENTS.md").read_text(), "user's own untracked file\n")
 
+    def test_land_succeeds_when_the_commit_includes_specs_files(self):
+        wt, base = self.start()
+        self.write("src/m.py", "m = 1\n", root=wt)
+        self.write(".specs/f/tasks.md", "- [x] 1. Task N\n")  # the orchestrator marks the task done
+        self.git("add", "src", ".specs/f/tasks.md")
+        self.git("commit", "-qm", "Task N with tasks.md")
+        ov.land(self.repo, "2", base)
+        self.assertEqual((self.repo / "src" / "m.py").read_text(), "m = 1\n")
+
+    def test_a_failed_pick_restores_the_tree(self):
+        wt, base = self.start()
+        self.write("src/m.py", "m = 1\n", root=wt)
+        self.write("src/a.py", "a = 'M'\n", root=wt)
+        self.commit_task_n()
+        import subprocess as sp
+        orig_run = ov.subprocess.run
+
+        def fake_run(argv, *a, **kw):
+            if "cherry-pick" in argv:
+                orig_run(argv, *a, **kw)  # really apply it ...
+                return sp.CompletedProcess(argv, 1, "", "simulated conflict")  # ... then fail
+            return orig_run(argv, *a, **kw)
+
+        ov.subprocess.run = fake_run
+        self.addCleanup(setattr, ov.subprocess, "run", orig_run)
+        with self.assertRaises(ov.Stale):
+            ov.land(self.repo, "2", base)
+        ov.subprocess.run = orig_run
+        self.assertFalse((self.repo / "src" / "m.py").exists())
+        self.assertEqual((self.repo / "src" / "a.py").read_text(), "a = 2\n")
+        self.assertEqual((self.repo / ".specs/f/.spec-state.json").read_text(), '{"n": "complete"}\n')
+
     def test_an_orphaned_directory_is_discarded_and_unblocks_start(self):
         wt, _ = self.start()
         self.git("worktree", "remove", "--force", str(wt))

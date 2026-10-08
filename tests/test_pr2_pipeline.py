@@ -77,6 +77,9 @@ class ConcurrentStagesTest(Base):
         self.has(self.impl, r"When `retryCount >= 1` \*\*and\*\* `attemptTrees\[retryCount - 1\]`\s+exists", "delta condition")
         self.has(self.impl, r"A respawn or a re-invocation is never a retry", "respawn not retry")
         self.has(self.impl, r"Otherwise \(no earlier tree recorded\) use\s+`mode: task`", "fallback")
+        self.has(self.impl, r"\*\*When `currentTree` equals `previousTree`\*\* the retry changed nothing", "equal trees")
+        for name in ("code-reviewer", "security-reviewer"):
+            self.has(read(f"agents/{name}.md"), r"rule never applies in delta mode", name)
         self.has(self.impl, r"validator always runs in full on a retry", "validator full")
         for name in ("code-reviewer", "security-reviewer"):
             text = read(f"agents/{name}.md")
@@ -156,7 +159,8 @@ class OverlapTest(Base):
         for action in ("overlap-start", "overlap-land", "overlap-discard"):
             self.has(self.ovl, rf"action:\s+{action}", action)
         self.has(self.ovl, r"continue N\+1 at Stage 2", "continue at tester")
-        self.has(self.ovl, r"N fails, or the land returns anything but success", "discard path")
+        self.has(self.ovl, r"N fails, the speculative executor ends other than `done`", "discard path")
+        self.has(self.ovl, r"or the land returns anything but success", "land failure")
         self.has(self.ovl, r"wait for the speculative executor's completion\s+notice\*\* with `state: done`", "land waits")
         self.has(self.ovl, r"`TaskStop` it and confirm the stop", "discard stops first")
         self.has(self.ovl, r"never halts the run", "never halts")

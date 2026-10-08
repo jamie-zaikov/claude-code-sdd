@@ -446,7 +446,8 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   It reviews exactly `git diff <previousTree> <currentTree> -- ':/' ':(top,exclude).specs'` — the
   fix only, new and untracked files included — confirms each prior finding is closed, and still runs
   its mechanical checks over the task's full file list. Otherwise (no earlier tree recorded) use
-  `mode: task`. A respawn or a re-invocation is never a retry and never selects delta mode. The
+  `mode: task`. **When `currentTree` equals `previousTree`** the retry changed nothing: do not launch
+  the reviewers — every prior blocking finding stays open, and the attempt fails with them. A respawn or a re-invocation is never a retry and never selects delta mode. The
   validator always runs in full on a retry.
 
   **Acceptance probe.** When `tech.md` declares an `## Acceptance Probe` (a user-written command,
@@ -466,7 +467,8 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   - The executor's completion summary (files changed) and, if worktree-isolated, the worktree path
   - The tester's summary (the validator runs concurrently — its verdict is not an input), and the
     **classification payload**
-  - An explicit `mode: task` instruction (or `mode: delta` with `previousTree` on a retry)
+  - An explicit `mode: task` instruction (or `mode: delta` with `previousTree` and `currentTree` on
+    a retry)
 
   **Review model tiering:** both reviewers are pinned to `model: opus` in frontmatter and are NOT
   downgraded — a reviewer that misses a defect fails silently. Keep them on Opus every time.
@@ -509,8 +511,9 @@ running.
    then invoke **github-agent** `{ action: overlap-land, task: N+1, base }`. On success N+1's
    changes are ordinary uncommitted changes in the main checkout: continue N+1 at Stage 2 (tester),
    with the executor's summary. The executor stage is not repeated.
-4. **N fails, or the land returns anything but success** (stale exit 1, refused exit 2, any
-   `GITHUB BLOCKED`) → first make sure the speculative executor is not running: wait for its
+4. **N fails, the speculative executor ends other than `done` (`failed`, `blocked`, a
+   `SECRET REQUEST`, a stall), or the land returns anything but success** (stale exit 1, refused
+   exit 2, any `GITHUB BLOCKED`) → first make sure the speculative executor is not running: wait for its
    completion notice, or `TaskStop` it and confirm the stop (process-lesson 3). Then invoke
    **github-agent** `{ action: overlap-discard, task: N+1 }`, clear `speculation`, and run N+1
    normally (Stage 1 on the real tree) once N passes. A discard costs one executor run — the same as

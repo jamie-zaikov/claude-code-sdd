@@ -36,7 +36,9 @@ The orchestrator tells you which mode you are in.
   gates judged on the previous and the current attempt) and your own prior blocking findings.
   Review exactly `git diff <previousTree> <currentTree> -- ':/' ':(top,exclude).specs'` — the fix
   only, new files included — and confirm each prior finding is closed (say so per finding). Never
-  use `git diff <previousTree>` against the working tree: it misreports untracked files.
+  use `git diff <previousTree>` against the working tree: it misreports untracked files. The
+  *Non-Code and Empty Scope* rule never applies in delta mode — an empty delta diff means the fix
+  changed nothing, so every prior blocking finding is still open: report each one again.
   Still run your mechanical checks over the task's full file list. A new defect in the fix is a
   finding like any other; do not re-review unchanged code.
 - **`feature` mode** — review the entire feature diff after all tasks pass. This is the only stage

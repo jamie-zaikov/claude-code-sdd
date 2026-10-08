@@ -107,6 +107,8 @@ DESIGN = """# Design
 |---|---|---|
 | C19 | Repo tooling | `tools/` |
 | C20 | Other | `x/` |
+| **DD-30** (OQ-1) | Decision in a table row with more text in the first cell | x |
+| C200 | Must not match C20 | y |
 
 **C1 — Construction (FR-9)**
 Bold-lead component C1.
@@ -193,6 +195,26 @@ class PackTest(unittest.TestCase):
         self.assertIn("- AC-7", nf)  # an unknown prefix is never silently dropped
         self.assertIn("- C21", nf)
         self.assertEqual(cp.cited_requirements("FR-1–FR-999"), ["FR-1", "FR-999"])  # no runaway range
+
+    def test_table_row_whose_first_cell_starts_with_the_id(self):
+        self.assertEqual(cp.sections_for(DESIGN, ["DD-30"], False)[1], [])
+        sections, _ = cp.sections_for(DESIGN, ["C20"], False)
+        self.assertNotIn("Must not match C20", "\n".join(sections))
+
+    def test_cross_parent_range_is_never_guessed(self):
+        self.assertEqual(cp.cited_requirements("FR-1.2–FR-2.3"), ["FR-1.2", "FR-2.3"])
+
+    def test_body_only_foreign_id_is_listed_apart(self):
+        (self.feature / "tasks.md").write_text(TASKS.replace(
+            "## Task 12: Not task 1", "## Task 5: Cross-feature\n- [ ] 5.1. Keep FR-77.1 of the old feature.\n"
+            "```\nFR-88 inside a fence\n```\n**Requirements:** FR-2.1, FR-66\n\n## Task 12: Not task 1"))
+        pack = cp.build(self.feature, "5")
+        nf = pack[pack.index("## NOT FOUND"):pack.index("## Cited from another feature")]
+        other = pack[pack.index("## Cited from another feature"):pack.index("## Task")]
+        self.assertIn("- FR-66", nf)  # in the Requirements field: a real gap
+        self.assertNotIn("FR-77.1", nf)
+        self.assertIn("- FR-77.1", other)  # body-only and undefined here: another feature's id
+        self.assertNotIn("FR-88", pack[:pack.index("## Task")])  # fenced code is never a citation
 
     def test_code_fence_is_never_a_section(self):
         self.assertEqual(self.pack.count("#### C2 — inside a code fence"), 0)

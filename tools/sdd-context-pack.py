@@ -35,7 +35,7 @@ LEAD_ID = re.compile(rf"^\s*\**\s*({ID})(?!\w|\.\w)")  # `I9.` ends the id; `FR-
 # Requirement ids: FR/NFR, and the other prefixes real Requirements lines use (AC-, DOM-, LIM-, ...).
 REQ_ID = re.compile(r"\b([A-Z]{2,4}-\d+(?:\.\d+)*)\b")
 # Child ranges `FR-9.1–9.3`, `FR-9.1–3`, `FR-9.1–FR-9.3`; parent ranges `FR-15–FR-19`, `FR-15–19`.
-RANGE = re.compile(r"\b([A-Z]{2,4}-(\d+))\.(\d+)\s*[–-]\s*(?:[A-Z]{2,4}-)?(?:\d+\.)?(\d+)\b")
+RANGE = re.compile(r"\b([A-Z]{2,4}-(\d+))\.(\d+)\s*[–-]\s*(?:[A-Z]{2,4}-)?(?:(\d+)\.)?(\d+)\b")
 PARENT_RANGE = re.compile(r"\b([A-Z]{2,4})-(\d+)\s*[–-]\s*(?:\1-)?(\d+)\b(?!\.)")
 DESIGN_ID = re.compile(r"\b((?:[A-Z]{1,3}-\d+|[A-Z]\d+[a-z]?))\b")
 # Design ranges `C1–C15`, `C14-C17`, `D1–D5`, `ACC-27–ACC-33`.
@@ -59,6 +59,16 @@ def task_block(tasks: str, task: str) -> Optional[str]:
         elif start is not None and re.match(r"^#{1,2}\s", line):
             return "".join(lines[start:i]).rstrip() + "\n"
     return "".join(lines[start:]).rstrip() + "\n" if start is not None else None
+
+
+def strip_fences(text: str) -> str:
+    out, in_fence = [], False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            in_fence = not in_fence
+        elif not in_fence:
+            out.append(line)
+    return "\n".join(out)
 
 
 def field(block: str, name: str) -> str:
@@ -85,7 +95,9 @@ def _span(lo: str, hi: str):
 
 def cited_requirements(text: str) -> List[str]:
     ids = set(REQ_ID.findall(text))
-    for base, _, lo, hi in RANGE.findall(text):
+    for base, parent, lo, end_parent, hi in RANGE.findall(text):
+        if end_parent and end_parent != parent:
+            continue  # `FR-1.2–FR-2.3` crosses parents: keep both ends only, never guess the middle
         ids.update(f"{base}.{n}" for n in _span(lo, hi))
     for prefix, lo, hi in PARENT_RANGE.findall(text):
         ids.update(f"{prefix}-{n}" for n in _span(lo, hi))
@@ -155,7 +167,7 @@ def sections_for(doc: str, wanted: List[str], descend: bool) -> Tuple[List[str],
     sections = ["\n".join(lines[s:e]).rstrip() for s, e in sorted(picked)]
     # A component defined as a table row (`| C19 | ... |`): the row, under its table header.
     for want in [w for w in wanted if w not in found]:
-        row = re.compile(rf"^\|\s*\**{re.escape(want)}\**\s*\|")
+        row = re.compile(rf"^\|\s*\**{re.escape(want)}\**(?!\w|\.\w)[^|]*\|")  # first cell starts with it
         for i, line in enumerate(lines):
             if row.match(line):
                 top = i
@@ -198,11 +210,12 @@ def build(feature: Path, task: str) -> Optional[str]:
     block = task_block(tasks, task)
     if block is None:
         return None
-    # The Requirements field, plus every FR/NFR id anywhere in the task block (a sub-task that cites
-    # a requirement is a citation too): each one is either packed or listed in NOT FOUND.
-    reqs = sorted(set(cited_requirements(field(block, "Requirements")))
-                  | {i for i in cited_requirements(block) if i.startswith(("FR-", "NFR-"))},
-                  key=_id_key)
+    # The Requirements field, plus every FR/NFR id anywhere else in the task block outside code
+    # fences (a sub-task that cites a requirement is a citation too).
+    field_reqs = set(cited_requirements(field(block, "Requirements")))
+    body_reqs = {i for i in cited_requirements(strip_fences(block))
+                 if i.startswith(("FR-", "NFR-"))} - field_reqs
+    reqs = sorted(field_reqs | body_reqs, key=_id_key)
     design_ids = cited_design_ids(field(block, "Design Reference"))
     req_doc = req_md.read_text(encoding="utf-8") if req_md.is_file() else ""
     design_doc = design_md.read_text(encoding="utf-8") if design_md.is_file() else ""
@@ -210,13 +223,19 @@ def build(feature: Path, task: str) -> Optional[str]:
     design_sections, design_missing = sections_for(design_doc, design_ids, descend=False)
     rows = traceability_rows(design_doc, reqs)
     notes = carry_forward(feature, task)
-    missing = req_missing + design_missing
+    # A body-only id that this feature's requirements.md does not define is a citation of another
+    # feature (`FR-26.x` of a predecessor): listed apart, because reading the full document here
+    # would not find it either.
+    elsewhere = [i for i in req_missing if i in body_reqs]
+    missing = [i for i in req_missing if i not in body_reqs] + design_missing
     out = [f"# Context pack — Task {task}", "",
            "Built by `sdd-context-pack.py`. Sources (sha256, first 16 hex):",
            f"- tasks.md {sha(tasks_md)}", f"- requirements.md {sha(req_md)}",
            f"- design.md {sha(design_md)}", "",
            "## NOT FOUND — read the full document for these", "",
            ("\n".join(f"- {m}" for m in missing) if missing else "none"), "",
+           "## Cited from another feature — not defined in this requirements.md", "",
+           ("\n".join(f"- {m}" for m in elsewhere) if elsewhere else "none"), "",
            "## Task", "", block.rstrip(), "",
            f"## Requirements ({', '.join(reqs) or 'none cited'})", ""]
     out += [s + "\n" for s in req_sections] or ["none\n"]

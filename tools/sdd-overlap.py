@@ -10,14 +10,20 @@ suite record's tree hash as --tree, or it is computed through a temporary index)
 commit, and adds a worktree for task M on it under `<git-common-dir>/sdd-overlap/task-M`. Only one
 speculation exists at a time.
 
-`land` runs only when task N was committed with exactly the snapshot's content (HEAD has no
-difference from the base outside `.specs/`) and the main checkout is clean outside `.specs/`. It
+`land` runs only when no tracked file outside `.specs/` has uncommitted changes and the main
+checkout's full content outside `.specs/` (tracked and untracked) equals the snapshot — i.e. task N
+was committed unchanged. Untracked files the snapshot also holds never block. It
 commits M's worktree changes onto the base (a commit no branch points to), applies them to the main
 checkout with `cherry-pick --no-commit`, unstages them, and removes the worktree — M then continues
 its pipeline in the main checkout like any task. If N changed after the snapshot (a fix round),
 `land` refuses with exit 1 and the caller discards: M restarts on the real tree.
 
-Exit codes: 0 done, 1 stale (N changed since the snapshot), 2 refused or git error. Stdlib only.
+Known limits (reported here, not detected): a deletion M makes of a file that is untracked in the
+main checkout does not land; an un-ignore M adds to `.gitignore` can let git overwrite an ignored
+local copy of that path during the land.
+
+Exit codes: 0 done, 1 stale (N changed since the snapshot, or the pick failed and the tree was
+restored), 2 refused or git error. Stdlib only.
 """
 
 import argparse
@@ -103,15 +109,26 @@ def land(repo: Path, task: str, base: str) -> None:
         raise Refused("tracked files have uncommitted changes outside .specs/; commit the base task first")
     # The main checkout's full content (tracked + untracked, outside .specs/) must equal the
     # snapshot: then the base task was committed unchanged, and the land cannot conflict.
-    if tree_of(repo) != git(repo, "rev-parse", f"{base}^{{tree}}").strip():
+    # Compare OUTSIDE .specs only: the per-task commit normally includes tasks.md / state files.
+    if git(repo, "diff", "--name-only", base, tree_of(repo), "--", *PATHSPEC).strip():
         raise Stale("the base task changed after the snapshot; discard and restart this task")
     wip_tree = tree_of(path)
     wip = git(repo, "commit-tree", wip_tree, "-p", base, "-m", f"sdd-speculative work for task {task}").strip()
+    added = [p for p in git(repo, "diff", "--name-only", "-z", "--diff-filter=A", base, wip,
+                            "--").split("\0") if p]
+    absent = [p for p in added if not (repo / p).exists() and not (repo / p).is_symlink()]
     picked = subprocess.run(["git", "-C", str(repo), "cherry-pick", "--no-commit", wip],
                             capture_output=True, text=True)
     if picked.returncode != 0:
-        git(repo, "cherry-pick", "--abort", check=False)
-        raise Stale(f"cherry-pick failed; nothing landed: {picked.stderr.strip()}")
+        # `--no-commit` writes no CHERRY_PICK_HEAD, so `cherry-pick --abort` is a no-op. Restore by
+        # hand: `reset --merge` returns the paths the pick touched to HEAD and keeps every other
+        # change (the .specs/ state files); then delete the new files the pick wrote.
+        git(repo, "reset", "-q", "--merge", check=False)
+        for rel in absent:
+            target = repo / rel
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+        raise Stale(f"cherry-pick failed; the tree was restored: {picked.stderr.strip()}")
     git(repo, "reset", "-q")  # leave M's work as plain working-tree changes, like any executor's
     discard(repo, task)
 
@@ -120,13 +137,15 @@ def discard(repo: Path, task: str) -> None:
     """Remove the worktree; an orphaned directory (crash, deleted metadata) is removed too, but only
     ever under `<git-common-dir>/sdd-overlap/`."""
     path = worktree_path(repo, task)
-    if path.exists():
-        removed = git(repo, "worktree", "remove", "--force", str(path), check=False)
-        if path.exists():
+    if path.exists() or path.is_symlink():
+        git(repo, "worktree", "remove", "--force", str(path), check=False)
+        if path.exists() or path.is_symlink():
             if path.parent.name != "sdd-overlap":
                 raise Refused(f"refusing to delete {path}: not under sdd-overlap/")
-            shutil.rmtree(path)
-        del removed
+            if path.is_symlink():
+                path.unlink()  # never follow a link out of sdd-overlap/
+            else:
+                shutil.rmtree(path)
     git(repo, "worktree", "prune")
 
 
