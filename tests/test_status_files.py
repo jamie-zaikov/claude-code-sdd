@@ -168,6 +168,29 @@ class ToolTest(unittest.TestCase):
         self.assertEqual(self.run_tool("check", "--feature-dir", str(self.feature),
                                        "--stale-seconds", "600")[0], 0)
 
+    # --- review round 4 ---
+    def write_record(self, task, agent, attempt=1):
+        d = self.feature / "spec-memory" / "status"
+        d.mkdir(parents=True, exist_ok=True)
+        rec = {"agent": agent, "task": task, "attempt": attempt, "state": "working", "step": "s",
+               "updatedAt": "2026-10-08T00:00:00Z", "verdict": None, "summaryPath": None,
+               "blockedOn": None}
+        (d / f"{task}-{agent}-a{attempt}.json").write_text(json.dumps(rec))
+
+    def test_agent_and_task_filters_are_exact(self):
+        self.write_record("3", "code-reviewer")
+        self.write_record("3", "reviewer")
+        self.write_record("fix-a1-x", "task-tester")
+        _, out = self.run_tool("check", "--feature-dir", str(self.feature), "--agent", "reviewer")
+        self.assertIn("3-reviewer-a1.json", out)
+        self.assertNotIn("code-reviewer", out)
+        _, out = self.run_tool("check", "--feature-dir", str(self.feature), "--task", "fix")
+        self.assertNotIn("fix-a1-x", out)
+
+    def test_attempt_alone_is_a_usage_error(self):
+        self.assertEqual(self.run_tool("check", "--feature-dir", str(self.feature),
+                                       "--task", "3", "--attempt", "9")[0], 2)
+
     def test_check_without_status_dir_is_clean(self):
         self.assertEqual(self.run_tool("check", "--feature-dir", str(self.feature))[0], 0)
 

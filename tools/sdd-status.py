@@ -110,22 +110,34 @@ def cmd_set(args) -> int:
     return 0
 
 
+def _record_key(path: Path):
+    """(task, agent, attempt) from the record itself — never parsed from the file name, which is
+    ambiguous when a task or agent name contains `-a<digits>`. None when unreadable."""
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        return str(record["task"]), str(record["agent"]), int(record["attempt"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _latest_only(paths: List[Path]) -> List[Path]:
-    """Keep the highest attempt per (task, agent): a superseded attempt is history, not state."""
-    best = {}
+    """Keep the highest attempt per (task, agent): a superseded attempt is history, not state.
+    Unreadable files are always kept, so `check` reports them."""
+    best, keep = {}, []
     for path in paths:
-        m = re.fullmatch(r"(.+)-a(\d+)\.json", path.name)
-        if not m:
-            best[(path.name, None)] = (0, path)
-            continue
-        key, attempt = m.group(1), int(m.group(2))
-        if key not in best or attempt > best[key][0]:
-            best[key] = (attempt, path)
-    return sorted(p for _, p in best.values())
+        key = _record_key(path)
+        if key is None:
+            keep.append(path)
+        elif key[:2] not in best or key[2] > best[key[:2]][0]:
+            best[key[:2]] = (key[2], path)
+    return sorted(keep + [p for _, p in best.values()])
 
 
 def cmd_check(args) -> int:
     root = status_dir(Path(args.feature_dir))
+    if args.attempt is not None and (args.agent is None or args.task is None):
+        print("sdd-status: --attempt needs --task and --agent", file=sys.stderr)
+        return 2
     if args.agent and args.attempt is not None and args.task is not None:
         exact = root / file_name(str(args.task), args.agent, args.attempt)
         if not exact.exists():
@@ -137,10 +149,11 @@ def cmd_check(args) -> int:
         return 0
     else:
         paths = sorted(root.glob("*.json"))
+        keys = {p: _record_key(p) for p in paths}
         if args.task is not None:
-            paths = [p for p in paths if p.name.startswith(f"{args.task}-")]
+            paths = [p for p in paths if keys[p] is None or keys[p][0] == str(args.task)]
         if args.agent:
-            paths = [p for p in paths if re.fullmatch(rf".+-{re.escape(args.agent)}-a\d+\.json", p.name)]
+            paths = [p for p in paths if keys[p] is None or keys[p][1] == args.agent]
         if not args.all:
             paths = _latest_only(paths)
     bad = False

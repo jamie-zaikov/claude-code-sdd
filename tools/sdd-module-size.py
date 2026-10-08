@@ -139,6 +139,8 @@ def check(repo: Path, base: str, limit: int, exempt: List[str],
           unmatched: Optional[List[str]] = None) -> List[Tuple[str, int, int]]:
     violations = []
     changes = changed_files(repo, base)
+    if only is not None:
+        only = expand_dirs(repo, only, [path for path, _ in changes])
     if only is not None and unmatched is not None:
         changed = {path for path, _ in changes}
         unmatched.extend(p for p in only if p not in changed)
@@ -157,15 +159,29 @@ def check(repo: Path, base: str, limit: int, exempt: List[str],
     return violations
 
 
-def repo_relative(repo: Path, arg: str) -> str:
-    """Normalize a path argument — `./x`, absolute, or relative to the current directory — to the
-    repo-root-relative form git reports. A path outside the repository is an error, never a skip."""
+def repo_relative(repo: Path, arg: str, start: Path) -> str:
+    """Normalize a path argument — `./x`, absolute, or relative to `start` (the `-C` directory, as
+    git resolves it) — to the repo-root-relative form git reports. Only the parent is resolved, so a
+    symlink argument is checked as itself, not as its target. Outside the repository is an error."""
     path = Path(arg)
-    path = (path if path.is_absolute() else Path.cwd() / path).resolve()
+    path = path if path.is_absolute() else start / path
+    path = path.parent.resolve() / path.name
     try:
         return path.relative_to(repo.resolve()).as_posix()
     except ValueError:
         raise ValueError(f"{arg} is outside the repository {repo}") from None
+
+
+def expand_dirs(repo: Path, only: List[str], changed: List[str]) -> List[str]:
+    """A directory argument stands for every changed file under it, never for nothing."""
+    out = []
+    for rel in only:
+        if rel in ("", ".") or (repo / rel).is_dir():
+            prefix = "" if rel in ("", ".") else rel.rstrip("/") + "/"
+            out += [c for c in changed if c.startswith(prefix)] or [rel]
+        else:
+            out.append(rel)
+    return out
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -183,6 +199,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("paths", nargs="*",
                         help="check only these paths (task mode: the executor's changed files)")
     args = parser.parse_args(argv)
+    start = Path(args.repo).resolve()
     repo = Path(args.repo)
     try:
         repo = Path(git(repo, "rev-parse", "--show-toplevel").strip())
@@ -192,7 +209,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             base = git(repo, "merge-base", base, "HEAD").strip()
         steer_limit, steer_exempt = steering_config(repo)
         limit = next(v for v in (args.limit, steer_limit, DEFAULT_LIMIT) if v is not None)
-        only = [repo_relative(repo, p) for p in args.paths] or None
+        only = [repo_relative(repo, p, start) for p in args.paths] or None
         unmatched: List[str] = []
         found = check(repo, base, limit, steer_exempt + args.exempt, only, unmatched)
     except GitError as exc:

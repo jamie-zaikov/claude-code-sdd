@@ -220,6 +220,34 @@ class RoundThreeTest(RepoCase):
         self.assertNotIn(blob, objects, "an untracked data file was written into .git/objects")
 
 
+class RoundFourTest(RoundThreeTest):
+    """Review round 4: `-C` resolution, symlink arguments, directory arguments."""
+
+    def test_relative_paths_resolve_against_dash_c(self):
+        with tempfile.TemporaryDirectory() as elsewhere:
+            self.assertEqual(self.in_dir_abs(elsewhere, "-C", str(self.repo), "--limit", "20",
+                                             "src/big.py"), 1)
+
+    def in_dir_abs(self, path, *argv):
+        import os
+        old = os.getcwd()
+        os.chdir(path)
+        try:
+            return tool.main(list(argv))
+        finally:
+            os.chdir(old)
+
+    def test_symlink_argument_is_checked_as_itself(self):
+        self.write("src/target.py", lines(1))
+        self.commit()
+        (self.repo / "src" / "link.py").symlink_to("target.py")
+        self.assertEqual(tool.repo_relative(self.repo, "src/link.py", self.repo), "src/link.py")
+
+    def test_directory_argument_expands_to_its_changed_files(self):
+        self.assertEqual(self.in_dir(".", "--limit", "20", "src"), 1)
+        self.assertEqual(self.in_dir(".", "--limit", "20", "."), 1)
+
+
 class SteeringConfigTest(RepoCase):
     def test_limit_and_exempt_come_from_tech_md(self):
         self.write(".specs/steering/tech.md",

@@ -153,7 +153,7 @@ class ParkTest(unittest.TestCase):
         self.write("src/new.py", "later = 1\n")
         self.git("add", "-A")
         self.git("commit", "-qm", "later task created src/new.py")
-        with self.assertRaisesRegex(park.Refused, "already exist: src/new.py"):
+        with self.assertRaisesRegex(park.Refused, "would overwrite untracked or ignored paths: src/new.py"):
             park.unpark(self.repo, "13", ref)
         self.assertEqual((self.repo / "src/new.py").read_text(), "later = 1\n")
         self.assertEqual(park.dirty(self.repo), [])
@@ -196,6 +196,60 @@ class ParkTest(unittest.TestCase):
             lambda repo, real: real(repo, "stash", "push", "-m", "sdd-task-16-parked"))
         with self.assertRaisesRegex(park.Refused, r"parked work is in stash [0-9a-f]{40}"):
             park.park(self.repo, "16")
+
+    # --- review round 4 ---
+    def test_staged_rename_never_overwrites_an_ignored_user_file(self):
+        self.write("a.txt", "base\n")
+        self.git("add", "a.txt")
+        self.git("commit", "-qm", "a.txt")
+        self.git("mv", "a.txt", "b.txt")
+        ref = park.park(self.repo, "17")
+        self.write(".gitignore", "b.txt\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-qm", "ignore b.txt")
+        self.write("b.txt", "USERDATA\n")
+        with self.assertRaises(park.Refused):
+            park.unpark(self.repo, "17", ref)
+        self.assertEqual((self.repo / "b.txt").read_text(), "USERDATA\n")
+
+    def test_conflict_leaves_no_staged_rename_destination_behind(self):
+        self.write("a.txt", "base\n")
+        self.git("add", "a.txt")
+        self.git("commit", "-qm", "a.txt")
+        self.git("mv", "a.txt", "b.txt")
+        self.write("app.py", "a = 2\n")
+        ref = park.park(self.repo, "18")
+        self.write("app.py", "a = 'later'\n")
+        self.git("commit", "-qam", "conflicting later task")
+        with self.assertRaises(park.ConflictError):
+            park.unpark(self.repo, "18", ref)
+        self.assertEqual(park.dirty(self.repo), [])
+
+    def test_modify_delete_conflict_restores_a_clean_tree(self):
+        self.write("m.txt", "m\n")
+        self.git("add", "m.txt")
+        self.git("commit", "-qm", "m.txt")
+        self.write("m.txt", "parked edit\n")
+        ref = park.park(self.repo, "19")
+        self.git("rm", "-q", "m.txt")
+        self.git("commit", "-qm", "later task deleted m.txt")
+        try:
+            park.unpark(self.repo, "19", ref)
+        except park.ConflictError:
+            pass
+        else:
+            self.skipTest("this git version applies the modify/delete cleanly")
+        self.assertEqual(park.dirty(self.repo), [])
+
+    def test_directory_file_swap_is_refused_without_a_crash(self):
+        self.write("dir/f.py", "new = 1\n")
+        ref = park.park(self.repo, "20")
+        self.write("dir", "now a file\n")
+        self.git("add", "dir")
+        self.git("commit", "-qm", "later task made dir a file")
+        with self.assertRaises(park.Refused):
+            park.unpark(self.repo, "20", ref)
+        self.assertEqual((self.repo / "dir").read_text(), "now a file\n")
 
     def test_cli_exit_codes(self):
         self.assertEqual(park.main(["-C", str(self.repo), "park", "--task", "1"]), 0)

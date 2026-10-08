@@ -46,18 +46,42 @@ def is_park_of(repo: Path, ref: str, task: str) -> bool:
     return re.fullmatch(rf"On [^:]+: {re.escape(message(task))}", subject(repo, ref)) is not None
 
 
-def created_paths(repo: Path, ref: str) -> List[str]:
-    """Paths the stash would create: its untracked files (`ref^3`) and files the task had added to
-    the index or tree (new against the stash base `ref^1`)."""
+def stash_paths(repo: Path, ref: str) -> List[str]:
+    """Every path the stash would write: its untracked files (`ref^3`) and every path that differs
+    between the stash base (`ref^1`) and its index (`ref^2`) or tree (`ref`). Rename detection is
+    OFF, so a staged `git mv a b` lists `b` (with renames on, git reports `R` and `b` is lost)."""
     paths = set()
     proc = git(repo, "ls-tree", "-r", "-z", "--name-only", f"{ref}^3", check=False)
     if proc.returncode == 0:
         paths.update(filter(None, proc.stdout.split("\0")))
     for tree in (f"{ref}^2", ref):
-        out = git(repo, "diff", "--name-only", "-z", "--diff-filter=A", f"{ref}^1", tree,
-                  check=False).stdout
+        out = git(repo, "diff", "--no-renames", "--name-only", "-z", "--diff-filter=d",
+                  f"{ref}^1", tree, check=False).stdout
         paths.update(filter(None, out.split("\0")))
     return sorted(paths)
+
+
+def tracked_in_head(repo: Path) -> set:
+    out = git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD", check=False).stdout
+    return set(filter(None, out.split("\0")))
+
+
+def blocked_paths(repo: Path, paths: List[str]) -> List[str]:
+    """Stash paths that would overwrite something git does not track: a file or symlink on disk that
+    HEAD does not track (an ignored or user file, which `dirty()` cannot see), or a parent that is
+    a file where the stash needs a directory."""
+    tracked = tracked_in_head(repo)
+    blocked = []
+    for rel in paths:
+        target = repo / rel
+        if (target.exists() or target.is_symlink()) and rel not in tracked:
+            blocked.append(rel)
+            continue
+        for parent in Path(rel).parents:
+            if str(parent) != "." and (repo / parent).exists() and not (repo / parent).is_dir():
+                blocked.append(rel)
+                break
+    return blocked
 
 
 def dirty(repo: Path) -> List[str]:
@@ -95,22 +119,44 @@ def unpark(repo: Path, task: str, ref: str) -> None:
         raise Refused(f"{ref} is not a {message(task)} stash")
     if dirty(repo):
         raise Refused("working tree is not clean outside .specs/; refusing to apply over it")
-    created = created_paths(repo, ref)
-    # Refuse up front when any path the stash would create already exists — committed by a later
-    # task, or an ignored/user file git cannot see. Nothing is touched, so nothing can be lost.
-    present = [rel for rel in created if (repo / rel).exists() or (repo / rel).is_symlink()]
-    if present:
-        raise Refused("paths the parked work would create already exist: " + ", ".join(present))
+    paths = stash_paths(repo, ref)
+    # Refuse up front when the apply would write over anything git does not track. Nothing has
+    # been touched yet, so nothing can be lost.
+    blocked = blocked_paths(repo, paths)
+    # The stash's own untracked files can never be applied over an existing path (git refuses with
+    # "already exists, no checkout") — e.g. a later task committed the same file. Refuse up front.
+    proc = git(repo, "ls-tree", "-r", "-z", "--name-only", f"{ref}^3", check=False)
+    untracked = filter(None, proc.stdout.split("\0")) if proc.returncode == 0 else []
+    blocked += [rel for rel in untracked if rel not in blocked
+                and ((repo / rel).exists() or (repo / rel).is_symlink())]
+    if blocked:
+        raise Refused("the parked work would overwrite untracked or ignored paths: "
+                      + ", ".join(blocked))
+    absent = [rel for rel in paths if not ((repo / rel).exists() or (repo / rel).is_symlink())]
     applied = git(repo, "stash", "apply", ref, check=False)
     if applied.returncode == 0:
         return
-    # Restore the clean tree we started from. Every path in `created` was absent before the apply
-    # (checked above), so deleting it removes only what the apply wrote.
+    restore(repo, absent)
+    raise ConflictError(applied.stderr.strip() or "stash apply conflicted")
+
+
+def restore(repo: Path, absent_before: List[str]) -> None:
+    """Return to the clean tree the apply started from. Reset and check out HEAD, then delete every
+    untracked path git now reports (the tree was clean, so the apply wrote each of them — this also
+    covers modify/delete leftovers and conflict side files) plus every stash path that was absent
+    before the apply (in case it is ignored, which `git status` does not show)."""
     git(repo, "reset", "-q", "--", *PATHSPEC, check=False)
     git(repo, "checkout", "-q", "HEAD", "--", *PATHSPEC, check=False)
-    for rel in created:
-        (repo / rel).unlink(missing_ok=True)
-    raise ConflictError(applied.stderr.strip() or "stash apply conflicted")
+    out = git(repo, "status", "--porcelain", "-z", "--untracked-files=all", "--", *PATHSPEC,
+              check=False).stdout
+    leftovers = [entry[3:] for entry in out.split("\0") if entry.startswith("?? ")]
+    for rel in sorted(set(leftovers) | set(absent_before)):
+        target = repo / rel
+        try:
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+        except OSError:
+            pass
 
 
 class ConflictError(Exception):

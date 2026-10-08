@@ -69,7 +69,8 @@ quiet or dead specialist costs one step, never a deadlock.
    instance, an answered `blocked`, an earlier `done`) can never be read as this one. The **grace**
    window is **1200 s** by default, **2400 s** for a vault-reader, or the `Specialist grace: <N> s`
    value in `tech.md`. Act on the result:
-   - `started` / `working` with a fresh `updatedAt` — alive; do nothing.
+   - `started` / `working`, not `STALE` (the file was written within the grace window) — alive; do
+     nothing.
    - `blocked` — act now on `blockedOn` (a `SECRET REQUEST`, a `VAULT REQUEST`, a blocker); do not
      wait for the return.
    - `done` / `failed` with no completion notice yet — the work is finished; use `summaryPath`.
@@ -80,7 +81,7 @@ quiet or dead specialist costs one step, never a deadlock.
    completion notice and the harness's task list (`TaskOutput`), with the same grace window. Use
    `ScheduleWakeup` for the heartbeat; the check never sits in a blocking call.
 3. **Nudge, then time out.** If no completion notice has arrived **and** the status is `STALE` (or
-   `MISSING`) past the grace window (default a few minutes; longer for a vault-reader over a large vault), first
+   `MISSING`) past the grace window (step 2: 1200 s, 2400 s for a vault-reader, or the steering value), first
    `SendMessage` the specialist a nudge. If the mtime is still stale after a second window and no
    live process remains, treat the specialist as dead.
 4. **Kill, then respawn ONCE — confirm the stop from the actor (process-lesson 3).** `TaskStop` the
@@ -93,7 +94,8 @@ quiet or dead specialist costs one step, never a deadlock.
    ledger. It does not restart completed work, and it never re-runs an already-applied propagation
    (the silent-duplication hazard, process-lesson 3). This is what makes recovery cost one step.
 6. **Halt, do not loop.** If the single respawn also stalls, halt and surface it to the user with
-   the status file path, its last `state`, `step`, and `updatedAt`. Never spin a third instance.
+   the status file path, its last `state` and `step`, and the file's modification time (`updatedAt` is
+   approximate for agents without a clock). Never spin a third instance.
 
 This contract applies to **every** specialist the phase routing invokes.
 
