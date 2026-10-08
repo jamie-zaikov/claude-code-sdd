@@ -16,6 +16,19 @@
 <!-- Optional: globs the check skips (generated code, vendored code). Docs and data are never checked. -->
 <!-- - Module size exempt: generated/**, vendor/** -->
 
+## Acceptance Probe
+<!-- Optional, user-written only — no agent writes or edits it. The one gate that checks BEHAVIOUR,
+     not text: a consumer build, a simulator run, an invariant sweep. It must never touch a live
+     system; agents run it only when it is marked sim-only. A non-zero exit blocks. -->
+<!-- - Probe command: `python -m mypkg.check --all-variants` -->
+<!-- - Probe when: feature-review          (or: every-task) -->
+<!-- - Probe scope: sim-only -->
+
+## Pipeline
+<!-- Optional overrides for the orchestrator. -->
+<!-- - Specialist grace: 1200 s           (heartbeat staleness window; vault-reader default 2400 s) -->
+<!-- - Stage overlap: on                  (set `off` to disable Level 1 overlap) -->
+
 ## Testing
 <!-- Framework, conventions, directory structure, how to run tests -->
 <!-- Example: "pytest in tests/, mirror source structure, run with `pytest -v`" -->

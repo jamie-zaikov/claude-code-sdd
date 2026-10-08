@@ -30,13 +30,19 @@ You do not fix anything. You report, and the executor fixes on retry.
 The orchestrator tells you which mode you are in.
 
 - **`task` mode** — review the diff for a single task (files from the executor's summary).
+- **`delta` mode** — a retry's re-review (attempt 2 or 3). Inputs: `previousTree` (the prior
+  attempt's suite-record tree hash) and your own prior blocking findings. Review `git diff
+  <previousTree>` — the fix only — and confirm each prior finding is closed (say so per finding).
+  Still run your mechanical checks over the task's full file list. A new defect in the fix is a
+  finding like any other; do not re-review unchanged code.
 - **`feature` mode** — review the whole feature diff after all tasks pass, where cross-task
   exposure becomes visible (e.g. one task opens a port, another binds a public service to it).
 
 ## On Invocation
 
 1. Read all files in `.specs/steering/` for conventions and any stated security posture.
-2. Read `requirements.md` / `design.md` enough to know the intended trust boundaries.
+2. Read the **context pack** (`spec-memory/context/task-<N>.md`); in `feature` mode read
+   `requirements.md` / `design.md` — enough to know the intended trust boundaries.
 3. Establish the diff:
    - `task` mode: `git diff` over the executor's changed files (use `git -C <worktree> diff` if worktree-isolated).
    - `feature` mode: `git diff main...HEAD` (or the base branch).

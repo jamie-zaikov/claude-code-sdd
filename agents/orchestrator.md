@@ -270,6 +270,8 @@ is present — a missing prerequisite found at 02:00 costs the whole night. Chec
   value), and `gh auth status` succeeds with the scopes the publish point needs (`repo`, PR write).
 - **Inputs:** every file the tasks cite from `input-data/` or steering exists (deck files, fixtures,
   sample payloads).
+- **Acceptance probe:** when `tech.md` declares one, it is marked `Probe scope: sim-only` and its
+  command starts (run it once; a failure here is a gap to fix now, not at 02:00).
 - **Permissions:** for each command class the tasks will run unattended (test runner, linters,
   read-only cloud/VM probes), confirm the harness allows it — one harmless probe each. A probe the
   harness would prompt for is a gap: list it for the user to allow now.
@@ -358,12 +360,21 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   `Acceptance:` checklist plus its coherence rubric is the gate, and the whole-feature coherence pass
   runs later at the Feature Review Gate.
 
+  **Context pack (before Stage 1, every attempt).** Run `python3 ~/.claude/tools/sdd-context-pack.py
+  --feature-dir .specs/features/<feature> --task <N>`. It writes
+  `spec-memory/context/task-<N>.md`: the task block, every cited requirement (with its
+  sub-requirements), every design section the `Design Reference:` line names, the design lines that
+  cite those requirements, the carry-forward notes that name the task, and a **NOT FOUND** list.
+  Rebuild it on every attempt — a spec amendment changes it. Every stage reads the **pack** instead
+  of the whole feature folder; a stage opens a full spec document only for an item in NOT FOUND or a
+  gap it can name, and lists each such read under `Pack misses` in its summary. The task-validator
+  also reads the full `requirements.md` (the source of truth for conformance). Never pass
+  `spec-memory/` wholesale to a stage — pass the paths a stage needs.
+
   **Stage 1 — Execution:**
   Invoke the **task-executor** subagent. Pass it:
-  - The single task block (description, sub-tasks, requirements references)
-  - All steering files
-  - All feature spec files (including `scope.md` if present)
-  - (If this is a retry) the validator's failure report from the prior attempt
+  - The context pack path, all steering files, and `scope.md` if present
+  - (If this is a retry) the combined blocking report from the prior attempt
 
   **Executor model:** the executor's frontmatter pins `model: opus`. Invoke it with **no model
   override** on every attempt, first and retry alike. Never downgrade a retry or route it to a
@@ -400,30 +411,43 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
 
   **Stage 2 — Testing** *(code track only — skipped when `taskProducesApplicationCode: false`)***:**
   Invoke the **task-tester** subagent. Pass it:
-  - Everything the executor received
-  - Plus the executor's completion summary
+  - The context pack path, the steering files, and the executor's completion summary
 
-  **Stage 3 — Validation:**
-  Invoke the **task-validator** subagent. Pass it:
-  - Everything above (the tester's summary too, on the code track)
-  - The **classification payload**. On `taskProducesApplicationCode: false` the validator runs
-    artifact-conformance mode — the task's `Acceptance:` checklist, the render/lint check, and the
-    closed coherence rubric. A validator FAIL citing **application-code modification** in that mode
-    is `RT-2`: handle it as a reclassification (above), **not** as a task failure — do not enter the
-    fail branch, do not increment `retryCount`.
+  **Stages 3–5 — Validation and review, concurrently.** The validator and the reviewers read the
+  same tree and are independent, so launch them **in one message**:
+  - **Code track:** the **task-validator**, the **code-reviewer** (`mode: task`), and the
+    **security-reviewer** (`mode: task`).
+  - **Non-code track (`taskProducesApplicationCode: false`):** the **task-validator** and the
+    **security-reviewer** in its mechanical non-code mode — **skip Stage 4 (code-review)**: the
+    validator's coherence rubric covers per-task coherence, and a second adversarial prose pass is
+    the rabbit hole.
 
-  The validator confirms spec conformance. It does NOT hunt for bugs or security holes — that is
-  Stages 4–5. Only run Stages 4–5 if validation passes; there is no point reviewing code that does
-  not yet meet the spec.
+  Pass the validator the context pack path, the executor's and tester's summaries, the suite
+  record, and the **classification payload**. On `taskProducesApplicationCode: false` it runs
+  artifact-conformance mode (the `Acceptance:` checklist, the render/lint check, the closed coherence
+  rubric). The validator confirms spec conformance; it does NOT hunt for bugs or security holes —
+  that is the reviewers' job.
 
-  **Stages 4 & 5 — Review (run only after validation passes):**
-  - **Code track:** invoke the **code-reviewer** and **security-reviewer** subagents in `task` mode.
-    They are read-only and independent, so invoke them **concurrently** (two Agent calls in one
-    message).
-  - **Non-code track (`taskProducesApplicationCode: false`): skip Stage 4 (code-review)** — the
-    validator's coherence rubric already covered per-task coherence, and a second adversarial prose
-    pass is the rabbit hole. Run **Stage 5, the security-reviewer only**, in its mechanical non-code
-    mode (the closed disclosure/secret checklist).
+  **Combining the three verdicts.** The task passes only when every launched stage passes. When the
+  validator FAILs, the task fails: discard the reviewers' PASS verdicts (they reviewed code that
+  will change), but **keep their blocking findings** — they join the validator's report in the one
+  combined retry report, so a single fix round addresses everything known. A validator FAIL citing
+  **application-code modification** in artifact-conformance mode is `RT-2`: handle it as a
+  reclassification (above), **not** as a task failure — discard all three verdicts, do not enter the
+  fail branch, do not increment `retryCount`, and re-run Stages 2–5 under the code path.
+
+  **Delta re-review on a retry.** On attempt 2 or 3, invoke each reviewer with `mode: delta`, the
+  previous attempt's suite-record tree hash as `previousTree`, and its own prior blocking findings
+  (none if it passed). It reviews `git diff <previousTree>` — the fix only — confirms each prior
+  finding is closed, and still runs its mechanical checks over the task's full file list. The
+  validator always runs in full on a retry.
+
+  **Acceptance probe.** When `tech.md` declares an `## Acceptance Probe` (a user-written command,
+  marked `Probe scope: sim-only`), the validator runs it on every task when `Probe when: every-task`,
+  and the code-reviewer runs it once at the Feature Review Gate in either case. A non-zero exit is a
+  blocking failure. The probe is the only gate that checks behaviour rather than text — the consumer
+  builder, the simulator, an invariant sweep. Agents never write or edit the probe command, and never
+  run one not marked `sim-only`; the preflight confirms it starts.
 
   Pass each reviewer:
   - The single task block and requirement references
@@ -431,7 +455,7 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
     sets the severity of its mechanical module-size check from it), plus `modularity.waivers`
   - The executor's completion summary (files changed) and, if worktree-isolated, the worktree path
   - The tester's and validator's summaries, and the **classification payload**
-  - An explicit `mode: task` instruction
+  - An explicit `mode: task` instruction (or `mode: delta` with `previousTree` on a retry)
 
   **Review model tiering:** both reviewers are pinned to `model: opus` in frontmatter and are NOT
   downgraded — a reviewer that misses a defect fails silently. Keep them on Opus every time.
@@ -455,6 +479,32 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   - **Hard cap.** At retryCount >= 3, always halt and present the failures and `blockingHistory` to the user. There is no fourth automatic attempt.
   - **No remote label.** There is no PR during the build, so a blocking finding sets **no** `blocked:*` label — it **halts locally** and you present it to the user. Record the failing stage under `taskStatus[N].lastFailure`; that local record replaces the remote `blocked:*` signal the old draft-PR flow used.
   - A validator FAIL that is `RT-2` (application-code modification under artifact-conformance mode) is **not** handled here — it is a reclassification (see the Feature Classification Gate → Reclassification).
+
+#### Stage overlap (Level 1) — task N+1 executes while task N is reviewed
+
+Stages 3–5 of task N only read its tree, so the next task's executor need not wait for them. When
+Stages 3–5 of task N start on the **code track**, start task N+1's executor speculatively if all of
+these hold: `tech.md` does not say `Stage overlap: off`; N+1 is the next task in order; every task
+its `Depends:` line names (other than N) is `complete`; N+1 is not deferred; and no speculation is
+running.
+
+1. **Start.** Invoke **github-agent** `{ action: overlap-start, task: N+1, tree: <N's suite-record
+   tree hash> }`. It runs `python3 ~/.claude/tools/sdd-overlap.py start` and returns the worktree
+   path and the base commit. Record `speculation: { task: N+1, base, worktree, startedAfter: N }`.
+2. **Execute.** Build N+1's context pack, then invoke the **task-executor** with its usual input
+   plus `worktree: <path>` and `speculative: true`. It writes code in the worktree only.
+3. **N passes** and github-agent commits it → invoke **github-agent** `{ action: overlap-land,
+   task: N+1, base }`. On success N+1's changes are now ordinary uncommitted changes in the main
+   checkout: continue N+1 at Stage 2 (tester), with the executor's summary. The executor stage is
+   not repeated.
+4. **N fails, or land reports stale (exit 1)** → invoke **github-agent** `{ action:
+   overlap-discard, task: N+1 }`, clear `speculation`, and run N+1 normally (Stage 1 on the real
+   tree) once N passes. A discard costs one executor run — the same as no overlap.
+5. **Overnight, a park of N** discards the speculation too: N+1 waits by the `Depends:` rule.
+
+Never start a speculation for a non-code task, a task that mutates a live system, or while a
+speculation exists. Only the executor runs speculatively; the tester and every gate run on the main
+checkout after the land, so no gate ever sees speculative code.
 
 ### Feature Review Gate (runs automatically after the last task completes, before `complete`)
 
@@ -589,7 +639,8 @@ publishes verbatim:
 ```
 {
   action:   create-branch | switch-branch | commit | push | open-pr |
-            update-pr | comment | label | request-review | park | unpark,
+            update-pr | comment | label | request-review | park | unpark |
+            overlap-start | overlap-land | overlap-discard,
   feature:  <feature-name>,
   branch:   <branch name, e.g. feature/<feature-name>>,   # deterministic (FR-3.1)
   base:     main,                                          # protected base
@@ -625,6 +676,7 @@ point.
 | **Per-task pipeline pass** | `commit` the task's changes **locally** (message ends `SDD-Task: <N>`) | commit message, changed paths; verdicts recorded to `spec-memory/` |
 | **Blocking finding** at any stage or in feature-review | *(none — halt locally, no remote label)* | — |
 | **Task parked** (overnight halt or amendment) / **unparked** | `park` / `unpark` (local stash only) | task number; `parkedRef` on unpark |
+| **Stage overlap** start / land / discard | `overlap-start` / `overlap-land` / `overlap-discard` (local worktree only) | task number; tree hash on start; base commit on land |
 | **Whole-feature review PASS** — the publish point | `push` → `open-pr` (ready) → `comment` accumulated verdicts → `label set ready-to-merge` → `request-review` | PR title/body, the verbatim stage-attributed verdict blocks (FR-6, FR-6.1), reviewer handle/team |
 
 **Label vocabulary (D3).** `ready-to-merge` is applied **only** at the publish point, coincident with
@@ -706,7 +758,7 @@ task completion/failure.
 Keys this playbook adds as they arise: `taskStatus[N].deferredFindings`, `blockingHistory` (per
 attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,
 `deferredBy`, and `retryResetBy` (per task); `suiteRecord`, `preflight`, `overnightAuthorization`,
-`userApprovalNeeded`, `publishPending`, `modularity`, and `invocations` (top level). `taskStatus[N].status` takes exactly one of
+`userApprovalNeeded`, `publishPending`, `modularity`, `invocations`, and `speculation` (top level). `taskStatus[N].status` takes exactly one of
 `pending`, `in_progress`, `complete`, or `deferred`. Use these exact names — a key spelled differently in each feature
 breaks resume and status.
 

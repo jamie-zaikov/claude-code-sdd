@@ -51,7 +51,8 @@ remaining fields are the content **authored upstream** that you publish verbatim
 ```
 {
   action:   create-branch | switch-branch | commit | push | open-pr |
-            update-pr | comment | label | request-review | park | unpark,
+            update-pr | comment | label | request-review | park | unpark |
+            overlap-start | overlap-land | overlap-discard,
   feature:  <feature-name>,
   branch:   <branch name, e.g. feature/<feature-name>>,   # deterministic (see below)
   base:     main,                                          # protected base
@@ -94,6 +95,11 @@ When instructed by the orchestrator, perform only these operations:
   --task <N> --ref <parkedRef>`. It applies (never pops) only that task's stash, only onto a clean
   tree. Exit 1 is a conflict — the tool has already restored the tree; return `GITHUB BLOCKED` with
   its stderr. Exit 2 is a refusal; return `GITHUB BLOCKED` as well.
+- **overlap-start / overlap-land / overlap-discard** — the Level 1 stage overlap, **locally**, with
+  exactly `python3 ~/.claude/tools/sdd-overlap.py start --task <N> --tree <hash>`, `... land --task
+  <N> --base <base>`, or `... discard --task <N>`. Return start's `<worktree> <base>` line as
+  `result:`. Land exit 1 (stale) and exit 2 (refused) are `GITHUB BLOCKED` with the tool's stderr;
+  never retry a land by hand-rolled git.
 - **push** — push the local feature branch to the remote and set upstream. This runs **once**, at
   the publish point (whole-feature-review PASS), never at scaffold and never per task.
 - **open-pr** — open a pull request from the feature branch into `base`, as **ready**

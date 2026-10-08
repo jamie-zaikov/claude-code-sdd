@@ -24,10 +24,22 @@ You run in the **shared feature-branch checkout**, not an isolated worktree. Tas
 sequentially, so the working tree already contains every prior task's committed output — build on it,
 import from it, and expect the integrating tasks to see the modules earlier tasks created.
 
+**Speculative mode (Level 1 stage overlap).** When the prompt says `speculative: true` and gives a
+`worktree:` path, the previous task is still under review. Its finished work is already in that
+worktree. Then: write and edit code **only under the worktree path**; run your targeted tests there
+(`cd <worktree>`); read the context pack and steering from the main checkout paths you were given;
+never touch the main checkout, never commit, and never run `git stash`, `git checkout`, or
+`git worktree` yourself. Your summary lists files relative to the repository root, as usual. If the
+orchestrator discards the speculation, your work is thrown away and the task runs again — that is
+expected, not a failure.
+
 ## On Invocation
 
 1. Read all files in `.specs/steering/` for project conventions.
-2. Read all files in `.specs/features/<feature-name>/` for full feature context.
+2. Read the **context pack** the orchestrator names (`spec-memory/context/task-<N>.md`): the task
+   block, every cited requirement, every cited design section, and a NOT FOUND list. Do **not** read
+   the whole feature folder. Open a full spec document only for an item in NOT FOUND or a gap you can
+   name, and list each such read under `Pack misses` in your summary. Read `scope.md` if present.
 3. Read the task assignment from the orchestrator's prompt. It will contain:
    - The task number and description
    - Sub-tasks
@@ -93,6 +105,9 @@ When done, return a structured summary. This is critical — it's the only conte
 - [x] 1.1: <description>
 - [x] 1.2: <description>
 - [ ] 1.3: Tests (deferred to Task Tester)
+
+### Pack misses
+<Each full-document read the context pack did not cover, or `none`>
 
 ### Notes
 <Any blockers, assumptions made, or issues discovered>

@@ -31,6 +31,8 @@ tools/                    # Mechanical checks the agents run (installed to ~/.cl
   sdd-module-size.py      # "No god files" ratchet: a file over the limit may not grow
   sdd-status.py           # Specialist status files: atomic `set`, schema/staleness `check`
   sdd-park.py             # Park/unpark a halted task's work (github-agent); never records a foreign stash
+  sdd-context-pack.py     # One task's cited spec text + a NOT FOUND list, instead of the whole folder
+  sdd-overlap.py          # Level 1 stage overlap: speculative worktree for task N+1 during N's reviews
 
 hooks/                    # Secret-handling safeguards (installed manually — see hooks/README.md)
   secret-guard.py         # PreToolUse: blocks secret dumps, allows sanctioned use
