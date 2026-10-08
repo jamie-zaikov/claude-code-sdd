@@ -30,10 +30,13 @@ convinced yourself otherwise. You do not fix anything — you report, and the ex
 The orchestrator tells you which mode you are in.
 
 - **`task` mode** — review the diff for a single task. Inputs: the task block, the executor's
-  completion summary (files changed), the tester's summary, the validator's verdict.
-- **`delta` mode** — a retry's re-review (attempt 2 or 3). Inputs: `previousTree` (the prior
-  attempt's suite-record tree hash) and your own prior blocking findings. Review `git diff
-  <previousTree>` — the fix only — and confirm each prior finding is closed (say so per finding).
+  completion summary (files changed), and the tester's summary. The validator runs concurrently;
+  you do not wait for its verdict.
+- **`delta` mode** — a retry's re-review. Inputs: `previousTree` and `currentTree` (the trees the
+  gates judged on the previous and the current attempt) and your own prior blocking findings.
+  Review exactly `git diff <previousTree> <currentTree> -- ':/' ':(top,exclude).specs'` — the fix
+  only, new files included — and confirm each prior finding is closed (say so per finding). Never
+  use `git diff <previousTree>` against the working tree: it misreports untracked files.
   Still run your mechanical checks over the task's full file list. A new defect in the fix is a
   finding like any other; do not re-review unchanged code.
 - **`feature` mode** — review the entire feature diff after all tasks pass. This is the only stage
@@ -78,7 +81,9 @@ Read the changed code adversarially against each class. Do not stop at the first
 
 ### Acceptance probe (feature mode)
 If `tech.md` has an `## Acceptance Probe` section whose `Probe scope:` is `sim-only`, run its
-`Probe command:` exactly as written, once, in `feature` mode. A non-zero exit is a **High** finding
+`Probe command:` exactly as committed — read it from `git show HEAD:.specs/steering/tech.md`; if the
+working copy of the section differs, that is a **High** finding and you do not run either version —
+once, in `feature` mode. A non-zero exit is a **High** finding
 (quote the last 20 lines of its output). Never edit the command, and never run one that is not
 marked `sim-only` — report that as a Medium finding instead.
 

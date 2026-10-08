@@ -92,9 +92,30 @@ class OverlapTest(unittest.TestCase):
         tree = ov.tree_of(self.repo)
         path, base = ov.start(self.repo, "2", tree).split()
         self.assertEqual(self.git("rev-parse", f"{base}^{{tree}}").strip(), tree)
+        ov.discard(self.repo, "2")
         with self.assertRaises(ov.Refused):
-            ov.discard(self.repo, "2")
             ov.start(self.repo, "3", "0" * 40)
+
+    # --- review round 1 ---
+    def test_an_untracked_user_file_never_blocks_the_land(self):
+        self.write("AGENTS.md", "user's own untracked file\n")
+        wt, base = self.start()
+        self.write("src/m.py", "m = 1\n", root=wt)
+        self.commit_task_n()
+        ov.land(self.repo, "2", base)
+        self.assertEqual((self.repo / "src" / "m.py").read_text(), "m = 1\n")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), "user's own untracked file\n")
+
+    def test_an_orphaned_directory_is_discarded_and_unblocks_start(self):
+        wt, _ = self.start()
+        self.git("worktree", "remove", "--force", str(wt))
+        wt.mkdir(parents=True)
+        (wt / "stray.py").write_text("written by a live executor after removal\n")
+        with self.assertRaises(ov.Refused):
+            self.start("3")
+        ov.discard(self.repo, "2")
+        self.assertFalse(wt.exists())
+        self.start("3")
 
     def test_snapshot_never_includes_specs_changes(self):
         self.write(".specs/f/.spec-state.json", '{"dirty": true}\n')

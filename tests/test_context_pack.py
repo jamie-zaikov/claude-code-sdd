@@ -35,6 +35,23 @@ TASKS = """# Tasks
 **Requirements:** FR-9.1–9.3
 **Design Reference:** C1, DD-99
 
+## Task 3: Wrapped fields
+- [ ] 3.1. Also honour FR-4 here (cited only in a sub-task).
+
+```sh
+## a shell comment inside a fence is not a heading
+```
+
+**Requirements:** FR-2.1,
+  FR-2.2, NFR-1
+**Design Reference:** C2,
+  DD-4
+**Files:** `x.py`
+
+## Task 4: Ranges and prefixes
+**Requirements:** FR-2–FR-4, AC-7
+**Design Reference:** C19–C21
+
 ## Task 12: Not task 1
 **Requirements:** FR-4
 """
@@ -155,6 +172,27 @@ class PackTest(unittest.TestCase):
 
     def test_a_deeper_sub_heading_stays_inside_its_section(self):
         self.assertIn("Sub-heading body without an id, still part of I9.", self.pack)
+
+    def test_wrapped_fields_are_read_whole(self):
+        pack = cp.build(self.feature, "3")
+        self.assertIn("Null removes", pack)  # FR-2.2 on the continuation line
+        self.assertIn("bullet decision", pack)  # DD-4 on the continuation line
+        self.assertIn("### NFR-1: Speed", pack)
+
+    def test_an_id_cited_only_in_a_sub_task_is_packed(self):
+        self.assertIn("Task 12 only.", cp.build(self.feature, "3"))  # FR-4's body
+
+    def test_a_fenced_heading_never_ends_the_task_block(self):
+        self.assertIn("**Files:** `x.py`", cp.build(self.feature, "3"))
+
+    def test_parent_ranges_design_ranges_and_other_prefixes(self):
+        pack = cp.build(self.feature, "4")
+        self.assertIn("### FR-3: Tokens", pack)  # the middle of FR-2–FR-4
+        self.assertIn("| C20 | Other", pack)  # the middle of C19–C21
+        nf = pack[pack.index("## NOT FOUND"):pack.index("## Task")]
+        self.assertIn("- AC-7", nf)  # an unknown prefix is never silently dropped
+        self.assertIn("- C21", nf)
+        self.assertEqual(cp.cited_requirements("FR-1–FR-999"), ["FR-1", "FR-999"])  # no runaway range
 
     def test_code_fence_is_never_a_section(self):
         self.assertEqual(self.pack.count("#### C2 — inside a code fence"), 0)

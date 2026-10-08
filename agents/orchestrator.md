@@ -436,25 +436,36 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   reclassification (above), **not** as a task failure — discard all three verdicts, do not enter the
   fail branch, do not increment `retryCount`, and re-run Stages 2–5 under the code path.
 
-  **Delta re-review on a retry.** On attempt 2 or 3, invoke each reviewer with `mode: delta`, the
-  previous attempt's suite-record tree hash as `previousTree`, and its own prior blocking findings
-  (none if it passed). It reviews `git diff <previousTree>` — the fix only — confirms each prior
-  finding is closed, and still runs its mechanical checks over the task's full file list. The
+  **Attempt trees.** Before launching Stages 3–5, compute the working tree's hash with the suite
+  record's temporary-index command and record it as `taskStatus[N].attemptTrees[<retryCount>]`. It
+  is the exact tree the gates judged, kept per attempt (the suite record itself is overwritten).
+
+  **Delta re-review on a retry.** When `retryCount >= 1` **and** `attemptTrees[retryCount - 1]`
+  exists, invoke each reviewer with `mode: delta`, `previousTree: attemptTrees[retryCount - 1]`,
+  `currentTree: attemptTrees[retryCount]`, and its own prior blocking findings (none if it passed).
+  It reviews exactly `git diff <previousTree> <currentTree> -- ':/' ':(top,exclude).specs'` — the
+  fix only, new and untracked files included — confirms each prior finding is closed, and still runs
+  its mechanical checks over the task's full file list. Otherwise (no earlier tree recorded) use
+  `mode: task`. A respawn or a re-invocation is never a retry and never selects delta mode. The
   validator always runs in full on a retry.
 
   **Acceptance probe.** When `tech.md` declares an `## Acceptance Probe` (a user-written command,
-  marked `Probe scope: sim-only`), the validator runs it on every task when `Probe when: every-task`,
+  marked `Probe scope: sim-only` — a user attestation that the command touches no live system; no
+  agent can verify it), the validator runs it on every task when `Probe when: every-task`,
   and the code-reviewer runs it once at the Feature Review Gate in either case. A non-zero exit is a
   blocking failure. The probe is the only gate that checks behaviour rather than text — the consumer
   builder, the simulator, an invariant sweep. Agents never write or edit the probe command, and never
-  run one not marked `sim-only`; the preflight confirms it starts.
+  run one not marked `sim-only`. They run the command as committed — read from `git show
+  HEAD:.specs/steering/tech.md` — and refuse (blocking) when the working copy of that section
+  differs, so an edited probe can never pass a gate. The preflight confirms it starts.
 
   Pass each reviewer:
   - The single task block and requirement references
   - `modularity: enforced` or `modularity: not-enforced`, read from the state file (the code-reviewer
     sets the severity of its mechanical module-size check from it), plus `modularity.waivers`
   - The executor's completion summary (files changed) and, if worktree-isolated, the worktree path
-  - The tester's and validator's summaries, and the **classification payload**
+  - The tester's summary (the validator runs concurrently — its verdict is not an input), and the
+    **classification payload**
   - An explicit `mode: task` instruction (or `mode: delta` with `previousTree` on a retry)
 
   **Review model tiering:** both reviewers are pinned to `model: opus` in frontmatter and are NOT
@@ -493,17 +504,21 @@ running.
    path and the base commit. Record `speculation: { task: N+1, base, worktree, startedAfter: N }`.
 2. **Execute.** Build N+1's context pack, then invoke the **task-executor** with its usual input
    plus `worktree: <path>` and `speculative: true`. It writes code in the worktree only.
-3. **N passes** and github-agent commits it → invoke **github-agent** `{ action: overlap-land,
-   task: N+1, base }`. On success N+1's changes are now ordinary uncommitted changes in the main
-   checkout: continue N+1 at Stage 2 (tester), with the executor's summary. The executor stage is
-   not repeated.
-4. **N fails, or land reports stale (exit 1)** → invoke **github-agent** `{ action:
-   overlap-discard, task: N+1 }`, clear `speculation`, and run N+1 normally (Stage 1 on the real
-   tree) once N passes. A discard costs one executor run — the same as no overlap.
+3. **N passes** and github-agent commits it → **wait for the speculative executor's completion
+   notice** with `state: done` in its status file (never land a tree that is still being written),
+   then invoke **github-agent** `{ action: overlap-land, task: N+1, base }`. On success N+1's
+   changes are ordinary uncommitted changes in the main checkout: continue N+1 at Stage 2 (tester),
+   with the executor's summary. The executor stage is not repeated.
+4. **N fails, or the land returns anything but success** (stale exit 1, refused exit 2, any
+   `GITHUB BLOCKED`) → first make sure the speculative executor is not running: wait for its
+   completion notice, or `TaskStop` it and confirm the stop (process-lesson 3). Then invoke
+   **github-agent** `{ action: overlap-discard, task: N+1 }`, clear `speculation`, and run N+1
+   normally (Stage 1 on the real tree) once N passes. A discard costs one executor run — the same as
+   no overlap — and never halts the run.
 5. **Overnight, a park of N** discards the speculation too: N+1 waits by the `Depends:` rule.
 
 Never start a speculation for a non-code task, a task that mutates a live system, or while a
-speculation exists. Only the executor runs speculatively; the tester and every gate run on the main
+speculation exists. Never land or discard while the speculative executor may still be writing. Only the executor runs speculatively; the tester and every gate run on the main
 checkout after the land, so no gate ever sees speculative code.
 
 ### Feature Review Gate (runs automatically after the last task completes, before `complete`)
@@ -757,7 +772,7 @@ task completion/failure.
 
 Keys this playbook adds as they arise: `taskStatus[N].deferredFindings`, `blockingHistory` (per
 attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,
-`deferredBy`, and `retryResetBy` (per task); `suiteRecord`, `preflight`, `overnightAuthorization`,
+`deferredBy`, `retryResetBy`, and `attemptTrees` (per task); `suiteRecord`, `preflight`, `overnightAuthorization`,
 `userApprovalNeeded`, `publishPending`, `modularity`, `invocations`, and `speculation` (top level). `taskStatus[N].status` takes exactly one of
 `pending`, `in_progress`, `complete`, or `deferred`. Use these exact names — a key spelled differently in each feature
 breaks resume and status.

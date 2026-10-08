@@ -73,11 +73,16 @@ class ConcurrentStagesTest(Base):
 
     def test_delta_re_review(self):
         self.has(self.impl, r"invoke each reviewer with `mode: delta`", "orchestrator delta")
+        self.has(self.impl, r"`taskStatus\[N\]\.attemptTrees\[<retryCount>\]`", "attempt trees")
+        self.has(self.impl, r"When `retryCount >= 1` \*\*and\*\* `attemptTrees\[retryCount - 1\]`\s+exists", "delta condition")
+        self.has(self.impl, r"A respawn or a re-invocation is never a retry", "respawn not retry")
+        self.has(self.impl, r"Otherwise \(no earlier tree recorded\) use\s+`mode: task`", "fallback")
         self.has(self.impl, r"validator always runs in full on a retry", "validator full")
         for name in ("code-reviewer", "security-reviewer"):
             text = read(f"agents/{name}.md")
             self.has(text, r"\*\*`delta` mode\*\*", name)
-            self.has(text, r"git diff\s+<previousTree>`? — the fix only", name)
+            self.has(text, r"Review exactly `git diff <previousTree> <currentTree> -- ':/' ':\(top,exclude\)\.specs'`", name)
+            self.has(text, r"Never\s+use `git diff <previousTree>` against the working tree", name)
             self.has(text, r"Still run your mechanical checks over the task's full file list", name)
 
 
@@ -90,6 +95,40 @@ class ProbeTest(Base):
         self.has(read("agents/task-validator.md"), r"### 2a\. Acceptance probe", "validator")
         self.has(read("agents/code-reviewer.md"), r"### Acceptance probe \(feature mode\)", "reviewer")
         self.has(read("agents/code-reviewer.md"), r"A non-zero exit is a \*\*High\*\* finding", "reviewer severity")
+
+    def test_probe_runs_as_committed(self):
+        for name in ("agents/task-validator.md", "agents/code-reviewer.md"):
+            self.has(read(name), r"git show\s+HEAD:\.specs/steering/tech\.md", name)
+        self.has(self.impl, r"a user attestation that the command touches no live system", "attestation")
+
+    def test_delta_diff_command_sees_new_untracked_files(self):
+        """Run the reviewers' exact delta command in a real repo: a fix that edits a new, untracked
+        file and adds another must show both as changes, never as a deletion."""
+        import importlib.util
+        import subprocess
+        import tempfile
+        cmd = re.search(r"Review exactly `(git diff <previousTree> <currentTree> -- [^`]+)`",
+                        read("agents/code-reviewer.md")).group(1)
+        spec = importlib.util.spec_from_file_location("ov", ROOT / "tools" / "sdd-overlap.py")
+        ov = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ov)
+        with tempfile.TemporaryDirectory() as tmp:
+            run = lambda *a: subprocess.run(["git", "-C", tmp, *a], check=True, capture_output=True, text=True).stdout
+            run("init", "-q")
+            Path(tmp, "a.py").write_text("a\n")
+            run("add", "-A")
+            run("-c", "user.email=t@e", "-c", "user.name=t", "commit", "-qm", "base")
+            Path(tmp, "new.py").write_text("attempt 1\n")
+            prev = ov.tree_of(Path(tmp))
+            Path(tmp, "new.py").write_text("attempt 1\nfix\n")
+            Path(tmp, "new2.py").write_text("added by the fix\n")
+            cur = ov.tree_of(Path(tmp))
+            argv = cmd.replace("<previousTree>", prev).replace("<currentTree>", cur).replace("'", "").split()
+            out = subprocess.run(argv[:2] + ["--name-status"] + argv[2:], cwd=tmp, check=True,
+                                 capture_output=True, text=True).stdout
+        self.assertIn("M\tnew.py", out)
+        self.assertIn("A\tnew2.py", out)
+        self.assertNotIn("D\t", out)
 
     def test_steering_template(self):
         tech = read("steering-templates/tech.md")
@@ -117,11 +156,18 @@ class OverlapTest(Base):
         for action in ("overlap-start", "overlap-land", "overlap-discard"):
             self.has(self.ovl, rf"action:\s+{action}", action)
         self.has(self.ovl, r"continue N\+1 at Stage 2", "continue at tester")
-        self.has(self.ovl, r"N fails, or land reports stale", "discard path")
+        self.has(self.ovl, r"N fails, or the land returns anything but success", "discard path")
+        self.has(self.ovl, r"wait for the speculative executor's completion\s+notice\*\* with `state: done`", "land waits")
+        self.has(self.ovl, r"`TaskStop` it and confirm the stop", "discard stops first")
+        self.has(self.ovl, r"never halts the run", "never halts")
+        self.has(self.ovl, r"Never land or discard while the speculative executor may still be writing", "rule")
         self.has(self.ovl, r"no gate ever sees speculative code", "no gate sees it")
 
     def test_executor_speculative_mode(self):
         ex = read("agents/task-executor.md")
+        self.has(ex, r"Use \*\*absolute main-checkout paths\*\*", "absolute paths")
+        self.has(ex, r"`PYTHONPATH=<worktree>`", "import caveat")
+        self.has(ex, r"NEVER edit `\.specs/steering/`", "never edit steering")
         self.has(ex, r"\*\*Speculative mode \(Level 1 stage overlap\)\.\*\*", "section")
         self.has(ex, r"write and edit code \*\*only under the worktree path\*\*", "worktree only")
         self.has(ex, r"never touch the main checkout, never commit", "no main checkout")

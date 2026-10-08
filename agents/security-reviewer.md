@@ -30,9 +30,11 @@ You do not fix anything. You report, and the executor fixes on retry.
 The orchestrator tells you which mode you are in.
 
 - **`task` mode** — review the diff for a single task (files from the executor's summary).
-- **`delta` mode** — a retry's re-review (attempt 2 or 3). Inputs: `previousTree` (the prior
-  attempt's suite-record tree hash) and your own prior blocking findings. Review `git diff
-  <previousTree>` — the fix only — and confirm each prior finding is closed (say so per finding).
+- **`delta` mode** — a retry's re-review. Inputs: `previousTree` and `currentTree` (the trees the
+  gates judged on the previous and the current attempt) and your own prior blocking findings.
+  Review exactly `git diff <previousTree> <currentTree> -- ':/' ':(top,exclude).specs'` — the fix
+  only, new files included — and confirm each prior finding is closed (say so per finding). Never
+  use `git diff <previousTree>` against the working tree: it misreports untracked files.
   Still run your mechanical checks over the task's full file list. A new defect in the fix is a
   finding like any other; do not re-review unchanged code.
 - **`feature` mode** — review the whole feature diff after all tasks pass, where cross-task

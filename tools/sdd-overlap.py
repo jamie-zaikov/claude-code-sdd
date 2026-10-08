@@ -73,14 +73,17 @@ def existing(repo: Path) -> List[Path]:
     return sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
 
 
-def dirty(cwd: Path) -> List[str]:
-    out = git(cwd, "status", "--porcelain", "--untracked-files=all", "--", *PATHSPEC)
+def tracked_changes(cwd: Path) -> List[str]:
+    """Uncommitted changes to TRACKED files outside `.specs/`. Untracked files (a user's own
+    AGENTS.md, probe output) never block: they are in the snapshot and untouched by the land."""
+    out = git(cwd, "status", "--porcelain", "--untracked-files=no", "--", *PATHSPEC)
     return [line for line in out.splitlines() if line.strip()]
 
 
 def start(repo: Path, task: str, tree: Optional[str]) -> str:
-    if existing(repo):
-        raise Refused("a speculation already exists: " + ", ".join(p.name for p in existing(repo)))
+    if existing(repo):  # also catches an orphaned directory left by a crash: discard it first
+        raise Refused("a speculation already exists (discard it first): "
+                      + ", ".join(p.name for p in existing(repo)))
     tree = tree or tree_of(repo)
     if git(repo, "cat-file", "-t", tree, check=False).strip() != "tree":
         raise Refused(f"{tree} is not a tree object")
@@ -96,21 +99,34 @@ def land(repo: Path, task: str, base: str) -> None:
     path = worktree_path(repo, task)
     if not path.is_dir():
         raise Refused(f"no speculation for task {task}")
-    if dirty(repo):
-        raise Refused("the main checkout is not clean outside .specs/; commit the base task first")
-    if git(repo, "diff", "--name-only", base, "HEAD", "--", *PATHSPEC).strip():
+    if tracked_changes(repo):
+        raise Refused("tracked files have uncommitted changes outside .specs/; commit the base task first")
+    # The main checkout's full content (tracked + untracked, outside .specs/) must equal the
+    # snapshot: then the base task was committed unchanged, and the land cannot conflict.
+    if tree_of(repo) != git(repo, "rev-parse", f"{base}^{{tree}}").strip():
         raise Stale("the base task changed after the snapshot; discard and restart this task")
     wip_tree = tree_of(path)
     wip = git(repo, "commit-tree", wip_tree, "-p", base, "-m", f"sdd-speculative work for task {task}").strip()
-    git(repo, "cherry-pick", "--no-commit", wip)
+    picked = subprocess.run(["git", "-C", str(repo), "cherry-pick", "--no-commit", wip],
+                            capture_output=True, text=True)
+    if picked.returncode != 0:
+        git(repo, "cherry-pick", "--abort", check=False)
+        raise Stale(f"cherry-pick failed; nothing landed: {picked.stderr.strip()}")
     git(repo, "reset", "-q")  # leave M's work as plain working-tree changes, like any executor's
     discard(repo, task)
 
 
 def discard(repo: Path, task: str) -> None:
+    """Remove the worktree; an orphaned directory (crash, deleted metadata) is removed too, but only
+    ever under `<git-common-dir>/sdd-overlap/`."""
     path = worktree_path(repo, task)
-    if path.is_dir():
-        git(repo, "worktree", "remove", "--force", str(path))
+    if path.exists():
+        removed = git(repo, "worktree", "remove", "--force", str(path), check=False)
+        if path.exists():
+            if path.parent.name != "sdd-overlap":
+                raise Refused(f"refusing to delete {path}: not under sdd-overlap/")
+            shutil.rmtree(path)
+        del removed
     git(repo, "worktree", "prune")
 
 

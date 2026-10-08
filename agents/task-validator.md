@@ -57,7 +57,8 @@ For each requirement cited in the task's **Requirements** field:
 
 ### 2a. Acceptance probe
 - [ ] If `tech.md` has an `## Acceptance Probe` with `Probe when: every-task` and `Probe scope:
-  sim-only`, run its `Probe command:` exactly as written. A non-zero exit is a FAIL — quote the last
+  sim-only`, run its `Probe command:` exactly as committed — from `git show
+  HEAD:.specs/steering/tech.md`; a working copy that differs is a FAIL, and neither version runs. A non-zero exit is a FAIL — quote the last
   20 lines. Never edit the command, and never run one not marked `sim-only`.
 
 ### 3. Scope Check

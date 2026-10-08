@@ -32,10 +32,15 @@ ID = r"[A-Z]{1,4}-?\d+(?:\.\d+)*[a-z]?"
 HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 BOLD_LEAD = re.compile(rf"^\s*(?:[-*]\s+)?\*\*\s*({ID})(?![\w.])")
 LEAD_ID = re.compile(rf"^\s*\**\s*({ID})(?!\w|\.\w)")  # `I9.` ends the id; `FR-2.1` does not
-REQ_ID = re.compile(r"\b((?:FR|NFR)-\d+(?:\.\d+)*)\b")
-# `FR-9.1–9.3`, `FR-9.1–3`, `FR-9.1–FR-9.3`: the end may repeat the parent number.
-RANGE = re.compile(r"\b((?:FR|NFR)-(\d+))\.(\d+)\s*[–-]\s*(?:(?:FR|NFR)-)?(?:\d+\.)?(\d+)\b")
+# Requirement ids: FR/NFR, and the other prefixes real Requirements lines use (AC-, DOM-, LIM-, ...).
+REQ_ID = re.compile(r"\b([A-Z]{2,4}-\d+(?:\.\d+)*)\b")
+# Child ranges `FR-9.1–9.3`, `FR-9.1–3`, `FR-9.1–FR-9.3`; parent ranges `FR-15–FR-19`, `FR-15–19`.
+RANGE = re.compile(r"\b([A-Z]{2,4}-(\d+))\.(\d+)\s*[–-]\s*(?:[A-Z]{2,4}-)?(?:\d+\.)?(\d+)\b")
+PARENT_RANGE = re.compile(r"\b([A-Z]{2,4})-(\d+)\s*[–-]\s*(?:\1-)?(\d+)\b(?!\.)")
 DESIGN_ID = re.compile(r"\b((?:[A-Z]{1,3}-\d+|[A-Z]\d+[a-z]?))\b")
+# Design ranges `C1–C15`, `C14-C17`, `D1–D5`, `ACC-27–ACC-33`.
+DESIGN_RANGE = re.compile(r"\b([A-Z]{1,3}-?)(\d+)\s*[–-]\s*\1?(\d+)\b")
+MAX_RANGE = 60  # a longer "range" is a typo or a date, never expanded
 
 
 def task_block(tasks: str, task: str) -> Optional[str]:
@@ -43,7 +48,12 @@ def task_block(tasks: str, task: str) -> Optional[str]:
     lines = tasks.splitlines(keepends=True)
     start = None
     head = re.compile(rf"^##\s+Task\s+{re.escape(task)}\s*[:.\s—-]")
+    in_fence = False
     for i, line in enumerate(lines):
+        if line.startswith("```"):
+            in_fence = not in_fence
+        if in_fence:
+            continue
         if start is None and head.match(line):
             start = i
         elif start is not None and re.match(r"^#{1,2}\s", line):
@@ -52,20 +62,41 @@ def task_block(tasks: str, task: str) -> Optional[str]:
 
 
 def field(block: str, name: str) -> str:
-    m = re.search(rf"^\*\*{re.escape(name)}:\*\*\s*(.+)$", block, re.M)
-    return m.group(1).strip() if m else ""
+    """The whole `**Name:**` paragraph: the first line and every continuation line, up to the next
+    `**Field:**` line, a blank line, a list item, a heading, or a rule."""
+    lines = block.splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(rf"^\*\*{re.escape(name)}:\*\*\s*(.*)$", line)
+        if not m:
+            continue
+        parts = [m.group(1)]
+        for nxt in lines[i + 1:]:
+            if (not nxt.strip() or re.match(r"^\s*(\*\*[^*]+:\*\*|[-*+]\s|\d+\.\s|#|---)", nxt)):
+                break
+            parts.append(nxt.strip())
+        return " ".join(parts).strip()
+    return ""
+
+
+def _span(lo: str, hi: str):
+    lo_n, hi_n = int(lo), int(hi)
+    return range(lo_n, hi_n + 1) if 0 <= hi_n - lo_n <= MAX_RANGE else range(0)
 
 
 def cited_requirements(text: str) -> List[str]:
     ids = set(REQ_ID.findall(text))
     for base, _, lo, hi in RANGE.findall(text):
-        if int(hi) >= int(lo):
-            ids.update(f"{base}.{n}" for n in range(int(lo), int(hi) + 1))
+        ids.update(f"{base}.{n}" for n in _span(lo, hi))
+    for prefix, lo, hi in PARENT_RANGE.findall(text):
+        ids.update(f"{prefix}-{n}" for n in _span(lo, hi))
     return sorted(ids, key=_id_key)
 
 
 def cited_design_ids(text: str) -> List[str]:
-    return sorted({m for m in DESIGN_ID.findall(text) if not m.startswith(("FR-", "NFR-"))},
+    ids = {m for m in DESIGN_ID.findall(text)}
+    for prefix, lo, hi in DESIGN_RANGE.findall(text):
+        ids.update(f"{prefix}{n}" for n in _span(lo, hi))
+    return sorted({i for i in ids if not i.startswith(("FR-", "NFR-"))},
                   key=_id_key)
 
 
@@ -167,7 +198,11 @@ def build(feature: Path, task: str) -> Optional[str]:
     block = task_block(tasks, task)
     if block is None:
         return None
-    reqs = cited_requirements(field(block, "Requirements"))
+    # The Requirements field, plus every FR/NFR id anywhere in the task block (a sub-task that cites
+    # a requirement is a citation too): each one is either packed or listed in NOT FOUND.
+    reqs = sorted(set(cited_requirements(field(block, "Requirements")))
+                  | {i for i in cited_requirements(block) if i.startswith(("FR-", "NFR-"))},
+                  key=_id_key)
     design_ids = cited_design_ids(field(block, "Design Reference"))
     req_doc = req_md.read_text(encoding="utf-8") if req_md.is_file() else ""
     design_doc = design_md.read_text(encoding="utf-8") if design_md.is_file() else ""

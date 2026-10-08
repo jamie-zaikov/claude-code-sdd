@@ -29,7 +29,12 @@ import from it, and expect the integrating tasks to see the modules earlier task
 worktree. Then: write and edit code **only under the worktree path**; run your targeted tests there
 (`cd <worktree>`); read the context pack and steering from the main checkout paths you were given;
 never touch the main checkout, never commit, and never run `git stash`, `git checkout`, or
-`git worktree` yourself. Your summary lists files relative to the repository root, as usual. If the
+`git worktree` yourself. Use **absolute main-checkout paths** for the context pack, steering, and
+your status file (`--feature-dir <main checkout>/.specs/features/<feature>`), never a path relative
+to the worktree. Gitignored inputs (`input-data/`, `.env`, a virtualenv, build output) exist only in
+the main checkout — read them there. If your targeted tests import the package from the main
+checkout (an editable install), run them with the worktree first on the import path (for Python,
+`PYTHONPATH=<worktree>`), or skip them and say so under `Notes`. Your summary lists files relative to the repository root, as usual. If the
 orchestrator discards the speculation, your work is thrown away and the task runs again — that is
 expected, not a failure.
 
@@ -176,6 +181,8 @@ a block (no `cat`/`base64`/`bash -c` on a denied path).
 ## Rules
 
 - NEVER modify `requirements.md`, `design.md`, or `tasks.md`.
+- NEVER edit `.specs/steering/` — in particular never touch the `## Acceptance Probe` section; a
+  failing probe is a finding to report, not a command to change.
 - NEVER write tests — that is the Task Tester's job.
 - NEVER mark tasks as complete in `tasks.md` — that is the Validator's job (via the Orchestrator).
 - NEVER implement outside your assigned task scope.
