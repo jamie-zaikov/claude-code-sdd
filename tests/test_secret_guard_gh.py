@@ -181,5 +181,83 @@ class BaseBehaviorRegressionTest(unittest.TestCase):
         self.assertFalse(guard.is_blocked("ls -la"))
 
 
+class GcloudTokenPrintTest(unittest.TestCase):
+    """A bare gcloud token print leaks a live credential (the 2026-09-30 ADC incident); an inline
+    `$(...)` use flows the token into the consuming binary and stays allowed."""
+
+    def test_bare_adc_print_blocked(self):
+        self.assertTrue(guard.is_blocked("gcloud auth application-default print-access-token"))
+
+    def test_incident_redirect_form_blocked(self):
+        self.assertTrue(guard.is_blocked(
+            "gcloud auth application-default print-access-token 2>&1 >/dev/null"))
+
+    def test_bare_identity_token_blocked(self):
+        self.assertTrue(guard.is_blocked("gcloud auth print-identity-token --audiences=x"))
+
+    def test_assignment_blocked(self):
+        self.assertTrue(guard.is_blocked("TOKEN=$(gcloud auth print-access-token)"))
+
+    def test_quoted_assignment_blocked(self):
+        self.assertTrue(guard.is_blocked('TOKEN="$(gcloud auth print-access-token)"'))
+
+    def test_bare_print_after_inline_use_blocked(self):
+        self.assertTrue(guard.is_blocked(
+            'curl -H "Authorization: Bearer $(gcloud auth print-access-token)" u; '
+            "gcloud auth print-access-token"))
+
+    def test_inline_header_use_allowed(self):
+        self.assertFalse(guard.is_blocked(
+            'curl -sS -H "Authorization: Bearer $(gcloud auth print-access-token)" https://x'))
+
+    def test_inline_adc_use_allowed(self):
+        self.assertFalse(guard.is_blocked(
+            'curl -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" u'))
+
+    # --- review round: bypass forms that must be blocked ---
+    def test_global_flag_before_auth_blocked(self):
+        self.assertTrue(guard.is_blocked("gcloud --quiet auth print-access-token"))
+        self.assertTrue(guard.is_blocked("gcloud --project p auth print-access-token"))
+
+    def test_release_track_and_inner_flag_blocked(self):
+        self.assertTrue(guard.is_blocked("gcloud beta auth print-access-token"))
+        self.assertTrue(guard.is_blocked("gcloud auth --account=x print-access-token"))
+
+    def test_print_consumer_of_inline_use_blocked(self):
+        self.assertTrue(guard.is_blocked("echo $(gcloud auth print-access-token)"))
+        self.assertTrue(guard.is_blocked('printf "%s" "$(gcloud auth print-access-token)"'))
+
+    def test_parked_contexts_blocked(self):
+        self.assertTrue(guard.is_blocked("T=${X:-$(gcloud auth print-access-token)}"))
+        self.assertTrue(guard.is_blocked("arr=( $(gcloud auth print-access-token) )"))
+        self.assertTrue(guard.is_blocked('T="x$(gcloud auth print-access-token)"'))
+        self.assertTrue(guard.is_blocked("export T=$(gcloud auth print-access-token)"))
+
+    def test_pipe_inside_substitution_blocked(self):
+        self.assertTrue(guard.is_blocked(
+            'curl -H "Authorization: Bearer $(gcloud auth print-access-token | tee /tmp/t)" u'))
+
+    def test_inline_use_with_parenthesised_flag_allowed(self):
+        self.assertFalse(guard.is_blocked(
+            "curl -H \"Authorization: Bearer $(gcloud auth print-access-token --format='value(x)')\" u"))
+
+    def test_read_only_auth_check_allowed(self):
+        self.assertFalse(guard.is_blocked("gcloud projects describe p --format='value(projectId)'"))
+
+
+class RedactGoogleAccessTokenTest(unittest.TestCase):
+    """The PostToolUse backstop scrubs a Google OAuth access token from tool output."""
+
+    def test_ya29_token_redacted(self):
+        spec = importlib.util.spec_from_file_location(
+            "secret_redact", ROOT / "hooks" / "secret-redact.py")
+        redact_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(redact_mod)
+        body = "a0B1c2D3e4F5g6H7i8J9k0L1m2N3o4P5"  # assembled at runtime; no full literal stored
+        out, changed = redact_mod.redact("value " + "ya29" + "." + body)
+        self.assertTrue(changed)
+        self.assertNotIn(body, out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

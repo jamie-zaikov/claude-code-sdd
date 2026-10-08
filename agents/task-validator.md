@@ -38,7 +38,11 @@ For each requirement cited in the task's **Requirements** field:
 ### 2. Test Coverage
 - [ ] Does at least one test exist for this requirement?
 - [ ] Do the tests verify the actual behaviour described in the requirement (not just that the code runs)?
-- [ ] Do all tests pass?
+- [ ] Do all tests pass? Use the tester's **suite record**: compute the tree hash with a temporary index
+  (`d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- ":/" ":(top,exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]` — never stage into the real index);
+  when it equals the record's tree hash, the record is the answer — do not run the full suite again.
+  Run the suite yourself only when the hash differs, the hash is empty, the command exits non-zero,
+  or a summary says the task changed a gitignored file or the environment — and say so in your report.
 
 > *Artifact-conformance mode only (see `## Artifact-Conformance Mode`):* where the orchestrator's
 > payload sets `taskProducesApplicationCode: false`, the "at least one test exists" check above is
@@ -156,6 +160,48 @@ One or more requirements not met, tests missing, or scope issues found.
 ### Recommendations
 <Specific, actionable steps for the executor to fix on retry>
 ```
+
+## Status File (liveness and result)
+
+Keep **one status file** for this invocation, so the orchestrator reads your state instead of
+guessing it:
+
+    .specs/features/<feature-name>/spec-memory/status/<task>-<agent>-a<attempt>.json
+
+`<task>` and `<attempt>` come from the orchestrator's prompt (a planning agent uses its phase name —
+`requirements`, `design`, `tasks` — as `<task>`). `<agent>` is your agent name. If the prompt gives
+no feature directory, `task`, or `attempt` (for example a manual call from the main session), skip
+the status file. Write the **whole file** each time, at these points only:
+
+| When | `state` | `step` |
+|---|---|---|
+| first action | `started` | `start` |
+| inputs read | `working` | `inputs read` |
+| each sub-task or major step begins | `working` | the sub-task id or step name |
+| you halt on `SECRET REQUEST` / `VAULT REQUEST` / a blocker | `blocked` | the step; `blockedOn` says what you need |
+| last action | `done` (or `failed`) | `end` |
+
+Before the last write, put your full return summary in `summaryPath` — the same path with `.md` in
+place of `.json` — so the result survives an empty or lost return. Exact keys, no others:
+
+```json
+{"agent": "<agent>", "task": "<task>", "attempt": 1, "state": "working", "step": "<step>",
+ "updatedAt": "<UTC, e.g. 2026-10-08T01:14:37Z>", "verdict": null, "summaryPath": null,
+ "blockedOn": null}
+```
+
+`verdict` is your PASS/FAIL word when you return one, else `null`. `updatedAt` is your best UTC
+time; if you have no clock, an approximate value is fine — staleness is judged from the file's real
+modification time, never from this field. With Bash, write it with
+`python3 ~/.claude/tools/sdd-status.py set --feature-dir .specs/features/<feature-name> --agent
+<agent> --task <task> --attempt <n> --state <state> --step "<step>"` (plus `--verdict`,
+`--summary-path`, `--blocked-on` as they apply) — it writes atomically and refuses an invalid record.
+Without Bash, write the same JSON with the Write tool. Never write another agent's status file. The
+status file is for liveness and recovery only; it never replaces your return summary. The status
+file and its summary `.md` are the **only** files this section lets you write, both under
+`spec-memory/status/` — never a code or spec change. An agent without the Write tool writes the
+summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so no `$` or
+backtick in a finding is expanded.
 
 ## Secret Handling
 

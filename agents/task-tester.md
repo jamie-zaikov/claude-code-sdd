@@ -58,8 +58,13 @@ You write tests for exactly one task. You do not modify implementation code.
 
 ### Running Tests
 
-- Run the tests you wrote to verify they pass.
-- Also run any existing tests in the affected area to check for regressions.
+- Run the tests you wrote to verify they pass. Iterate with targeted runs (by path or `-k`).
+- After your **final** change, run the **full suite once** — with the parallel runner `tech.md`
+  names (e.g. `pytest -n auto`) when it names one — and write the **suite record**: the tree hash
+  from `d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- ":/" ":(top,exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]`
+  (a temporary index, so the real index is never touched), the result, the counts, and the duration. If the task changed a gitignored file the tests read or
+  the installed environment, say so in the record — the hash cannot see it. Later stages reuse
+  this record while the tree is unchanged. A full-suite run before your final change is wasted.
 - If existing tests fail due to the new implementation, report which tests and why — do not fix them unless they are testing the same requirements this task covers.
 
 ## Completion Summary
@@ -76,12 +81,55 @@ You write tests for exactly one task. You do not modify implementation code.
 - FR-1.1: covered by test_name
 
 ### Test Results
+- Suite record: tree <hash> | PASS / FAIL | <passed>/<failed>/<skipped> | <seconds> s
 - All new tests: PASS / FAIL (details if fail)
 - Existing tests in affected area: PASS / FAIL (details if fail)
 
 ### Issues Found
 <Any implementation problems discovered during testing — do not fix, just report>
 ```
+
+## Status File (liveness and result)
+
+Keep **one status file** for this invocation, so the orchestrator reads your state instead of
+guessing it:
+
+    .specs/features/<feature-name>/spec-memory/status/<task>-<agent>-a<attempt>.json
+
+`<task>` and `<attempt>` come from the orchestrator's prompt (a planning agent uses its phase name —
+`requirements`, `design`, `tasks` — as `<task>`). `<agent>` is your agent name. If the prompt gives
+no feature directory, `task`, or `attempt` (for example a manual call from the main session), skip
+the status file. Write the **whole file** each time, at these points only:
+
+| When | `state` | `step` |
+|---|---|---|
+| first action | `started` | `start` |
+| inputs read | `working` | `inputs read` |
+| each sub-task or major step begins | `working` | the sub-task id or step name |
+| you halt on `SECRET REQUEST` / `VAULT REQUEST` / a blocker | `blocked` | the step; `blockedOn` says what you need |
+| last action | `done` (or `failed`) | `end` |
+
+Before the last write, put your full return summary in `summaryPath` — the same path with `.md` in
+place of `.json` — so the result survives an empty or lost return. Exact keys, no others:
+
+```json
+{"agent": "<agent>", "task": "<task>", "attempt": 1, "state": "working", "step": "<step>",
+ "updatedAt": "<UTC, e.g. 2026-10-08T01:14:37Z>", "verdict": null, "summaryPath": null,
+ "blockedOn": null}
+```
+
+`verdict` is your PASS/FAIL word when you return one, else `null`. `updatedAt` is your best UTC
+time; if you have no clock, an approximate value is fine — staleness is judged from the file's real
+modification time, never from this field. With Bash, write it with
+`python3 ~/.claude/tools/sdd-status.py set --feature-dir .specs/features/<feature-name> --agent
+<agent> --task <task> --attempt <n> --state <state> --step "<step>"` (plus `--verdict`,
+`--summary-path`, `--blocked-on` as they apply) — it writes atomically and refuses an invalid record.
+Without Bash, write the same JSON with the Write tool. Never write another agent's status file. The
+status file is for liveness and recovery only; it never replaces your return summary. The status
+file and its summary `.md` are the **only** files this section lets you write, both under
+`spec-memory/status/` — never a code or spec change. An agent without the Write tool writes the
+summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so no `$` or
+backtick in a finding is expanded.
 
 ## Secret Handling (use, don't read)
 

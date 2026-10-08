@@ -31,6 +31,8 @@ PATTERNS = [
     (re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"), REDACTION),
     # Google API keys.
     (re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"), REDACTION),
+    # Google OAuth access tokens (gcloud / ADC `print-access-token` output).
+    (re.compile(r"\bya29\.[0-9A-Za-z_\-.]{20,}"), REDACTION),
     # Stripe / OpenAI-style secret keys.
     (re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"), REDACTION),
     (re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b"), REDACTION),

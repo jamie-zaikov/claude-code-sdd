@@ -51,6 +51,19 @@ import from it, and expect the integrating tasks to see the modules earlier task
 - Follow existing patterns in the codebase.
 - Write clear, readable code. Add inline comments only where the intent is non-obvious.
 - Do not leave TODO comments — either implement it or flag it in your summary.
+- **No god files.** Put new code in a module that stays within the module size limit in `tech.md`
+  (default 500 lines); never grow a file that is already over it — add a new module and call it.
+  Before your summary, run `python3 ~/.claude/tools/sdd-module-size.py --base HEAD <your changed
+  files>`; fix every line it prints that is not `WAIVED`. If
+  the task text forces growth of an over-limit file, stop and say so under `Notes` — that is a
+  missing split task, not yours to improvise.
+
+### Test Runs
+
+While you work, run **targeted** tests only — the tests for the modules you touched (by path or
+`-k`). Do **not** run the full suite: the tester runs it once, after its final change, and records
+the result as the suite record. You may run the full suite once at the end only when the task
+changes a shared module whose callers you cannot list; report it under `Notes` if you do.
 
 ### On Retry
 
@@ -84,6 +97,48 @@ When done, return a structured summary. This is critical — it's the only conte
 ### Notes
 <Any blockers, assumptions made, or issues discovered>
 ```
+
+## Status File (liveness and result)
+
+Keep **one status file** for this invocation, so the orchestrator reads your state instead of
+guessing it:
+
+    .specs/features/<feature-name>/spec-memory/status/<task>-<agent>-a<attempt>.json
+
+`<task>` and `<attempt>` come from the orchestrator's prompt (a planning agent uses its phase name —
+`requirements`, `design`, `tasks` — as `<task>`). `<agent>` is your agent name. If the prompt gives
+no feature directory, `task`, or `attempt` (for example a manual call from the main session), skip
+the status file. Write the **whole file** each time, at these points only:
+
+| When | `state` | `step` |
+|---|---|---|
+| first action | `started` | `start` |
+| inputs read | `working` | `inputs read` |
+| each sub-task or major step begins | `working` | the sub-task id or step name |
+| you halt on `SECRET REQUEST` / `VAULT REQUEST` / a blocker | `blocked` | the step; `blockedOn` says what you need |
+| last action | `done` (or `failed`) | `end` |
+
+Before the last write, put your full return summary in `summaryPath` — the same path with `.md` in
+place of `.json` — so the result survives an empty or lost return. Exact keys, no others:
+
+```json
+{"agent": "<agent>", "task": "<task>", "attempt": 1, "state": "working", "step": "<step>",
+ "updatedAt": "<UTC, e.g. 2026-10-08T01:14:37Z>", "verdict": null, "summaryPath": null,
+ "blockedOn": null}
+```
+
+`verdict` is your PASS/FAIL word when you return one, else `null`. `updatedAt` is your best UTC
+time; if you have no clock, an approximate value is fine — staleness is judged from the file's real
+modification time, never from this field. With Bash, write it with
+`python3 ~/.claude/tools/sdd-status.py set --feature-dir .specs/features/<feature-name> --agent
+<agent> --task <task> --attempt <n> --state <state> --step "<step>"` (plus `--verdict`,
+`--summary-path`, `--blocked-on` as they apply) — it writes atomically and refuses an invalid record.
+Without Bash, write the same JSON with the Write tool. Never write another agent's status file. The
+status file is for liveness and recovery only; it never replaces your return summary. The status
+file and its summary `.md` are the **only** files this section lets you write, both under
+`spec-memory/status/` — never a code or spec change. An agent without the Write tool writes the
+summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so no `$` or
+backtick in a finding is expanded.
 
 ## Secret Handling (use, don't read)
 

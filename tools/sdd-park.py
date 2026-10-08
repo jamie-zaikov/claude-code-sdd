@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""sdd-park.py — park and unpark a halted task's uncommitted work, safely (github-agent runs it).
+
+    sdd-park.py park   --task N            -> prints the stash SHA, or `none` when nothing to park
+    sdd-park.py unpark --task N --ref SHA  -> applies that stash back onto a clean tree
+
+Everything outside `.specs/` counts (tracked edits and untracked, non-ignored files); `.specs/` is
+never parked, because the orchestrator's state lives there.
+
+park never returns a stash it did not create: it decides "nothing to park" with the same pathspec
+the stash uses, then requires `refs/stash` to have moved and the new entry's message to be
+`sdd-task-<N>-parked`. unpark applies only a stash whose message names the same task, only onto a
+clean tree, and on a conflict restores the tree to what it was before the apply.
+
+Exit codes: 0 done, 1 unpark conflict (tree restored), 2 refused or git error. Stdlib only.
+"""
+
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import List, Optional
+
+PATHSPEC = [":/", ":(top,exclude).specs"]
+
+
+class Refused(Exception):
+    pass
+
+
+def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    if check and proc.returncode != 0:
+        raise Refused(proc.stderr.strip() or f"git {' '.join(args)} failed")
+    return proc
+
+
+def message(task: str) -> str:
+    return f"sdd-task-{task}-parked"
+
+
+def is_park_of(repo: Path, ref: str, task: str) -> bool:
+    """Exactly git's stash subject `On <branch>: sdd-task-<N>-parked` — a user's stash whose message
+    merely ends in those words does not match."""
+    return re.fullmatch(rf"On [^:]+: {re.escape(message(task))}", subject(repo, ref)) is not None
+
+
+def stash_paths(repo: Path, ref: str) -> List[str]:
+    """Every path the stash would write: its untracked files (`ref^3`) and every path that differs
+    between the stash base (`ref^1`) and its index (`ref^2`) or tree (`ref`). Rename detection is
+    OFF, so a staged `git mv a b` lists `b` (with renames on, git reports `R` and `b` is lost)."""
+    paths = set()
+    proc = git(repo, "ls-tree", "-r", "-z", "--name-only", f"{ref}^3", check=False)
+    if proc.returncode == 0:
+        paths.update(filter(None, proc.stdout.split("\0")))
+    for tree in (f"{ref}^2", ref):
+        out = git(repo, "diff", "--no-renames", "--name-only", "-z", "--diff-filter=d",
+                  f"{ref}^1", tree, check=False).stdout
+        paths.update(filter(None, out.split("\0")))
+    return sorted(paths)
+
+
+def tracked_in_head(repo: Path) -> set:
+    out = git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD", check=False).stdout
+    return set(filter(None, out.split("\0")))
+
+
+def blocked_paths(repo: Path, paths: List[str]) -> List[str]:
+    """Stash paths that would overwrite something git does not track: a file or symlink on disk that
+    HEAD does not track (an ignored or user file, which `dirty()` cannot see), or a parent that is
+    a file where the stash needs a directory."""
+    tracked = tracked_in_head(repo)
+    blocked = []
+    for rel in paths:
+        target = repo / rel
+        if (target.exists() or target.is_symlink()) and rel not in tracked:
+            blocked.append(rel)
+            continue
+        for parent in Path(rel).parents:
+            if str(parent) != "." and (repo / parent).exists() and not (repo / parent).is_dir():
+                blocked.append(rel)
+                break
+    return blocked
+
+
+def dirty(repo: Path) -> List[str]:
+    out = git(repo, "status", "--porcelain", "--untracked-files=all", "--", *PATHSPEC).stdout
+    return [line for line in out.splitlines() if line.strip()]
+
+
+def stash_head(repo: Path) -> Optional[str]:
+    proc = git(repo, "rev-parse", "-q", "--verify", "refs/stash", check=False)
+    return proc.stdout.strip() or None
+
+
+def subject(repo: Path, ref: str) -> str:
+    return git(repo, "log", "-1", "--format=%s", ref).stdout.strip()
+
+
+def park(repo: Path, task: str) -> str:
+    if not dirty(repo):
+        return "none"
+    before = stash_head(repo)
+    git(repo, "stash", "push", "--include-untracked", "-m", message(task), "--", *PATHSPEC)
+    after = stash_head(repo)
+    if not after or after == before:
+        raise Refused("git stash created no entry; nothing was parked")
+    if not is_park_of(repo, after, task):
+        raise Refused(f"newest stash is not {message(task)}; refusing to record it")
+    if dirty(repo):
+        # The stash exists and holds the work: name it, so the caller can record it as parkedRef.
+        raise Refused(f"working tree still dirty after park; the parked work is in stash {after}")
+    return after
+
+
+def unpark(repo: Path, task: str, ref: str) -> None:
+    if not is_park_of(repo, ref, task):
+        raise Refused(f"{ref} is not a {message(task)} stash")
+    if dirty(repo):
+        raise Refused("working tree is not clean outside .specs/; refusing to apply over it")
+    paths = stash_paths(repo, ref)
+    # Refuse up front when the apply would write over anything git does not track. Nothing has
+    # been touched yet, so nothing can be lost.
+    blocked = blocked_paths(repo, paths)
+    # The stash's own untracked files can never be applied over an existing path (git refuses with
+    # "already exists, no checkout") — e.g. a later task committed the same file. Refuse up front.
+    proc = git(repo, "ls-tree", "-r", "-z", "--name-only", f"{ref}^3", check=False)
+    untracked = filter(None, proc.stdout.split("\0")) if proc.returncode == 0 else []
+    blocked += [rel for rel in untracked if rel not in blocked
+                and ((repo / rel).exists() or (repo / rel).is_symlink())]
+    if blocked:
+        raise Refused("the parked work would overwrite untracked or ignored paths: "
+                      + ", ".join(blocked))
+    absent = [rel for rel in paths if not ((repo / rel).exists() or (repo / rel).is_symlink())]
+    applied = git(repo, "stash", "apply", ref, check=False)
+    if applied.returncode == 0:
+        return
+    restore(repo, absent)
+    raise ConflictError(applied.stderr.strip() or "stash apply conflicted")
+
+
+def restore(repo: Path, absent_before: List[str]) -> None:
+    """Return to the clean tree the apply started from. Reset and check out HEAD, then delete every
+    untracked path git now reports (the tree was clean, so the apply wrote each of them — this also
+    covers modify/delete leftovers and conflict side files) plus every stash path that was absent
+    before the apply (in case it is ignored, which `git status` does not show)."""
+    git(repo, "reset", "-q", "--", *PATHSPEC, check=False)
+    git(repo, "checkout", "-q", "HEAD", "--", *PATHSPEC, check=False)
+    out = git(repo, "status", "--porcelain", "-z", "--untracked-files=all", "--", *PATHSPEC,
+              check=False).stdout
+    leftovers = [entry[3:] for entry in out.split("\0") if entry.startswith("?? ")]
+    for rel in sorted(set(leftovers) | set(absent_before)):
+        target = repo / rel
+        try:
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+        except OSError:
+            pass
+
+
+class ConflictError(Exception):
+    pass
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="sdd-park.py", description=__doc__.splitlines()[0])
+    parser.add_argument("-C", dest="repo", default=".")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("park")
+    p.add_argument("--task", required=True)
+    u = sub.add_parser("unpark")
+    u.add_argument("--task", required=True)
+    u.add_argument("--ref", required=True)
+    args = parser.parse_args(argv)
+    try:
+        repo = Path(git(Path(args.repo), "rev-parse", "--show-toplevel").stdout.strip())
+        if args.cmd == "park":
+            print(park(repo, args.task))
+        else:
+            unpark(repo, args.task, args.ref)
+            print(f"unparked {args.ref}")
+        return 0
+    except ConflictError as exc:
+        print(f"sdd-park: conflict, tree restored: {exc}", file=sys.stderr)
+        return 1
+    except (Refused, FileNotFoundError) as exc:
+        print(f"sdd-park: refused: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

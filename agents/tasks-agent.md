@@ -64,6 +64,7 @@ appended to your inputs. You may list several needs in one request.
 **Requirements:** FR-1, FR-1.1
 **Design Reference:** <Which design component(s) this implements>
 **Files:** <Expected files to create or modify>
+**Depends:** <Task numbers this task needs, e.g. `1, 3` — or `none`>
 
 ---
 
@@ -75,9 +76,11 @@ appended to your inputs. You may list several needs in one request.
 
 1. **Atomic tasks:** Each task should be completable in one focused agent session. If a task requires touching more than 5-6 files, split it.
 
-2. **Dependency order:** Tasks are ordered so that each task can be implemented without depending on incomplete future tasks. If Task 3 depends on Task 1's output, Task 1 comes first.
+2. **Dependency order:** Tasks are ordered so that each task can be implemented without depending on incomplete future tasks. If Task 3 depends on Task 1's output, Task 1 comes first. Every task carries a **`Depends:`** line that lists **every** earlier task whose output it needs — code it imports or calls, files it edits after them, fixtures or tests it extends — or `none`. Be complete, not minimal: the orchestrator lets a later task run past a halted one only when `Depends:` says it may, so a missing entry lets a task build on code that is not there. A task with no `Depends:` line is treated as depending on every earlier task.
 
-3. **Requirement coverage:** Every requirement must be addressed by at least one task. Every task must reference at least one requirement. No orphan tasks, no orphan requirements.
+3. **No god files:** No task may grow a source file past the module size limit in `tech.md` (default 500 lines), or grow a file that is already over it. When the design's extraction step applies, or a task's `Files:` names an over-limit file it must extend, insert a **split task first**: it moves the named responsibility into a new module with no behaviour change (tests stay green), and the later tasks put their new code in the new module. The code-reviewer checks this mechanically.
+
+3a. **Requirement coverage:** Every requirement must be addressed by at least one task. Every task must reference at least one requirement. No orphan tasks, no orphan requirements.
 
 4. **Testing sub-task:** Every task must include a testing sub-task as its last sub-item. This is what the Task Tester agent will execute. *(Non-code feature: replace this with an `Acceptance:` block — see `## Non-Code Features`. A non-code task has no testing sub-task.)*
 
@@ -151,6 +154,48 @@ When the orchestrator passes back user feedback:
 - Re-verify requirement coverage after changes.
 - Maintain stable task numbering — don't renumber existing tasks unless the structure fundamentally changes.
 - If feedback implies a design or requirements change, return a message to the orchestrator: "This change requires a [design/requirements] update first: <describe what needs to change>."
+
+## Status File (liveness and result)
+
+Keep **one status file** for this invocation, so the orchestrator reads your state instead of
+guessing it:
+
+    .specs/features/<feature-name>/spec-memory/status/<task>-<agent>-a<attempt>.json
+
+`<task>` and `<attempt>` come from the orchestrator's prompt (a planning agent uses its phase name —
+`requirements`, `design`, `tasks` — as `<task>`). `<agent>` is your agent name. If the prompt gives
+no feature directory, `task`, or `attempt` (for example a manual call from the main session), skip
+the status file. Write the **whole file** each time, at these points only:
+
+| When | `state` | `step` |
+|---|---|---|
+| first action | `started` | `start` |
+| inputs read | `working` | `inputs read` |
+| each sub-task or major step begins | `working` | the sub-task id or step name |
+| you halt on `SECRET REQUEST` / `VAULT REQUEST` / a blocker | `blocked` | the step; `blockedOn` says what you need |
+| last action | `done` (or `failed`) | `end` |
+
+Before the last write, put your full return summary in `summaryPath` — the same path with `.md` in
+place of `.json` — so the result survives an empty or lost return. Exact keys, no others:
+
+```json
+{"agent": "<agent>", "task": "<task>", "attempt": 1, "state": "working", "step": "<step>",
+ "updatedAt": "<UTC, e.g. 2026-10-08T01:14:37Z>", "verdict": null, "summaryPath": null,
+ "blockedOn": null}
+```
+
+`verdict` is your PASS/FAIL word when you return one, else `null`. `updatedAt` is your best UTC
+time; if you have no clock, an approximate value is fine — staleness is judged from the file's real
+modification time, never from this field. With Bash, write it with
+`python3 ~/.claude/tools/sdd-status.py set --feature-dir .specs/features/<feature-name> --agent
+<agent> --task <task> --attempt <n> --state <state> --step "<step>"` (plus `--verdict`,
+`--summary-path`, `--blocked-on` as they apply) — it writes atomically and refuses an invalid record.
+Without Bash, write the same JSON with the Write tool. Never write another agent's status file. The
+status file is for liveness and recovery only; it never replaces your return summary. The status
+file and its summary `.md` are the **only** files this section lets you write, both under
+`spec-memory/status/` — never a code or spec change. An agent without the Write tool writes the
+summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so no `$` or
+backtick in a finding is expanded.
 
 ## Rules
 

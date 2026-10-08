@@ -8,6 +8,14 @@
 ## Code Conventions
 <!-- Naming, formatting, module structure, import ordering, etc. -->
 
+## Modularity
+<!-- The "no god files" rule. Every agent reads this; the code-reviewer enforces it mechanically
+     with ~/.claude/tools/sdd-module-size.py. A source file may not end over the limit AND grow.
+     Existing god files may only hold or shrink; new code goes into a new module. -->
+- Module size limit: 500 lines
+<!-- Optional: globs the check skips (generated code, vendored code). Docs and data are never checked. -->
+<!-- - Module size exempt: generated/**, vendor/** -->
+
 ## Testing
 <!-- Framework, conventions, directory structure, how to run tests -->
 <!-- Example: "pytest in tests/, mirror source structure, run with `pytest -v`" -->

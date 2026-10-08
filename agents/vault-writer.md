@@ -84,12 +84,55 @@ reason: <file exists | section not found | section ambiguous | no vault_path>
 suggestion: <what the orchestrator should do next>
 ```
 
+## Status File (liveness and result)
+
+Keep **one status file** for this invocation, so the orchestrator reads your state instead of
+guessing it:
+
+    .specs/features/<feature-name>/spec-memory/status/<task>-<agent>-a<attempt>.json
+
+`<task>` and `<attempt>` come from the orchestrator's prompt (a planning agent uses its phase name —
+`requirements`, `design`, `tasks` — as `<task>`). `<agent>` is your agent name. If the prompt gives
+no feature directory, `task`, or `attempt` (for example a manual call from the main session), skip
+the status file. Write the **whole file** each time, at these points only:
+
+| When | `state` | `step` |
+|---|---|---|
+| first action | `started` | `start` |
+| inputs read | `working` | `inputs read` |
+| each sub-task or major step begins | `working` | the sub-task id or step name |
+| you halt on `SECRET REQUEST` / `VAULT REQUEST` / a blocker | `blocked` | the step; `blockedOn` says what you need |
+| last action | `done` (or `failed`) | `end` |
+
+Before the last write, put your full return summary in `summaryPath` — the same path with `.md` in
+place of `.json` — so the result survives an empty or lost return. Exact keys, no others:
+
+```json
+{"agent": "<agent>", "task": "<task>", "attempt": 1, "state": "working", "step": "<step>",
+ "updatedAt": "<UTC, e.g. 2026-10-08T01:14:37Z>", "verdict": null, "summaryPath": null,
+ "blockedOn": null}
+```
+
+`verdict` is your PASS/FAIL word when you return one, else `null`. `updatedAt` is your best UTC
+time; if you have no clock, an approximate value is fine — staleness is judged from the file's real
+modification time, never from this field. With Bash, write it with
+`python3 ~/.claude/tools/sdd-status.py set --feature-dir .specs/features/<feature-name> --agent
+<agent> --task <task> --attempt <n> --state <state> --step "<step>"` (plus `--verdict`,
+`--summary-path`, `--blocked-on` as they apply) — it writes atomically and refuses an invalid record.
+Without Bash, write the same JSON with the Write tool. Never write another agent's status file. The
+status file is for liveness and recovery only; it never replaces your return summary. The status
+file and its summary `.md` are the **only** files this section lets you write, both under
+`spec-memory/status/` — never a code or spec change. An agent without the Write tool writes the
+summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so no `$` or
+backtick in a finding is expanded.
+
 ## Rules
 
 - NEVER author or alter content beyond what was provided. You place text; you do not write it.
 - NEVER overwrite an existing note on `create`. Return a conflict.
 - NEVER guess placement on `update`/`append` when the target section is missing or ambiguous.
-- NEVER write outside `vault_path` (except the changelog under the feature directory).
+- NEVER write outside `vault_path` (except the changelog under the feature directory, and your status
+  file and its summary under `spec-memory/status/` — the *Status File* section).
 - ALWAYS preserve surrounding frontmatter, links, and formatting; change the minimum.
 - ALWAYS record the write to the changelog.
 - Do not read more of the vault than you need to place the write. You are not a retrieval

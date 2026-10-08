@@ -53,6 +53,30 @@ mechanical scan on the non-code track. A blocking finding halts completion until
 explicitly overridden. Validation checks spec conformance; the reviews hunt the bugs and security
 holes a requirement-anchored check misses by construction.
 
+**Speed without a weaker gate.** Past builds lost most of their time to idle halts and repeated
+work, not to the gates themselves. The orchestrator playbook therefore enforces:
+
+- **Only Critical/High block.** Medium and Low findings never open a fix round; they are recorded as
+  `deferredFindings` and re-checked at the Feature Review Gate.
+- **One full suite run per tree.** The tester runs the full suite once after its final change and
+  records a suite record keyed by tree hash; later stages reuse it while the tree is unchanged.
+- **Retry by convergence.** A third attempt runs without asking only when the blocking findings
+  strictly shrink and none is new; retryCount 3 always halts.
+- **Preflight before an unattended run.** Read-only probes of tools, credentials (by name), inputs,
+  and permissions run on entry to implementation, so gaps are fixed while the user is present.
+- **No god files.** `tech.md` sets a module size limit (default 500 lines). A source file may not end
+  over it and grow — existing god files may only hold or shrink. `~/.claude/tools/sdd-module-size.py`
+  is the one definition; the code-reviewer runs it, and on a feature planned under the rule every
+  violation is High.
+- **Status files, not polling.** Every specialist except the read-only consistency checker keeps one
+  JSON status file (`spec-memory/status/<task>-<agent>-a<n>.json`: state, step, updatedAt,
+  summaryPath). The orchestrator acts on completion notices and, on a heartbeat, reads that state
+  with `~/.claude/tools/sdd-status.py check` — never guessing liveness from silence.
+- **Overnight mode covers implementation only.** `/sdd-overnight <feature>` is its one switch. It
+  runs the phase check and the preflight first, and it ends with one fixed summary template. It never asks and waits — it picks the fail-closed,
+  reversible option, records it under `userApprovalNeeded`, and moves to the next independent task.
+  It never self-confirms a planning gate.
+
 ### Agent Ownership
 
 - orchestrator: coordinates lifecycle, never writes content or code; runs the Classification Gate that locks `featureClass` and routes each track. The **main session runs this playbook directly** — never as a nested subagent — so it keeps the recovery tools, and it drives every specialist through the *Specialist Execution Contract* (background launch, ledger-mtime heartbeat, kill-plus-respawn-once) so a stalled specialist cannot deadlock the pipeline
@@ -175,6 +199,7 @@ the label server-side, so CI mirrors — never replaces — the local gates.
 - Resume work: "Resume feature: <feature-name>"
 - Initialize project structure: `/sdd-init`
 - Scaffold a new feature: `/sdd-feature <feature-name>`
+- Run implementation unattended: `/sdd-overnight <feature-name>` (`off` / `status` to stop or check)
 
 ### Feature Completion
 

@@ -122,6 +122,29 @@ else
   ok "${CMD_COUNT} command(s) installed/updated."
 fi
 
+# --------------------------------------------------------------------------
+# Install agent tools (mechanical checks the agents run, e.g. sdd-module-size.py)
+# --------------------------------------------------------------------------
+
+info "Installing agent tools..."
+mkdir -p "${CLAUDE_HOME}/tools"
+TOOL_COUNT=0
+for tool_file in "${SCRIPT_DIR}/tools/"*.py; do
+  [ -f "$tool_file" ] || continue
+  name=$(basename "$tool_file")
+  if cmp -s "$tool_file" "${CLAUDE_HOME}/tools/${name}" 2>/dev/null; then
+    echo "       ${name} (unchanged, skipped)"
+  else
+    cp -p "$tool_file" "${CLAUDE_HOME}/tools/${name}"
+    chmod +x "${CLAUDE_HOME}/tools/${name}"
+    ok "    ${name} (installed/updated)"
+    TOOL_COUNT=$((TOOL_COUNT + 1))
+  fi
+done
+if [ "$TOOL_COUNT" -eq 0 ]; then
+  info "All agent tools already up to date."
+fi
+
 echo ""
 
 # --------------------------------------------------------------------------

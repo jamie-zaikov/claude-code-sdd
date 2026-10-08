@@ -51,7 +51,7 @@ remaining fields are the content **authored upstream** that you publish verbatim
 ```
 {
   action:   create-branch | switch-branch | commit | push | open-pr |
-            update-pr | comment | label | request-review,
+            update-pr | comment | label | request-review | park | unpark,
   feature:  <feature-name>,
   branch:   <branch name, e.g. feature/<feature-name>>,   # deterministic (see below)
   base:     main,                                          # protected base
@@ -80,7 +80,20 @@ When instructed by the orchestrator, perform only these operations:
 - **switch-branch** — switch to an existing branch.
 - **commit** — commit the staged `paths` with the supplied `message` **locally**. Do **not** push:
   this is the per-phase and per-task commit during the local-first build. The branch stays local
-  until the single publish point.
+  until the single publish point. Use the `message` **byte for byte**: never add, remove, or change
+  a trailer line (`Co-Authored-By:`, `SDD-Task:`, or any other). The orchestrator authors the
+  attribution trailer; your own model name never goes into a commit. Pass the message with
+  `git commit -F -` (stdin) so the shell never re-quotes it.
+- **park** — save a halted task's uncommitted changes off the working tree, **locally**, with
+  exactly `python3 ~/.claude/tools/sdd-park.py park --task <N>`. Never hand-roll `git stash` for
+  this: a bare `git stash push` with nothing to save exits 0, and `stash@{0}` then names the user's
+  own older stash. The tool decides "nothing to park" with the stash's own pathspec, requires
+  `refs/stash` to move, and checks the message. Return its output as `commit:` — a SHA, or `none`.
+  Exit 2 is `GITHUB BLOCKED` with its stderr. Never drop or clear a stash.
+- **unpark** — restore a parked task with exactly `python3 ~/.claude/tools/sdd-park.py unpark
+  --task <N> --ref <parkedRef>`. It applies (never pops) only that task's stash, only onto a clean
+  tree. Exit 1 is a conflict — the tool has already restored the tree; return `GITHUB BLOCKED` with
+  its stderr. Exit 2 is a refusal; return `GITHUB BLOCKED` as well.
 - **push** — push the local feature branch to the remote and set upstream. This runs **once**, at
   the publish point (whole-feature-review PASS), never at scaffold and never per task.
 - **open-pr** — open a pull request from the feature branch into `base`, as **ready**
@@ -162,6 +175,7 @@ GITHUB DONE
 action: <action>
 target: <branch | pr#N | comment-url | label>
 result: <1–2 lines: what now exists/differs on the remote>
+commit: <full SHA of the new commit — commit action only; read it back with `git rev-parse HEAD`>
 auth: <present via GH_TOKEN | present via GITHUB_TOKEN>   # name only, never the value
 ```
 
@@ -175,8 +189,53 @@ reason: <prohibited op (merge/force-push/delete) | missing gh CLI | not a scribe
 suggestion: <what the orchestrator should do next>
 ```
 
+Never return an empty report. A `commit` action whose report has no `commit:` SHA is a failed
+action — the orchestrator treats it as `GITHUB BLOCKED` and checks `git log -1` itself.
+
 On a missing token, return instead the bare `SECRET REQUEST` line described in Authentication —
 this halts rather than working around the absence.
+
+## Status File (liveness and result)
+
+Keep **one status file** for this invocation, so the orchestrator reads your state instead of
+guessing it:
+
+    .specs/features/<feature-name>/spec-memory/status/<task>-<agent>-a<attempt>.json
+
+`<task>` and `<attempt>` come from the orchestrator's prompt (a planning agent uses its phase name —
+`requirements`, `design`, `tasks` — as `<task>`). `<agent>` is your agent name. If the prompt gives
+no feature directory, `task`, or `attempt` (for example a manual call from the main session), skip
+the status file. Write the **whole file** each time, at these points only:
+
+| When | `state` | `step` |
+|---|---|---|
+| first action | `started` | `start` |
+| inputs read | `working` | `inputs read` |
+| each sub-task or major step begins | `working` | the sub-task id or step name |
+| you halt on `SECRET REQUEST` / `VAULT REQUEST` / a blocker | `blocked` | the step; `blockedOn` says what you need |
+| last action | `done` (or `failed`) | `end` |
+
+Before the last write, put your full return summary in `summaryPath` — the same path with `.md` in
+place of `.json` — so the result survives an empty or lost return. Exact keys, no others:
+
+```json
+{"agent": "<agent>", "task": "<task>", "attempt": 1, "state": "working", "step": "<step>",
+ "updatedAt": "<UTC, e.g. 2026-10-08T01:14:37Z>", "verdict": null, "summaryPath": null,
+ "blockedOn": null}
+```
+
+`verdict` is your PASS/FAIL word when you return one, else `null`. `updatedAt` is your best UTC
+time; if you have no clock, an approximate value is fine — staleness is judged from the file's real
+modification time, never from this field. With Bash, write it with
+`python3 ~/.claude/tools/sdd-status.py set --feature-dir .specs/features/<feature-name> --agent
+<agent> --task <task> --attempt <n> --state <state> --step "<step>"` (plus `--verdict`,
+`--summary-path`, `--blocked-on` as they apply) — it writes atomically and refuses an invalid record.
+Without Bash, write the same JSON with the Write tool. Never write another agent's status file. The
+status file is for liveness and recovery only; it never replaces your return summary. The status
+file and its summary `.md` are the **only** files this section lets you write, both under
+`spec-memory/status/` — never a code or spec change. An agent without the Write tool writes the
+summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so no `$` or
+backtick in a finding is expanded.
 
 ## Rules
 

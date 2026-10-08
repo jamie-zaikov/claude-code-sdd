@@ -49,28 +49,53 @@ So orchestration runs there. Concretely:
 Every "Invoke the **&lt;X&gt;** subagent" step below runs through this contract. It exists so a
 quiet or dead specialist costs one step, never a deadlock.
 
-1. **Launch in the background, non-blocking.** Launch the specialist and keep the loop. The launch
-   notifies you on completion; then proceed with its return summary as the phase routing describes.
-2. **Watch liveness — silence is not death (process-lesson 4).** A specialist that reads a large
-   input is quiet but alive. Do not replace a quiet specialist on a hunch. Judge liveness by
-   evidence:
-   - the **mtime of its incremental ledger** under `.specs/features/<feature>/spec-memory/` — every
-     agent writes its report incrementally, so an advancing mtime proves progress;
-   - the **process list** — a running specialist is a live process.
-   Use `ScheduleWakeup` to re-check on a cadence; the check never sits in a blocking call.
-3. **Nudge, then time out.** If no completion notice has arrived **and** the ledger mtime is stale
-   past a grace window (default a few minutes; longer for a vault-reader over a large vault), first
+1. **Launch in the background, non-blocking.** Launch the specialist and keep the loop. Put the
+   feature directory, `task: <N or phase name>`, and `attempt: <n>` in its prompt. `task` is the
+   task number, or one of `requirements`, `design`, `tasks`, `feature-review`, `publish`. `attempt`
+   counts this agent's invocations on this task (1, 2, …; a retry, a re-invocation after a
+   `VAULT REQUEST`/`SECRET REQUEST`, and a respawn each add one). **Before** each launch, record it
+   in `.spec-state.json` under `invocations["<task>/<agent>"] = <n>`, so a restarted session never
+   reuses a number and overwrites the record recovery depends on. Together they name its
+   **status file** (`spec-memory/status/<task>-<agent>-a<attempt>.json`, the *Status File* section
+   of every specialist except the spec-consistency-checker). The launch notifies you on
+   completion; that notice is the **primary signal** — never poll while you wait for it. Proceed
+   with the return summary as the phase routing describes. If the return is empty or cut off, read
+   the status file: on `state: done`, its `summaryPath` holds the full summary; use that.
+2. **Watch liveness — read the status, do not guess (process-lesson 4).** A specialist that reads a
+   large input is quiet but alive. Do not replace a quiet specialist on a hunch. On each heartbeat,
+   run **one** command for the exact invocation you launched — `python3
+   ~/.claude/tools/sdd-status.py check --feature-dir .specs/features/<feature> --task <task>
+   --agent <agent> --attempt <n> --stale-seconds <grace>` — so an older attempt's file (a dead
+   instance, an answered `blocked`, an earlier `done`) can never be read as this one. The **grace**
+   window is **1200 s** by default, **2400 s** for a vault-reader, or the `Specialist grace: <N> s`
+   value in `tech.md`. Act on the result:
+   - `started` / `working`, not `STALE` (the file was written within the grace window) — alive; do
+     nothing.
+   - `blocked` — act now on `blockedOn` (a `SECRET REQUEST`, a `VAULT REQUEST`, a blocker); do not
+     wait for the return.
+   - `done` / `failed` with no completion notice yet — the work is finished; use `summaryPath`.
+   - `STALE` (a live state with no file write for the grace window), or `INVALID` — go to step 3.
+   - `MISSING` (exit 3) — the agent has not made its first write. Within the grace window after
+     launch, wait; past it, go to step 3.
+   The spec-consistency-checker has no Write tool and keeps no status file: its liveness is its
+   completion notice and the harness's task list (`TaskOutput`), with the same grace window. Use
+   `ScheduleWakeup` for the heartbeat; the check never sits in a blocking call.
+3. **Nudge, then time out.** If no completion notice has arrived **and** the status is `STALE` (or
+   `MISSING`) past the grace window (step 2: 1200 s, 2400 s for a vault-reader, or the steering value), first
    `SendMessage` the specialist a nudge. If the mtime is still stale after a second window and no
    live process remains, treat the specialist as dead.
 4. **Kill, then respawn ONCE — confirm the stop from the actor (process-lesson 3).** `TaskStop` the
    dead specialist and confirm the process is gone **before** you relaunch. A stand-down to a
    dispatcher does not stop the actor, and two instances on one artifact corrupt it silently. Then
    re-invoke the same specialist once.
-5. **Resume idempotently (process-lesson 4).** The respawned specialist resumes from its on-disk
+5. **Resume idempotently (process-lesson 4).** The respawn uses `attempt` + 1 (recorded in
+   `invocations` before launch) for its status file, so the dead instance's file stays as the record
+   and is never read as the live one. The respawned specialist resumes from its on-disk
    ledger. It does not restart completed work, and it never re-runs an already-applied propagation
    (the silent-duplication hazard, process-lesson 3). This is what makes recovery cost one step.
 6. **Halt, do not loop.** If the single respawn also stalls, halt and surface it to the user with
-   the ledger path and its last mtime. Never spin a third instance.
+   the status file path, its last `state` and `step`, and the file's modification time (`updatedAt` is
+   approximate for agents without a clock). Never spin a third instance.
 
 This contract applies to **every** specialist the phase routing invokes.
 
@@ -182,6 +207,21 @@ feature start is not yet a locked decision.
   validated under the non-code exemption; never cleared, because the whole-feature review must
   re-cover them under the code path). Report the value locked and what it changes.
 
+**Modularity at the same gate.** On a `"code"` feature — and on **reclassification** to `"code"` —
+also write `modularity: { enforced: true, limit: <tech.md "Module size limit", default 500>,
+decidedAt, waivers: [] }`. From then on the code-reviewer
+treats every `sdd-module-size.py` violation as **High** (blocking). A feature whose state file has
+no `modularity` key was planned before the rule: it is **not** enforced — its violations are Medium
+and land in `deferredFindings` — until the user asks to enforce it (then write the key). Never
+infer enforcement for such a feature, and never remove the key once written.
+
+**Waivers — the one escape hatch, granted by the user only.** When a task cannot pass without growing
+an over-limit file and a split is not feasible now (say, a one-line fix in a legacy god file), ask
+the user — never overnight, where the task is parked instead. On a yes, append `{ path, reason,
+decidedBy: "user", decidedAt }` to `modularity.waivers`. The reviewers then pass `--waive <path>`:
+the finding stays visible as Medium and is never blocking. A waiver names one file; it is never a
+glob and never granted by an agent.
+
 **Switching to non-code here.** If the user sets the track to `"non-code"` at this gate and the
 tasks were authored as code tasks (no `Acceptance:` checklists), re-invoke the tasks-agent with
 `featureClass: "non-code"` to add them, then re-run the consistency gate. A non-code task with no
@@ -219,6 +259,95 @@ A change made by `/sdd-feature`'s scaffolding — **including its append to the 
 produced it.
 
 ### `implementation`
+
+**Preflight (once, on entry, before Task 1 and before any unattended run).** Run cheap,
+**read-only** probes for everything the remaining tasks will need, and fix every gap while the user
+is present — a missing prerequisite found at 02:00 costs the whole night. Check:
+- **Tools and repo setup:** each CLI the tasks invoke is on `PATH`; `git lfs` is installed and its
+  filters are configured when the repo uses LFS; the test command steering names starts and collects
+  (e.g. `pytest --collect-only -q`).
+- **Credentials, by name only:** each env var the tasks need is **set** (`[ -n "$VAR" ]`, never its
+  value), and `gh auth status` succeeds with the scopes the publish point needs (`repo`, PR write).
+- **Inputs:** every file the tasks cite from `input-data/` or steering exists (deck files, fixtures,
+  sample payloads).
+- **Permissions:** for each command class the tasks will run unattended (test runner, linters,
+  read-only cloud/VM probes), confirm the harness allows it — one harmless probe each. A probe the
+  harness would prompt for is a gap: list it for the user to allow now.
+
+Preflight **never** grants itself a permission and **never** runs a mutating command against a live
+system (VM, cloud, instrument, shared resource). A task that mutates a live system stays user-gated.
+Record the result under `preflight` in the state file (`{ ranAt, gaps: [...] }`) and report the
+gaps. Do not start an overnight run while a gap that blocks a remaining task is open.
+
+**Overnight mode (implementation only).** The user switches it on with `/sdd-overnight
+<feature>` (and off with `/sdd-overnight <feature> off`) — the one entry point, so every run starts
+with the phase check and the preflight and ends with the same summary. When the user asks in their
+own words instead ("run overnight", "don't stop"), follow `/sdd-overnight`'s steps exactly as if it
+had been invoked. Record the authorization as `overnightAuthorization: { grantedAt, scope:
+"implementation", grantedBy: "user", quote: "<the user's words>" }`. While it is set:
+- **Never ask and wait.** Do not call AskUserQuestion. When a task needs a decision the specs do not
+  settle, choose the **fail-closed, reversible** option, record it under `userApprovalNeeded`
+  (`{ id, task, options, chosen, why }`), and continue. When the decision blocks the task itself,
+  **park** the task (below).
+- **Decision or amendment — the test is mechanical.** A choice that would change the text of
+  `requirements.md`, `design.md`, or `tasks.md` (a new or changed FR/NFR, component, interface, or
+  task) is a **spec amendment**, never a decision. An amendment is recorded under
+  `userApprovalNeeded` and its task is parked; it is never implemented overnight. Only a choice the
+  confirmed text already permits is a decision.
+- **Never self-confirm a planning gate.** Overnight authorization covers the implementation phase
+  only. Requirements, design, and tasks confirmations — including amendments raised mid-build — and
+  a feature-review override always wait for the user.
+- **Park, never leave changes behind.** A task that halts (retry halt, `SECRET REQUEST`, live-system
+  mutation) or needs an amendment is **parked**: invoke **github-agent** `{ action: park, task: N }`,
+  which stashes the task's uncommitted changes, untracked files included, under the message
+  `sdd-task-<N>-parked` and returns the stash SHA. Record `taskStatus[N].status = "deferred"`,
+  `parkedRef: <SHA>`, and `deferredBy: <userApprovalNeeded id | halt reason>`. Confirm the working
+  tree is clean (`git status --porcelain` empty outside `.specs/`) before the next task starts; if it
+  is not, stop the run. The next task never inherits a parked task's code.
+- **Which task runs next — mechanical, never guessed.** After a park, a later task may run only
+  when **every task its `Depends:` line names is `complete`**. Because each named task had to meet
+  the same rule, the check is transitive by construction. A task without a `Depends:` line depends
+  on every earlier task, so it runs only when all of them are `complete`. Run the qualifying tasks
+  in `tasks.md` order. When no task qualifies, the run ends.
+- **The end of the run — one rule.** The run ends when no runnable task remains. If every task is
+  `complete`, run the **Feature Review Gate** once, but **never publish** overnight: record the
+  verdict under `featureReview` with `reviewedHead: <git rev-parse HEAD>`, set `publishPending: true` on PASS, and do not ask on FAIL — the
+  findings go to the summary. The publish sequence waits for the user's explicit word. Then write
+  `spec-memory/overnight-summary.md` with the **Overnight summary template** below.
+- The authorization ends when the run stops; clear it then. **A stale authorization is void:** an
+  authorization is held only by the run that wrote it in the current session (started through
+  `/sdd-overnight <feature> on`, or the user's own words followed by its exact steps). On any other
+  entry (`/sdd-resume`, a new session, a crash recovery), a set `overnightAuthorization` is cleared
+  and reported, never obeyed.
+
+**After the run — recover deferred tasks.** A `deferred` task is not pending. When the user answers
+its `userApprovalNeeded` entry (or fixes the halt cause), route an amendment through its owner agent
+and the consistency check as usual, then invoke **github-agent** `{ action: unpark, task: N }` to
+restore `parkedRef`, set the task back to pending, and reset its `retryCount` to 0 only when the
+user explicitly asks for a fresh retry (record `retryResetBy: "user"`). The Feature Review Gate
+cannot run while any task is `deferred`.
+
+**Overnight summary template.** Write `spec-memory/overnight-summary.md` with exactly these
+sections, in this order, so every morning report reads the same:
+
+```
+# Overnight summary — <feature> (<grantedAt> → <stoppedAt>)
+## Result
+Tasks: <completed before> → <completed now> of <total>. Stopped because: <all tasks complete | no runnable task | user | off>.
+## Feature review
+<not run (tasks remain) | PASS — publishPending, waits for your word | FAIL — findings below>
+## Needs you
+<one line per userApprovalNeeded entry: id, task, the choice made, the options; "none" if empty>
+## Tasks
+| Task | Commit | Validator | Code review | Security | Suite record |
+## Deferred
+<one line per deferred task: task, the entry or halt it waits on, parkedRef>
+## Deferred findings
+<count by severity; pointer to taskStatus[N].deferredFindings — the Feature Review Gate re-checks them>
+## Incidents
+<stalls, respawns, harness blocks, secret requests; "none" if empty>
+```
+
 - Read `tasks.md` and the `taskStatus` map from `.spec-state.json`.
 - Find the next pending task (or the task that needs retry).
 - Report to the user: "Starting task N: <description>"
@@ -236,10 +365,25 @@ produced it.
   - All feature spec files (including `scope.md` if present)
   - (If this is a retry) the validator's failure report from the prior attempt
 
-  **Executor model tiering:** the executor's frontmatter pins `model: sonnet` as the default. On retry, override with `model: opus` for the Agent invocation:
-  - `retryCount == 0` (first attempt): invoke with no model override (uses Sonnet per frontmatter).
-  - `retryCount >= 1` (retry): invoke with `model: "opus"` as an explicit override.
-  This tiered escalation costs Sonnet on the happy path and reserves Opus for cases where validator failure has demonstrated more reasoning is needed.
+  **Executor model:** the executor's frontmatter pins `model: opus`. Invoke it with **no model
+  override** on every attempt, first and retry alike. Never downgrade a retry or route it to a
+  different model by `SendMessage` to an earlier executor — a retry is a **fresh** executor
+  invocation. A mixed-model build is what produced commits whose attribution trailers disagree.
+
+  **Suite record (one full run per tree).** Pass every stage the feature's **suite record** — the
+  last full-suite result as `{ treeHash, result, counts, durationSeconds }`, where `treeHash` is
+  the hash of the working tree computed through a **temporary index**, so the real index is never
+  touched: `d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- ":/" ":(top,exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]`.
+  The tester produces it (Stage 2) after its final change; the executor uses targeted tests while it
+  works. A stage **reuses** the record when its own `treeHash` equals the record's, and runs the full
+  suite itself only when the tree has changed since the record was written. `.specs/` is excluded,
+  so a state-file write never invalidates the record. **An empty hash, or a command that exits
+  non-zero, never matches** — run the full suite. **Limit:** the hash covers tracked and untracked,
+  non-ignored files only. A task that changes a gitignored file the tests read (generated config,
+  `input-data/` fixtures) or the installed environment (`pip install`, a lockfile sync) voids the
+  record — the stage that made the change says so, and the next stage runs the full suite. Use the parallel runner
+  steering declares (e.g. `pytest -n auto`) when `tech.md` names one. The full suite still runs at
+  least once per task — after the last change — and once more at the Feature Review Gate.
 
   **After the executor returns — RT-3 check, then the classification payload.** You now hold the
   executor's changed-files summary — the first stage that does. **If `featureClass` is `"non-code"`
@@ -283,21 +427,32 @@ produced it.
 
   Pass each reviewer:
   - The single task block and requirement references
+  - `modularity: enforced` or `modularity: not-enforced`, read from the state file (the code-reviewer
+    sets the severity of its mechanical module-size check from it), plus `modularity.waivers`
   - The executor's completion summary (files changed) and, if worktree-isolated, the worktree path
   - The tester's and validator's summaries, and the **classification payload**
   - An explicit `mode: task` instruction
 
   **Review model tiering:** both reviewers are pinned to `model: opus` in frontmatter and are NOT
-  downgraded. Unlike the executor (Sonnet on the happy path, Opus on retry — cheap because it is the
-  common, low-stakes path), a reviewer that misses a defect fails silently. Keep them on Opus every time.
+  downgraded — a reviewer that misses a defect fails silently. Keep them on Opus every time.
+
+  **Severity gate — only Critical/High block.** A task's gate is decided by **blocking** findings
+  only: Critical or High from either reviewer, or a validator FAIL. Medium and Low findings **never**
+  open a fix round, never re-run the executor, and never re-run a reviewer. Record them under
+  `taskStatus[N].deferredFindings` (id, severity, `path:line`, one line) and pass the accumulated
+  list to the Feature Review Gate. A reviewer PASS with Mediums is a **PASS** — advance. Fixing
+  Mediums inline doubled the per-task time in past builds and is the over-compliance this rule ends.
 
 - On **pass** — code track: validator PASS *and* **both** reviewers PASS; non-code track: validator
   PASS *and* the security-reviewer PASS (the code-review stage was skipped). Update
   `taskStatus[N].status = "complete"`, record `codeReview` (`"pass"`, or `"skipped"` on the non-code
   track) and `securityReview: "pass"`, update `completed` count, mark the task `[x]` in `tasks.md`.
-  Report to user (surface any non-blocking Medium/Low findings for awareness) and advance.
-  - **GitHub (per-task pass, local-first):** invoke **github-agent** `{ action: commit, message, paths: [<task's changed files>] }` — a **local commit only, no push**. The commit message you author **ends with the fixed trailer line** `SDD-Task: <N>` on its own line, so the commit is machine-attributable to its task. **Record the verdict blocks locally** — write the validator's (and, on the code track, the two reviewers') verbatim, stage-attributed verdicts to the feature's `spec-memory/` as the local audit trail. Nothing is pushed and no PR comment is posted: there is no PR yet. The accumulated verdicts are transcribed to the PR once, at the publish point (Feature Review Gate → PASS).
-- On **fail** (validator FAIL other than `RT-2`, or — code track — either reviewer FAIL, or — non-code track — the security-reviewer FAIL): Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). If retryCount < 2, re-run the executor with the combined report(s) appended so it fixes everything in one retry (per Stage 1 tiering, this retry will use Opus). Also increment `escalations` on the feature state — see State File Management. If retryCount >= 2, halt and present the failures to the user.
+  Report to user (surface any non-blocking Medium/Low findings for awareness, recorded under
+  `deferredFindings` — never fixed in this task) and advance.
+  - **GitHub (per-task pass, local-first):** invoke **github-agent** `{ action: commit, message, paths: [<task's changed files>] }` — a **local commit only, no push**. The commit message you author **ends with the fixed trailer line** `SDD-Task: <N>` on its own line, so the commit is machine-attributable to its task. When the session gives a commit-attribution line (e.g. `Co-Authored-By: <the session's model>`), you write it into the message yourself, after `SDD-Task:`; github-agent never adds or edits a trailer. Confirm the returned `commit:` SHA — a report without one is a failed commit. **Record the verdict blocks locally** — write the validator's (and, on the code track, the two reviewers') verbatim, stage-attributed verdicts to the feature's `spec-memory/` as the local audit trail. Nothing is pushed and no PR comment is posted: there is no PR yet. The accumulated verdicts are transcribed to the PR once, at the publish point (Feature Review Gate → PASS).
+- On **fail** (validator FAIL other than `RT-2`, or — code track — either reviewer FAIL, or — non-code track — the security-reviewer FAIL): Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). Record the attempt's **blocking count** (Critical + High findings, plus 1 for a validator FAIL) under `taskStatus[N].blockingHistory`. If retryCount < 2, re-run the executor with the combined **blocking** report(s) appended so it fixes everything in one retry. Also increment `escalations` on the feature state — see State File Management.
+  - **Retry by convergence (attempt 3).** At retryCount == 2, run **one** more attempt without asking the user **only if** the blocking count is strictly lower than the previous attempt's **and** no finding in this attempt is new. A finding's identity is **`(stage, file path, requirement id or the reviewer's finding title)`**; a validator FAIL's identity is `(validator, requirement id)` for each requirement it cites. A finding is new when no earlier attempt in `blockingHistory` holds the same identity — record identities, not just counts. Record `taskStatus[N].convergenceRetry: true`. In every other case — the count did not fall, or a new blocking finding appeared — halt and present the failures to the user.
+  - **Hard cap.** At retryCount >= 3, always halt and present the failures and `blockingHistory` to the user. There is no fourth automatic attempt.
   - **No remote label.** There is no PR during the build, so a blocking finding sets **no** `blocked:*` label — it **halts locally** and you present it to the user. Record the failing stage under `taskStatus[N].lastFailure`; that local record replaces the remote `blocked:*` signal the old draft-PR flow used.
   - A validator FAIL that is `RT-2` (application-code modification under artifact-conformance mode) is **not** handled here — it is a reclassification (see the Feature Classification Gate → Reclassification).
 
@@ -307,6 +462,9 @@ Once every task is `complete`, do NOT jump straight to `complete`. Run one whole
 first — the only stage that sees how the tasks compose. Set `phase` to `feature-review` and invoke the
 **code-reviewer** and **security-reviewer** subagents in `feature` mode, **concurrently**. Pass each:
 - The feature name and directory
+- `modularity: enforced` or `modularity: not-enforced` (as for the per-task reviews)
+- The accumulated `deferredFindings` from every task — the reviewer re-checks each one against the
+  final tree and raises it to blocking only if it still holds and now meets the Critical/High bar
 - `featureClass` (informational — the reviewers resolve their own scope from their own diff)
 - An explicit `mode: feature` instruction and the base branch (default `main`) so they diff `main...HEAD`
 
@@ -317,6 +475,13 @@ track gets, which is why the per-task code-review stage is safely skipped.
 
 **On PASS (both reviewers PASS):**
 - Record `featureReview.codeReview = "pass"` and `featureReview.securityReview = "pass"`.
+- **Overnight: stop here.** If `overnightAuthorization` is set, do **not** publish — set
+  `publishPending: true`, record `featureReview.reviewedHead`, and end the run (see *The end of the
+  run*). Run the publish sequence below only on the user's explicit word.
+- **Acting on `publishPending` (the next attended session).** If `HEAD` still equals
+  `featureReview.reviewedHead`, ask the user whether to publish; on yes, run the publish sequence
+  below. If `HEAD` moved, the PASS is stale: re-run this gate. Clear `publishPending` after the
+  publish sequence completes.
 - **This is the single publish point (local-first).** Only now does GitHub see the feature. Invoke
   **github-agent** in this order:
   1. `{ action: push, branch: feature/<feature-name> }` — push the branch and set upstream.
@@ -335,7 +500,8 @@ track gets, which is why the per-task code-review stage is safely skipped.
 - Do NOT advance to `complete`, and do **not** publish — the branch stays local, GitHub sees
   nothing. Store the findings under `featureReview`. There is no PR, so no `blocked:*` label; the
   failure halts locally.
-- Present the full findings to the user.
+- Present the full findings to the user. If `overnightAuthorization` is set, do **not** ask: record
+  the findings for the summary and end the run.
 - Ask: "The feature review found blocking issues. How would you like to proceed?
   (a) Fix — re-open the affected task(s) for the executor, or add fix task(s) via the tasks-agent
   (b) Override and publish anyway (not recommended; the finding is recorded)"
@@ -423,7 +589,7 @@ publishes verbatim:
 ```
 {
   action:   create-branch | switch-branch | commit | push | open-pr |
-            update-pr | comment | label | request-review,
+            update-pr | comment | label | request-review | park | unpark,
   feature:  <feature-name>,
   branch:   <branch name, e.g. feature/<feature-name>>,   # deterministic (FR-3.1)
   base:     main,                                          # protected base
@@ -458,6 +624,7 @@ point.
 | **Planning phase confirmed** (requirements / design / tasks) | `commit` the confirmed artifact **locally** | commit message, changed paths |
 | **Per-task pipeline pass** | `commit` the task's changes **locally** (message ends `SDD-Task: <N>`) | commit message, changed paths; verdicts recorded to `spec-memory/` |
 | **Blocking finding** at any stage or in feature-review | *(none — halt locally, no remote label)* | — |
+| **Task parked** (overnight halt or amendment) / **unparked** | `park` / `unpark` (local stash only) | task number; `parkedRef` on unpark |
 | **Whole-feature review PASS** — the publish point | `push` → `open-pr` (ready) → `comment` accumulated verdicts → `label set ready-to-merge` → `request-review` | PR title/body, the verbatim stage-attributed verdict blocks (FR-6, FR-6.1), reviewer handle/team |
 
 **Label vocabulary (D3).** `ready-to-merge` is applied **only** at the publish point, coincident with
@@ -536,6 +703,20 @@ Each `taskStatus[N]` entry gains `codeReview` and `securityReview` (`"pass"` / `
 records the whole-feature gate verdict. Update the state file after every phase transition and every
 task completion/failure.
 
+Keys this playbook adds as they arise: `taskStatus[N].deferredFindings`, `blockingHistory` (per
+attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,
+`deferredBy`, and `retryResetBy` (per task); `suiteRecord`, `preflight`, `overnightAuthorization`,
+`userApprovalNeeded`, `publishPending`, `modularity`, and `invocations` (top level). `taskStatus[N].status` takes exactly one of
+`pending`, `in_progress`, `complete`, or `deferred`. Use these exact names — a key spelled differently in each feature
+breaks resume and status.
+
+**Size limit — the state file is an index, not a log.** Every stage reads `.spec-state.json`, so
+keep it under **64 KB**. Prose belongs in `spec-memory/`: write carry-forward notes, decision logs,
+and per-task narratives to `spec-memory/carry-forward.md` and `spec-memory/decisions.md`, and keep
+only a short pointer (id, one line, the file path) in the state file. A `taskStatus[N]` entry holds
+status, verdict words, counts, and pointers — never a paragraph. When the file passes 64 KB, move
+its prose fields to `spec-memory/` before the next task starts.
+
 ### `featureClass` and `classification`
 
 Once the Feature Classification Gate has run, `.spec-state.json` carries two further top-level keys.
@@ -563,7 +744,10 @@ Once the Feature Classification Gate has run, `.spec-state.json` carries two fur
 - NEVER run `gh` or `git push` yourself — every git/remote mutation (branch/commit/push/PR/comment/label/review) goes through the github-agent subagent, the single audited choke-point. You author or relay all published content; github-agent never merges, and neither do you.
 - NEVER push the branch or open a PR before the whole-feature review PASSes — the build is local-first, and the remote is touched exactly once, at the publish point.
 - NEVER apply the `ready-to-merge` label anywhere but the publish point at the whole-feature review PASS (FR-10.1). During the build a blocking finding halts locally; there is no PR to label.
-- NEVER advance a phase without explicit user confirmation.
+- NEVER advance a phase without explicit user confirmation. Overnight authorization covers implementation only — never self-confirm a planning gate or an amendment on it.
+- NEVER open a fix round for Medium or Low findings — only Critical/High (or a validator FAIL) block a task; record the rest under `deferredFindings` for the Feature Review Gate.
+- NEVER call AskUserQuestion while `overnightAuthorization` is set — choose the fail-closed, reversible option, record it under `userApprovalNeeded`, and continue with the next independent task.
+- NEVER run a fourth automatic attempt on a task — attempt 3 runs only on convergence, and the hard cap halts at retryCount 3.
 - NEVER advance to `implementation` without the Feature Classification Gate locking `featureClass`.
 - NEVER start implementation if any of requirements, design, or tasks are unconfirmed.
 - NEVER mark a task complete unless its gates pass — the code track: validator AND both reviewers; the non-code track: validator AND the security-reviewer (the code-review stage is skipped).

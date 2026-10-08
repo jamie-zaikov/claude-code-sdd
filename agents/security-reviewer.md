@@ -42,6 +42,15 @@ The orchestrator tells you which mode you are in.
    - `feature` mode: `git diff main...HEAD` (or the base branch).
    - Before you conclude the scope is empty, read `## Non-Code and Empty Scope`. An empty or
      non-code diff resolves to the mechanical non-code scan, and it still ends in `PASS` or `FAIL`.
+   - **Prove the input is not empty by accident.** Before any pattern pass, confirm its input:
+     the file count from `git status --porcelain -- <files>` (task mode — it includes new, untracked
+     files, which `git diff` omits) or `git diff --stat <range> | tail -1` (feature mode) matches the
+     expected count, and every file list or
+     variable you feed a scan is non-empty (quote every shell variable — an unquoted variable can
+     expand to nothing). When the orchestrator or the executor's summary names changed files and
+     your input holds none of them, the scan did not run: re-establish the diff, and if you cannot,
+     return `FAIL` with the cause. A PASS over an empty input that should not be empty is a false
+     PASS. Report the scanned file count in your verdict.
 4. Read the surrounding code and config, not just the diff.
 
 ## What to Hunt For
@@ -147,6 +156,48 @@ needed vault fact → `VAULT REQUEST: <need>`. The severity model below is uncha
 ### Recommendations
 <Specific, actionable guidance for the executor's retry>
 ```
+
+## Status File (liveness and result)
+
+Keep **one status file** for this invocation, so the orchestrator reads your state instead of
+guessing it:
+
+    .specs/features/<feature-name>/spec-memory/status/<task>-<agent>-a<attempt>.json
+
+`<task>` and `<attempt>` come from the orchestrator's prompt (a planning agent uses its phase name —
+`requirements`, `design`, `tasks` — as `<task>`). `<agent>` is your agent name. If the prompt gives
+no feature directory, `task`, or `attempt` (for example a manual call from the main session), skip
+the status file. Write the **whole file** each time, at these points only:
+
+| When | `state` | `step` |
+|---|---|---|
+| first action | `started` | `start` |
+| inputs read | `working` | `inputs read` |
+| each sub-task or major step begins | `working` | the sub-task id or step name |
+| you halt on `SECRET REQUEST` / `VAULT REQUEST` / a blocker | `blocked` | the step; `blockedOn` says what you need |
+| last action | `done` (or `failed`) | `end` |
+
+Before the last write, put your full return summary in `summaryPath` — the same path with `.md` in
+place of `.json` — so the result survives an empty or lost return. Exact keys, no others:
+
+```json
+{"agent": "<agent>", "task": "<task>", "attempt": 1, "state": "working", "step": "<step>",
+ "updatedAt": "<UTC, e.g. 2026-10-08T01:14:37Z>", "verdict": null, "summaryPath": null,
+ "blockedOn": null}
+```
+
+`verdict` is your PASS/FAIL word when you return one, else `null`. `updatedAt` is your best UTC
+time; if you have no clock, an approximate value is fine — staleness is judged from the file's real
+modification time, never from this field. With Bash, write it with
+`python3 ~/.claude/tools/sdd-status.py set --feature-dir .specs/features/<feature-name> --agent
+<agent> --task <task> --attempt <n> --state <state> --step "<step>"` (plus `--verdict`,
+`--summary-path`, `--blocked-on` as they apply) — it writes atomically and refuses an invalid record.
+Without Bash, write the same JSON with the Write tool. Never write another agent's status file. The
+status file is for liveness and recovery only; it never replaces your return summary. The status
+file and its summary `.md` are the **only** files this section lets you write, both under
+`spec-memory/status/` — never a code or spec change. An agent without the Write tool writes the
+summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so no `$` or
+backtick in a finding is expanded.
 
 ## Secret Handling
 
