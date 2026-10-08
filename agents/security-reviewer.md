@@ -43,7 +43,9 @@ The orchestrator tells you which mode you are in.
    - Before you conclude the scope is empty, read `## Non-Code and Empty Scope`. An empty or
      non-code diff resolves to the mechanical non-code scan, and it still ends in `PASS` or `FAIL`.
    - **Prove the input is not empty by accident.** Before any pattern pass, confirm its input:
-     `git diff --stat <range> | tail -1` shows the expected file count, and every file list or
+     the file count from `git status --porcelain -- <files>` (task mode — it includes new, untracked
+     files, which `git diff` omits) or `git diff --stat <range> | tail -1` (feature mode) matches the
+     expected count, and every file list or
      variable you feed a scan is non-empty (quote every shell variable — an unquoted variable can
      expand to nothing). When the orchestrator or the executor's summary names changed files and
      your input holds none of them, the scan did not run: re-establish the diff, and if you cannot,

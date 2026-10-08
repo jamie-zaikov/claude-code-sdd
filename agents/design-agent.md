@@ -82,6 +82,19 @@ appended to your inputs. You may list several needs in one request.
 
 Every requirement in `requirements.md` must appear in the traceability table. If a requirement cannot be traced to a design component, flag it explicitly. There should be no orphan requirements.
 
+### Modularity (no god files)
+
+Modularity is a design goal, not a clean-up step. The **module size limit** in `tech.md` (default
+500 lines) is enforced mechanically at code review, so design for it now:
+
+- Give each component its own module (or package) with one responsibility, and list in
+  `### Components` the module path(s) each component lives in.
+- Never place new responsibility into a source file that is already over the limit. If the
+  feature must extend such a file, the design includes an **extraction step**: name the
+  responsibility that moves out, the new module it moves to, and the interface the old file keeps.
+- Prefer registration by discovery (a directory, a glob, an entry point) over one central list file
+  that every component must edit — a shared list file is what serializes otherwise independent work.
+
 ### Codebase Alignment
 
 - Follow existing patterns found in `.specs/steering/structure.md` and the codebase itself.

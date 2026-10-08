@@ -70,6 +70,15 @@ Read the changed code adversarially against each class. Do not stop at the first
 - Needless complexity or an algorithm materially worse than the obvious one (e.g. O(n²) on a hot path).
 - Violations of conventions in `tech.md`.
 
+### Modularity (no god files) — mechanical
+Run `python3 ~/.claude/tools/sdd-module-size.py --base <base>` — `HEAD` in `task` mode (the task's uncommitted
+change), the base branch (default `main`) in `feature` mode. Each line it prints is one finding: a
+source file over the module size limit that grew. Its severity comes from the orchestrator's
+`modularity` payload: **High** (blocking) when `modularity: enforced`, **Medium** otherwise (a
+feature planned before the rule). Never soften or skip it: the script is the definition, so two
+reviews of the same diff reach the same verdict. If `python3` or the script is missing, report that
+as a High finding — the check did not run.
+
 ### Integration (feature mode especially)
 - Contract drift between tasks — one task changed a signature/shape another still assumes.
 - Seams where two tasks' code meets and neither owns the boundary.

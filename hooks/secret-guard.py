@@ -65,19 +65,38 @@ GH_TOKEN_ENV_PRINT = re.compile(
     r"\$\{?(?:GH_TOKEN|GITHUB_TOKEN)\b\}?"
 )
 
-# `gcloud auth [application-default] print-access-token` / `print-identity-token` print a live
-# credential to stdout. Used inline as a command substitution (`-H "Authorization: Bearer
+# `gcloud [flags] auth [application-default] print-access-token` / `print-identity-token` print a
+# live credential to stdout. Used inline as a command substitution (`-H "Authorization: Bearer
 # $(gcloud auth print-access-token)"`) the token flows into the consuming binary and never reaches
 # the transcript — that is the sanctioned USE vector and stays allowed. A bare call — the observed
 # leak was an "auth check" with a misordered `2>&1 >/dev/null` — prints it, so it is blocked.
+# Global flags (`gcloud --quiet auth ...`), release tracks (`gcloud beta auth ...`), and flags
+# between the words (`auth --account=x print-...`) are all the same call.
+_G_ARGS = r"[^()|;&`\n]*?"
 GCLOUD_TOKEN_PRINT = re.compile(
-    r"gcloud\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token\b"
+    rf"\bgcloud\b{_G_ARGS}\bauth\b{_G_ARGS}\bprint-(?:access|identity)-token\b"
 )
-# Inline substitution only: an assignment (`TOKEN=$(...)`, `TOKEN="$(...)"`) parks the token in a
-# shell variable one `echo` away from the transcript, so it is not exempted.
+# The inline use: `$(gcloud ... print-...-token [flags])`; flags may carry one level of parens
+# (`--format='value(x)'`). No pipe, `;`, or `&` inside — `$(... | tee f)` writes the token out.
 GCLOUD_TOKEN_SUBST = re.compile(
-    r"(?<!=)(?<!=\")\$\(\s*gcloud\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token\b[^()]*\)"
+    rf"\$\(\s*gcloud\b{_G_ARGS}\bauth\b{_G_ARGS}\bprint-(?:access|identity)-token\b"
+    r"(?:[^()|;&`\n]|\([^()|;&`\n]*\))*\)"
 )
+# Contexts that defeat the inline exemption, because the token lands somewhere printable: a variable
+# (`T=$(...)`, `T="x$(...)"`, `export T=...`), an array (`a=( $(...) )`), a parameter-expansion
+# default (`${X:-$(...)}`), or a print/dump consumer on the same line (`echo $(...)`).
+GCLOUD_TOKEN_PARKED = re.compile(
+    r"(?:\b[A-Za-z_]\w*=[^\s;&|]*|=\(\s*|\$\{[^}]*)\$\(\s*gcloud\b"
+)
+GCLOUD_TOKEN_CONSUMER = re.compile(r"(?:^|[\s;&|(`])(?:echo|printf|print|cat|tee|xargs)(?![\w-])")
+
+
+def _gcloud_token_leak(command: str) -> bool:
+    if not GCLOUD_TOKEN_PRINT.search(command):
+        return False
+    if GCLOUD_TOKEN_PARKED.search(command) or GCLOUD_TOKEN_CONSUMER.search(command):
+        return True
+    return bool(GCLOUD_TOKEN_PRINT.search(GCLOUD_TOKEN_SUBST.sub("", command)))
 
 DENY_REASON = (
     "Blocked: this command would print a secret into the transcript. "
@@ -95,8 +114,8 @@ def is_blocked(command: str) -> bool:
     # GitHub-token dump vectors (`gh auth token`, echo/printf of GH_TOKEN/GITHUB_TOKEN).
     if GH_TOKEN_DUMP.search(command) or GH_TOKEN_ENV_PRINT.search(command):
         return True
-    # A bare gcloud token print (outside an inline `$(...)` use) prints a live credential.
-    if GCLOUD_TOKEN_PRINT.search(GCLOUD_TOKEN_SUBST.sub("", command)):
+    # A gcloud token print outside a sanctioned inline `$(...)` use prints a live credential.
+    if _gcloud_token_leak(command):
         return True
     # A dump tool whose argument list references a secret store.
     for m in DUMP_OF_SECRET.finditer(command):

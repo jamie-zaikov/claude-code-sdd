@@ -64,6 +64,10 @@ work, not to the gates themselves. The orchestrator playbook therefore enforces:
   strictly shrink and none is new; retryCount 3 always halts.
 - **Preflight before an unattended run.** Read-only probes of tools, credentials (by name), inputs,
   and permissions run on entry to implementation, so gaps are fixed while the user is present.
+- **No god files.** `tech.md` sets a module size limit (default 500 lines). A source file may not end
+  over it and grow — existing god files may only hold or shrink. `~/.claude/tools/sdd-module-size.py`
+  is the one definition; the code-reviewer runs it, and on a feature planned under the rule every
+  violation is High.
 - **Overnight mode covers implementation only.** `/sdd-overnight <feature>` is its one switch. It
   runs the phase check and the preflight first, and it ends with one fixed summary template. It never asks and waits — it picks the fail-closed,
   reversible option, records it under `userApprovalNeeded`, and moves to the next independent task.

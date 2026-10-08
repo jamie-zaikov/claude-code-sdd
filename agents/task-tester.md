@@ -61,8 +61,9 @@ You write tests for exactly one task. You do not modify implementation code.
 - Run the tests you wrote to verify they pass. Iterate with targeted runs (by path or `-k`).
 - After your **final** change, run the **full suite once** — with the parallel runner `tech.md`
   names (e.g. `pytest -n auto`) when it names one — and write the **suite record**: the tree hash
-  from `t=$(mktemp) && cp "$(git rev-parse --git-path index)" "$t" && GIT_INDEX_FILE="$t" git add -A && GIT_INDEX_FILE="$t" git write-tree; rm -f "$t"`
-  (a temporary index, so the real index is never touched), the result, the counts, and the duration. Later stages reuse
+  from `d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- . ":(exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]`
+  (a temporary index, so the real index is never touched), the result, the counts, and the duration. If the task changed a gitignored file the tests read or
+  the installed environment, say so in the record — the hash cannot see it. Later stages reuse
   this record while the tree is unchanged. A full-suite run before your final change is wasted.
 - If existing tests fail due to the new implementation, report which tests and why — do not fix them unless they are testing the same requirements this task covers.
 

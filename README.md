@@ -27,6 +27,9 @@ commands/
   sdd-resume.md           # /sdd-resume <name> — resume work on a feature
   sdd-overnight.md        # /sdd-overnight <name> [on|off|status] — unattended implementation run
 
+tools/                    # Mechanical checks the agents run (installed to ~/.claude/tools/)
+  sdd-module-size.py      # "No god files" ratchet: a file over the limit may not grow
+
 hooks/                    # Secret-handling safeguards (installed manually — see hooks/README.md)
   secret-guard.py         # PreToolUse: blocks secret dumps, allows sanctioned use
   secret-redact.py        # PostToolUse: scrubs secret-shaped strings from Bash output
@@ -54,9 +57,9 @@ steering-templates/       # Reference copies of default steering files
 - Claude Code v2.1.32 or later (`claude --version`)
 - VS Code with the Claude Code extension (by Anthropic)
 - Opus 4.6 or later (for agent team orchestration). Agents are model-tiered via `model:` frontmatter:
-  Opus for planning (requirements, design) and for review (code-reviewer, security-reviewer — never
-  downgraded, since a missed defect is a silent failure), Sonnet for the rest. The task-executor
-  escalates to Opus automatically on a retry after a validator failure.
+  Opus for every planning, implementation, and review agent (the executor runs Opus on every
+  attempt, first and retry alike), Sonnet only for the scribes (github-agent, vault-reader,
+  vault-writer), which never author content.
 - Python 3 on `PATH` — only if you enable the secret-handling hooks (see below).
 
 ## Install
@@ -363,7 +366,7 @@ Removes agents and commands. Leaves `~/.claude/CLAUDE.md` intact (remove SDD sec
 
 - **Start fresh sessions between phases.** The `.spec-state.json` carries progress. Don't run the whole lifecycle in one conversation — that's how you get context rot.
 - **Use `/compact` aggressively.** When context fills past 50%, compress.
-- **Opus for planning, Sonnet for execution.** Model tiering ships in each agent's `model:` frontmatter: Opus for requirements/design, Sonnet for tasks/execution/validation. The task-executor auto-escalates to Opus on a retry after a validator failure. Override per agent by editing its frontmatter.
+- **Opus for authors and judges, Sonnet for scribes.** Model tiering ships in each agent's `model:` frontmatter: Opus for requirements, design, tasks, execution, testing, validation, and review; Sonnet for github-agent, vault-reader, and vault-writer. The executor is never downgraded, so every commit in a build carries the same attribution. Override per agent by editing its frontmatter.
 - **Sequential accumulation, shared checkout.** SDD tasks run strictly one executor at a time and are mutually dependent, so the task-executor runs in the shared feature-branch checkout (no `isolation: worktree`) and each task builds on the prior task's committed output. Worktree isolation only helps *parallel* agents, which this pipeline never runs — if you ever add parallel task execution, re-introduce isolation for those tasks only (and fork the worktree from the feature branch, not `main`). For manual parallel work outside the pipeline: `claude --worktree task-3-api`.
 - **Never paste secrets into the chat.** Provision them via a shell `export` or a gitignored `.env`; agents reference them by env-var name and escalate with `SECRET REQUEST` when one is missing. See [Security & secret handling](#security--secret-handling).
 - **Keep the knowledge vault out of the main session.** If your project has a large curated Obsidian/markdown vault, never read it into the orchestrator. Set its root under "Knowledge Vault" in `.specs/steering/tech.md`; the orchestrator brokers all access through `vault-reader` (reads → distilled report on disk) and `vault-writer` (the only writer). The bulk content lives and dies in the subagent's context, so the main session never bloats.

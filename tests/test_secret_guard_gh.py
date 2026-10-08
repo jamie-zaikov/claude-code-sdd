@@ -214,6 +214,33 @@ class GcloudTokenPrintTest(unittest.TestCase):
         self.assertFalse(guard.is_blocked(
             'curl -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" u'))
 
+    # --- review round: bypass forms that must be blocked ---
+    def test_global_flag_before_auth_blocked(self):
+        self.assertTrue(guard.is_blocked("gcloud --quiet auth print-access-token"))
+        self.assertTrue(guard.is_blocked("gcloud --project p auth print-access-token"))
+
+    def test_release_track_and_inner_flag_blocked(self):
+        self.assertTrue(guard.is_blocked("gcloud beta auth print-access-token"))
+        self.assertTrue(guard.is_blocked("gcloud auth --account=x print-access-token"))
+
+    def test_print_consumer_of_inline_use_blocked(self):
+        self.assertTrue(guard.is_blocked("echo $(gcloud auth print-access-token)"))
+        self.assertTrue(guard.is_blocked('printf "%s" "$(gcloud auth print-access-token)"'))
+
+    def test_parked_contexts_blocked(self):
+        self.assertTrue(guard.is_blocked("T=${X:-$(gcloud auth print-access-token)}"))
+        self.assertTrue(guard.is_blocked("arr=( $(gcloud auth print-access-token) )"))
+        self.assertTrue(guard.is_blocked('T="x$(gcloud auth print-access-token)"'))
+        self.assertTrue(guard.is_blocked("export T=$(gcloud auth print-access-token)"))
+
+    def test_pipe_inside_substitution_blocked(self):
+        self.assertTrue(guard.is_blocked(
+            'curl -H "Authorization: Bearer $(gcloud auth print-access-token | tee /tmp/t)" u'))
+
+    def test_inline_use_with_parenthesised_flag_allowed(self):
+        self.assertFalse(guard.is_blocked(
+            "curl -H \"Authorization: Bearer $(gcloud auth print-access-token --format='value(x)')\" u"))
+
     def test_read_only_auth_check_allowed(self):
         self.assertFalse(guard.is_blocked("gcloud projects describe p --format='value(projectId)'"))
 

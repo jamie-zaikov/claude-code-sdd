@@ -95,7 +95,7 @@ class ConvergenceRetryTest(Base):
 
 
 class SuiteRecordTest(Base):
-    TREE = r"GIT_INDEX_FILE=\"\$t\" git write-tree"
+    TREE = r"GIT_INDEX_FILE=\"\$d/index\" git write-tree"
 
     def test_orchestrator_defines_suite_record_with_temp_index(self):
         self.has(self.impl, r"Suite record \(one full run per tree\)", "suite record")
@@ -115,8 +115,19 @@ class SuiteRecordTest(Base):
         self.has(validator, r"never stage into the real index", "validator read-only")
 
     def test_no_agent_stages_into_the_real_index(self):
-        for path in sorted(AGENTS.glob("*.md")):
-            self.lacks(path.read_text(encoding="utf-8"), r"`git add -A && git write-tree`", path.name)
+        """Every `git add` in an agent or command file runs against a temporary index."""
+        files = sorted(AGENTS.glob("*.md")) + sorted((ROOT / "commands").glob("*.md"))
+        for path in files:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                for m in re.finditer(r"git add\b", line):
+                    if not re.search(r'GIT_INDEX_FILE="\$d/index" $', line[:m.start()]):
+                        self.fail(f"{path.name}: `git add` outside a temporary index: {line.strip()[:90]}")
+
+    def test_tree_hash_excludes_specs_and_never_matches_empty(self):
+        self.has(self.impl, r'":\(exclude\)\.specs"', "tree hash excludes .specs")
+        self.has(self.impl, r"An empty hash, or a command that exits\s+non-zero, never matches", "empty hash")
+        self.has(self.impl, r"rc=\$\?; rm -rf \"\$d\"; \[ \"\$rc\" -eq 0 \]", "exit status kept")
+        self.has(self.impl, r"\*\*Limit:\*\* the hash covers tracked and untracked,\s+non-ignored files only", "limit stated")
 
     def test_executor_uses_targeted_tests(self):
         executor = read("agents/task-executor.md")
@@ -215,11 +226,108 @@ class OvernightCommandTest(Base):
         tpl = re.search(r"\*\*Overnight summary template\.\*\*.*?```\n(.*?)```", self.impl, re.DOTALL)
         self.assertIsNotNone(tpl, "playbook lost the overnight summary template")
         heads = re.findall(r"^## (.+)$", tpl.group(1), re.MULTILINE)
-        self.assertEqual(heads, ["Result", "Needs you", "Tasks", "Deferred", "Deferred findings", "Incidents"])
+        self.assertEqual(heads, ["Result", "Feature review", "Needs you", "Tasks", "Deferred",
+                                "Deferred findings", "Incidents"])
 
     def test_claude_md_and_readme_list_the_command(self):
         self.has(read("CLAUDE.md"), r"`/sdd-overnight <feature-name>`", "CLAUDE.md key commands")
         self.has(read("README.md"), r"sdd-overnight\.md", "README")
+
+
+class OvernightReviewFixesTest(Base):
+    """Review round 1 (FAIL, 2 High): a halted task left its code for the next task, and the run had
+    two possible endings. These pin the single, mechanical rules that replaced them."""
+
+    def test_halted_task_is_parked_and_tree_left_clean(self):
+        self.has(self.impl, r"Park, never leave changes behind", "park rule")
+        self.has(self.impl, r"\{ action: park, task: N \}", "park action")
+        self.has(self.impl, r"Confirm the working\s+tree is clean", "clean tree")
+        self.has(self.impl, r"never inherits a parked task's code", "no inheritance")
+        gh = read("agents/github-agent.md")
+        self.has(gh, r"git stash push --include-untracked -m \"sdd-task-<N>-parked\"", "github-agent park")
+        self.has(gh, r"git stash apply <parkedRef>` \(apply, never pop", "github-agent unpark")
+        self.has(gh, r"Never drop or clear a stash", "stash kept")
+
+    def test_next_task_is_chosen_by_depends_line(self):
+        self.has(self.impl, r"Which task runs next — mechanical, never guessed", "next task")
+        self.has(self.impl, r"A task without a `Depends:` line depends on every earlier\s+task", "default dependency")
+        tasks = read("agents/tasks-agent.md")
+        self.has(tasks, r"^\*\*Depends:\*\* <Task numbers", "tasks template")
+        self.has(tasks, r"lists \*\*every\*\* earlier task whose output it needs", "complete deps")
+
+    def test_one_end_of_run_rule_never_publishes(self):
+        self.has(self.impl, r"The end of the run — one rule", "end rule")
+        self.has(self.impl, r"\*\*never publish\*\* overnight", "no publish")
+        gate = section(self.orch, "Feature Review Gate (runs automatically after the last task completes, before `complete`)")
+        self.has(gate, r"Overnight: stop here\.\*\* If `overnightAuthorization` is set, do \*\*not\*\* publish", "gate PASS")
+        self.has(gate, r"If `overnightAuthorization` is set, do \*\*not\*\* ask", "gate FAIL")
+        self.has(self.impl, r"Stopped because: <all tasks complete \| no runnable task \| user \| off>", "template")
+        self.has(self.impl, r"^## Feature review$", "template section")
+
+    def test_amendment_is_mechanical_and_always_parks(self):
+        self.has(self.impl, r"would change the text of\s+`requirements\.md`, `design\.md`, or `tasks\.md`", "amendment test")
+        self.has(self.impl, r"it is never implemented overnight", "amendment parks")
+
+    def test_stale_authorization_is_void(self):
+        self.has(self.impl, r"A stale authorization is void", "playbook")
+        self.has(read("commands/sdd-resume.md"), r"it is void — only `/sdd-overnight <feature> on` grants one", "resume")
+
+    def test_deferred_tasks_have_a_way_back(self):
+        self.has(self.impl, r"After the run — recover deferred tasks", "recovery")
+        self.has(self.impl, r"reset its `retryCount` to 0 only when the\s+user explicitly asks", "retry reset")
+        self.has(self.impl, r"cannot run while any task is `deferred`", "feature review waits")
+        state = section(self.orch, "State File Management")
+        self.has(state, r"`pending`, `in_progress`, `complete`, or `deferred`", "status vocabulary")
+
+    def test_convergence_identity_is_defined(self):
+        self.has(self.impl, r"A finding's identity is \*\*`\(stage, file path, requirement id or the reviewer's finding title\)`\*\*", "identity")
+
+    def test_security_count_includes_untracked_files(self):
+        self.has(read("agents/security-reviewer.md"), r"git status --porcelain -- <files>", "porcelain count")
+
+    def test_readme_has_no_stale_executor_model_text(self):
+        readme = read("README.md")
+        self.lacks(readme, r"Sonnet for tasks/execution/validation", "README")
+        self.lacks(readme, r"escalates to Opus", "README")
+
+
+class NoGodFilesTest(Base):
+    """Modularity is enforced by one script, so every review of the same diff reaches one verdict."""
+    TOOL = r"python3 ~/\.claude/tools/sdd-module-size\.py"
+
+    def test_steering_template_declares_the_limit(self):
+        self.has(read("steering-templates/tech.md"), r"^- Module size limit: 500 lines$", "tech.md template")
+
+    def test_tool_limit_line_matches_the_template(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("sms", ROOT / "tools" / "sdd-module-size.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        m = mod.LIMIT_LINE.search(read("steering-templates/tech.md"))
+        self.assertIsNotNone(m, "the tool cannot parse the template's limit line")
+        self.assertEqual(int(m.group(1)), mod.DEFAULT_LIMIT)
+
+    def test_code_reviewer_runs_the_tool_and_maps_severity(self):
+        cr = read("agents/code-reviewer.md")
+        self.has(cr, self.TOOL + r" --base <base>", "reviewer runs the tool")
+        self.has(cr, r"\*\*High\*\* \(blocking\) when `modularity: enforced`", "severity")
+        self.has(cr, r"If `python3` or the script is missing, report that\s+as a High finding", "missing tool")
+
+    def test_executor_design_and_tasks_agents_carry_the_rule(self):
+        self.has(read("agents/task-executor.md"), self.TOOL, "executor self-check")
+        self.has(read("agents/design-agent.md"), r"\*\*extraction step\*\*", "design extraction")
+        self.has(read("agents/tasks-agent.md"), r"insert a \*\*split task first\*\*", "split task")
+
+    def test_orchestrator_locks_enforcement_and_passes_it(self):
+        self.has(self.orch, r"Modularity at the same gate", "gate")
+        self.has(self.orch, r"no `modularity` key was planned before the rule: it is \*\*not\*\* enforced", "legacy")
+        self.has(self.orch, r"never remove the key once written", "monotonic")
+        self.has(self.impl, r"`modularity: enforced` or `modularity: not-enforced`", "payload")
+
+    def test_install_ships_the_tool(self):
+        inst = read("install.sh")
+        self.has(inst, r'for tool_file in "\$\{SCRIPT_DIR\}/tools/"\*\.py; do', "install loop")
+        self.has(inst, r'"\$\{CLAUDE_HOME\}/tools/\$\{name\}"', "install target")
 
 
 class ClaudeMdSummaryTest(unittest.TestCase):

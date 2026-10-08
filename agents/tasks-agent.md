@@ -64,6 +64,7 @@ appended to your inputs. You may list several needs in one request.
 **Requirements:** FR-1, FR-1.1
 **Design Reference:** <Which design component(s) this implements>
 **Files:** <Expected files to create or modify>
+**Depends:** <Task numbers this task needs, e.g. `1, 3` — or `none`>
 
 ---
 
@@ -75,9 +76,11 @@ appended to your inputs. You may list several needs in one request.
 
 1. **Atomic tasks:** Each task should be completable in one focused agent session. If a task requires touching more than 5-6 files, split it.
 
-2. **Dependency order:** Tasks are ordered so that each task can be implemented without depending on incomplete future tasks. If Task 3 depends on Task 1's output, Task 1 comes first.
+2. **Dependency order:** Tasks are ordered so that each task can be implemented without depending on incomplete future tasks. If Task 3 depends on Task 1's output, Task 1 comes first. Every task carries a **`Depends:`** line that lists **every** earlier task whose output it needs — code it imports or calls, files it edits after them, fixtures or tests it extends — or `none`. Be complete, not minimal: the orchestrator lets a later task run past a halted one only when `Depends:` says it may, so a missing entry lets a task build on code that is not there. A task with no `Depends:` line is treated as depending on every earlier task.
 
-3. **Requirement coverage:** Every requirement must be addressed by at least one task. Every task must reference at least one requirement. No orphan tasks, no orphan requirements.
+3. **No god files:** No task may grow a source file past the module size limit in `tech.md` (default 500 lines), or grow a file that is already over it. When the design's extraction step applies, or a task's `Files:` names an over-limit file it must extend, insert a **split task first**: it moves the named responsibility into a new module with no behaviour change (tests stay green), and the later tasks put their new code in the new module. The code-reviewer checks this mechanically.
+
+3a. **Requirement coverage:** Every requirement must be addressed by at least one task. Every task must reference at least one requirement. No orphan tasks, no orphan requirements.
 
 4. **Testing sub-task:** Every task must include a testing sub-task as its last sub-item. This is what the Task Tester agent will execute. *(Non-code feature: replace this with an `Acceptance:` block — see `## Non-Code Features`. A non-code task has no testing sub-task.)*
 

@@ -51,6 +51,11 @@ import from it, and expect the integrating tasks to see the modules earlier task
 - Follow existing patterns in the codebase.
 - Write clear, readable code. Add inline comments only where the intent is non-obvious.
 - Do not leave TODO comments — either implement it or flag it in your summary.
+- **No god files.** Put new code in a module that stays within the module size limit in `tech.md`
+  (default 500 lines); never grow a file that is already over it — add a new module and call it.
+  Before your summary, run `python3 ~/.claude/tools/sdd-module-size.py` (base `HEAD`); fix every line it prints. If
+  the task text forces growth of an over-limit file, stop and say so under `Notes` — that is a
+  missing split task, not yours to improvise.
 
 ### Test Runs
 

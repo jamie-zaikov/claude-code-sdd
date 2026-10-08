@@ -51,7 +51,7 @@ remaining fields are the content **authored upstream** that you publish verbatim
 ```
 {
   action:   create-branch | switch-branch | commit | push | open-pr |
-            update-pr | comment | label | request-review,
+            update-pr | comment | label | request-review | park | unpark,
   feature:  <feature-name>,
   branch:   <branch name, e.g. feature/<feature-name>>,   # deterministic (see below)
   base:     main,                                          # protected base
@@ -84,6 +84,12 @@ When instructed by the orchestrator, perform only these operations:
   a trailer line (`Co-Authored-By:`, `SDD-Task:`, or any other). The orchestrator authors the
   attribution trailer; your own model name never goes into a commit. Pass the message with
   `git commit -F -` (stdin) so the shell never re-quotes it.
+- **park** — save a halted task's uncommitted changes off the working tree, **locally**:
+  `git stash push --include-untracked -m "sdd-task-<N>-parked" -- . ':(exclude).specs'`, then return
+  the stash commit SHA (`git rev-parse 'stash@{0}'`) as `commit:`. When nothing is uncommitted,
+  return `commit: none`. Never drop or clear a stash.
+- **unpark** — restore a parked task: `git stash apply <parkedRef>` (apply, never pop, so the record
+  survives). On a conflict, stop and return `GITHUB BLOCKED` with the conflicting paths.
 - **push** — push the local feature branch to the remote and set upstream. This runs **once**, at
   the publish point (whole-feature-review PASS), never at scaffold and never per task.
 - **open-pr** — open a pull request from the feature branch into `base`, as **ready**
