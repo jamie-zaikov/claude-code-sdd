@@ -62,6 +62,13 @@ class ToolTest(unittest.TestCase):
                              "--task", task, "--attempt", attempt, "--state", state,
                              "--step", "7.2", *extra)
 
+    @staticmethod
+    def age(path, seconds):
+        import os
+        import time
+        t = time.time() - seconds
+        os.utime(path, (t, t))
+
     def path(self, task="7", attempt=1):
         return self.feature / "spec-memory" / "status" / f"{task}-task-executor-a{attempt}.json"
 
@@ -87,18 +94,14 @@ class ToolTest(unittest.TestCase):
         self.set()
         self.assertEqual(self.run_tool("check", "--feature-dir", str(self.feature),
                                        "--stale-seconds", "600")[0], 0)
-        record = json.loads(self.path().read_text())
-        record["updatedAt"] = "2020-01-01T00:00:00Z"
-        self.path().write_text(json.dumps(record))
+        self.age(self.path(), 3600)
         code, out = self.run_tool("check", "--feature-dir", str(self.feature), "--stale-seconds", "600")
         self.assertEqual(code, 1)
         self.assertIn("STALE", out)
 
     def test_old_done_file_is_never_stale(self):
         self.set("--summary-path", "s.md", state="done")
-        record = json.loads(self.path().read_text())
-        record["updatedAt"] = "2020-01-01T00:00:00Z"
-        self.path().write_text(json.dumps(record))
+        self.age(self.path(), 3600)
         self.assertEqual(self.run_tool("check", "--feature-dir", str(self.feature),
                                        "--stale-seconds", "600")[0], 0)
 
@@ -132,6 +135,39 @@ class ToolTest(unittest.TestCase):
         self.assertIn("8-task-executor-a1.json", out)
         self.assertNotIn("7-task-executor-a1.json", out)
 
+    # --- review round 3 ---
+    def test_dead_older_attempt_never_makes_a_fresh_respawn_stale(self):
+        self.set(attempt="1")
+        self.age(self.path(attempt=1), 3600)  # a1 died mid-step
+        self.set(attempt="2")
+        code, out = self.run_tool("check", "--feature-dir", str(self.feature), "--task", "7",
+                                  "--stale-seconds", "600")
+        self.assertEqual(code, 0, out)
+        self.assertIn("a2.json", out)
+        self.assertNotIn("a1.json", out)
+        _, history = self.run_tool("check", "--feature-dir", str(self.feature), "--all")
+        self.assertIn("a1.json", history)
+
+    def test_exact_check_reports_missing_before_the_first_write(self):
+        self.set("--summary-path", "s.md", state="done", attempt="1")  # an OLD done result
+        code, out = self.run_tool("check", "--feature-dir", str(self.feature), "--task", "7",
+                                  "--agent", "task-executor", "--attempt", "2")
+        self.assertEqual(code, 3)
+        self.assertIn("a2.json MISSING", out)
+
+    def test_staleness_uses_mtime_not_the_self_reported_clock(self):
+        self.set()
+        record = json.loads(self.path().read_text())
+        record["updatedAt"] = "2030-01-01T00:00:00Z"  # an agent without a clock guessed the future
+        self.path().write_text(json.dumps(record))
+        self.age(self.path(), 3600)
+        self.assertEqual(self.run_tool("check", "--feature-dir", str(self.feature),
+                                       "--stale-seconds", "600")[0], 1)
+        record["updatedAt"] = "2000-01-01T00:00:00Z"  # ...or the distant past
+        self.path().write_text(json.dumps(record))  # fresh mtime
+        self.assertEqual(self.run_tool("check", "--feature-dir", str(self.feature),
+                                       "--stale-seconds", "600")[0], 0)
+
     def test_check_without_status_dir_is_clean(self):
         self.assertEqual(self.run_tool("check", "--feature-dir", str(self.feature))[0], 0)
 
@@ -145,6 +181,20 @@ class AgentSectionTest(unittest.TestCase):
             self.assertIn("python3 ~/.claude/tools/sdd-status.py set", text, name)
             self.assertRegex(text, r"Before the last write, put your full return summary in `summaryPath`", name)
             self.assertIn("Never write another agent's status file", text, name)
+
+    def test_section_round_three_rules(self):
+        for name in WRITERS:
+            text = read(f"agents/{name}.md")
+            self.assertIn("skip\nthe status file", text, name)
+            self.assertIn("staleness is judged from the file's real\nmodification time", text, name)
+            self.assertIn("(`cat > <summaryPath> <<'EOF'`)", text, name)
+            self.assertNotIn("it is the one file you write", text, name)
+
+    def test_vault_agents_allow_their_status_file(self):
+        self.assertRegex(read("agents/vault-reader.md"),
+                         r"NEVER write anywhere except the single `output_path` — and your status\s+file")
+        self.assertRegex(read("agents/vault-writer.md"),
+                         r"NEVER write outside `vault_path` \(except the changelog under the feature directory, and your status")
 
     def test_section_lists_the_tools_schema_keys(self):
         text = read("agents/task-executor.md")
@@ -162,7 +212,7 @@ class AgentSectionTest(unittest.TestCase):
     def test_checker_is_the_named_exception(self):
         self.assertNotIn("## Status File", read("agents/spec-consistency-checker.md"))
         self.assertRegex(read("agents/orchestrator.md"),
-                         r"the spec-consistency-checker \(it has no Write tool")
+                         r"The spec-consistency-checker has no Write tool and keeps no status file")
 
 
 class OrchestratorContractTest(unittest.TestCase):
@@ -176,21 +226,39 @@ class OrchestratorContractTest(unittest.TestCase):
         self.assertRegex(self.contract, r"that notice is the \*\*primary signal\*\* — never poll")
 
     def test_heartbeat_runs_one_status_check_and_acts_on_state(self):
-        self.assertIn("python3 ~/.claude/tools/sdd-status.py check --feature-dir", self.contract)
+        self.assertRegex(self.contract, r"python3\s+~/\.claude/tools/sdd-status\.py check --feature-dir")
         for state in ("`blocked` — act now on `blockedOn`", "`done` / `failed` with no completion notice",
-                      "`STALE` (a live state older than the grace window), or `INVALID`"):
+                      "`STALE` (a live state with no file write for the grace window), or `INVALID`"):
             self.assertIn(state, self.contract)
 
     def test_empty_return_uses_summary_path(self):
         self.assertRegex(self.contract, r"If the return is empty or cut off, read\s+the status file")
 
     def test_respawn_gets_a_new_attempt(self):
-        self.assertIn("The respawn uses `attempt` + 1 for its status file", self.contract)
+        self.assertRegex(self.contract, r"The respawn uses `attempt` \+ 1 \(recorded in\s+`invocations` before launch\)")
 
     def test_resume_and_status_read_status_files(self):
         self.assertIn("sdd-status.py check", read("commands/sdd-resume.md"))
         self.assertRegex(read("commands/sdd-resume.md"), r"take its result from `summaryPath`, never re-run it")
         self.assertIn("sdd-status.py check", read("commands/sdd-status.md"))
+
+    # --- review round 3 ---
+    def test_heartbeat_checks_the_exact_invocation(self):
+        self.assertRegex(self.contract, r"--task <task>\s+--agent <agent> --attempt <n> --stale-seconds <grace>")
+        self.assertIn("can never be read as this one", self.contract)
+
+    def test_grace_window_is_numeric(self):
+        self.assertIn("**1200 s** by default, **2400 s** for a vault-reader", self.contract)
+
+    def test_missing_first_write_is_handled(self):
+        self.assertIn("`MISSING` (exit 3)", self.contract)
+
+    def test_attempt_counter_is_persisted_before_launch(self):
+        self.assertRegex(self.contract, r"\*\*Before\*\* each launch, record it\s+in `\.spec-state\.json` under `invocations")
+        self.assertIn("Continue numbering from `invocations`", read("commands/sdd-resume.md"))
+
+    def test_checker_liveness_uses_the_harness_not_the_os_process_list(self):
+        self.assertIn("the harness's task list (`TaskOutput`)", self.contract)
 
     def test_install_and_uninstall_cover_the_tool(self):
         self.assertIn('for tool_file in "${SCRIPT_DIR}/tools/"*.py; do', read("install.sh"))

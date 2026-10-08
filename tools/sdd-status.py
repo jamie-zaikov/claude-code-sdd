@@ -18,17 +18,25 @@ Subcommands:
          the same JSON with their Write tool.
   check  validate every status file of a feature and print one line each:
              <file> <state> <step> age=<seconds>s [STALE] [INVALID: reason]
-         With --stale-seconds N, a `started`/`working` file older than N seconds is STALE.
+         With --stale-seconds N, a `started`/`working` file not modified for N seconds is STALE.
 
-Exit codes (check): 0 all valid and none stale, 1 an invalid or stale file, 2 usage error.
+By default `check` shows only the newest attempt per (task, agent); `--all` shows history. With
+--task, --agent and --attempt together it checks exactly one file and prints MISSING (exit 3) when
+that invocation has not written yet. Age is the file's mtime, never the self-reported `updatedAt`
+(agents without Bash cannot read a clock, so their `updatedAt` is approximate).
+
+Exit codes (check): 0 all valid and none stale, 1 an invalid or stale file, 2 usage error,
+3 the exact file asked for does not exist yet.
 Stdlib only.
 """
 
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -102,18 +110,45 @@ def cmd_set(args) -> int:
     return 0
 
 
+def _latest_only(paths: List[Path]) -> List[Path]:
+    """Keep the highest attempt per (task, agent): a superseded attempt is history, not state."""
+    best = {}
+    for path in paths:
+        m = re.fullmatch(r"(.+)-a(\d+)\.json", path.name)
+        if not m:
+            best[(path.name, None)] = (0, path)
+            continue
+        key, attempt = m.group(1), int(m.group(2))
+        if key not in best or attempt > best[key][0]:
+            best[key] = (attempt, path)
+    return sorted(p for _, p in best.values())
+
+
 def cmd_check(args) -> int:
     root = status_dir(Path(args.feature_dir))
-    if not root.is_dir():
+    if args.agent and args.attempt is not None and args.task is not None:
+        exact = root / file_name(str(args.task), args.agent, args.attempt)
+        if not exact.exists():
+            print(f"{exact.name} MISSING")
+            return 3
+        paths = [exact]
+    elif not root.is_dir():
         print(f"sdd-status: no status directory at {root}")
         return 0
+    else:
+        paths = sorted(root.glob("*.json"))
+        if args.task is not None:
+            paths = [p for p in paths if p.name.startswith(f"{args.task}-")]
+        if args.agent:
+            paths = [p for p in paths if re.fullmatch(rf".+-{re.escape(args.agent)}-a\d+\.json", p.name)]
+        if not args.all:
+            paths = _latest_only(paths)
     bad = False
-    current = now_utc()
-    for path in sorted(root.glob("*.json")):
-        if args.task is not None and not path.name.startswith(f"{args.task}-"):
-            continue
+    current = time.time()
+    for path in paths:
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
+            mtime = path.stat().st_mtime
         except (OSError, ValueError) as exc:
             print(f"{path.name} ? ? age=?s INVALID: unreadable ({exc.__class__.__name__})")
             bad = True
@@ -123,8 +158,9 @@ def cmd_check(args) -> int:
             print(f"{path.name} ? ? age=?s INVALID: {reason}")
             bad = True
             continue
-        updated = datetime.strptime(record["updatedAt"], STAMP).replace(tzinfo=timezone.utc)
-        age = int((current - updated).total_seconds())
+        # Age is the file's real mtime: an agent without a clock (no Bash) can only guess
+        # `updatedAt`, so that field is informational and never decides staleness.
+        age = max(0, int(current - mtime))
         stale = (args.stale_seconds is not None and record["state"] in LIVE_STATES
                  and age > args.stale_seconds)
         bad = bad or stale
@@ -149,6 +185,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     c = sub.add_parser("check", help="validate and list a feature's status files")
     c.add_argument("--feature-dir", required=True)
     c.add_argument("--task")
+    c.add_argument("--agent")
+    c.add_argument("--attempt", type=int)
+    c.add_argument("--all", action="store_true", help="include superseded attempts")
     c.add_argument("--stale-seconds", type=int)
     args = parser.parse_args(argv)
     return cmd_set(args) if args.cmd == "set" else cmd_check(args)

@@ -146,6 +146,57 @@ class ParkTest(unittest.TestCase):
         with self.assertRaisesRegex(park.Refused, "still dirty"):
             park.park(self.repo, "12")
 
+    # --- review round 3 ---
+    def test_unpark_refuses_when_a_later_task_committed_the_same_path(self):
+        self.write("src/new.py", "parked = 1\n")
+        ref = park.park(self.repo, "13")
+        self.write("src/new.py", "later = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "later task created src/new.py")
+        with self.assertRaisesRegex(park.Refused, "already exist: src/new.py"):
+            park.unpark(self.repo, "13", ref)
+        self.assertEqual((self.repo / "src/new.py").read_text(), "later = 1\n")
+        self.assertEqual(park.dirty(self.repo), [])
+
+    def test_unpark_never_deletes_an_ignored_user_file(self):
+        self.write("cache/gen.py", "parked = 1\n")
+        ref = park.park(self.repo, "14")
+        self.write(".gitignore", "cache/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-qm", "ignore cache")
+        self.write("cache/gen.py", "user's own file\n")
+        with self.assertRaises(park.Refused):
+            park.unpark(self.repo, "14", ref)
+        self.assertEqual((self.repo / "cache/gen.py").read_text(), "user's own file\n")
+
+    def test_conflict_cleanup_removes_a_staged_new_file(self):
+        self.write("app.py", "a = 2\n")
+        self.write("src/st.py", "staged = 1\n")
+        self.git("add", "src/st.py")
+        ref = park.park(self.repo, "15")
+        self.write("app.py", "a = 'later task'\n")
+        self.git("commit", "-qam", "later task changed the same line")
+        with self.assertRaises(park.ConflictError):
+            park.unpark(self.repo, "15", ref)
+        self.assertEqual(park.dirty(self.repo), [])
+        self.assertFalse((self.repo / "src/st.py").exists())
+
+    def test_a_user_stash_that_only_ends_with_the_words_is_not_a_park(self):
+        self.write("app.py", "a = 'user'\n")
+        self.git("stash", "push", "-m", "my sdd-task-3-parked")
+        user = self.git("rev-parse", "refs/stash").strip()
+        self.assertFalse(park.is_park_of(self.repo, user, "3"))
+        with self.assertRaises(park.Refused):
+            park.unpark(self.repo, "3", user)
+
+    def test_dirty_after_park_error_names_the_stash(self):
+        self.write("app.py", "a = 2\n")
+        self.write("new_mod.py", "b = 1\n")
+        self._patched_stash_push(
+            lambda repo, real: real(repo, "stash", "push", "-m", "sdd-task-16-parked"))
+        with self.assertRaisesRegex(park.Refused, r"parked work is in stash [0-9a-f]{40}"):
+            park.park(self.repo, "16")
+
     def test_cli_exit_codes(self):
         self.assertEqual(park.main(["-C", str(self.repo), "park", "--task", "1"]), 0)
         self.assertEqual(park.main(["-C", str(self.repo), "unpark", "--task", "1",

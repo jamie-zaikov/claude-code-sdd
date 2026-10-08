@@ -50,8 +50,12 @@ Every "Invoke the **&lt;X&gt;** subagent" step below runs through this contract.
 quiet or dead specialist costs one step, never a deadlock.
 
 1. **Launch in the background, non-blocking.** Launch the specialist and keep the loop. Put the
-   feature directory, `task: <N or phase name>`, and `attempt: <n>` in its prompt — `attempt` counts
-   this agent's invocations on this task (1, 2, …; a retry and a respawn each add one) — they name its
+   feature directory, `task: <N or phase name>`, and `attempt: <n>` in its prompt. `task` is the
+   task number, or one of `requirements`, `design`, `tasks`, `feature-review`, `publish`. `attempt`
+   counts this agent's invocations on this task (1, 2, …; a retry, a re-invocation after a
+   `VAULT REQUEST`/`SECRET REQUEST`, and a respawn each add one). **Before** each launch, record it
+   in `.spec-state.json` under `invocations["<task>/<agent>"] = <n>`, so a restarted session never
+   reuses a number and overwrites the record recovery depends on. Together they name its
    **status file** (`spec-memory/status/<task>-<agent>-a<attempt>.json`, the *Status File* section
    of every specialist except the spec-consistency-checker). The launch notifies you on
    completion; that notice is the **primary signal** — never poll while you wait for it. Proceed
@@ -59,27 +63,33 @@ quiet or dead specialist costs one step, never a deadlock.
    the status file: on `state: done`, its `summaryPath` holds the full summary; use that.
 2. **Watch liveness — read the status, do not guess (process-lesson 4).** A specialist that reads a
    large input is quiet but alive. Do not replace a quiet specialist on a hunch. On each heartbeat,
-   run **one** command — `python3 ~/.claude/tools/sdd-status.py check --feature-dir
-   .specs/features/<feature> --task <task> --stale-seconds <grace>` — and act on `state`:
+   run **one** command for the exact invocation you launched — `python3
+   ~/.claude/tools/sdd-status.py check --feature-dir .specs/features/<feature> --task <task>
+   --agent <agent> --attempt <n> --stale-seconds <grace>` — so an older attempt's file (a dead
+   instance, an answered `blocked`, an earlier `done`) can never be read as this one. The **grace**
+   window is **1200 s** by default, **2400 s** for a vault-reader, or the `Specialist grace: <N> s`
+   value in `tech.md`. Act on the result:
    - `started` / `working` with a fresh `updatedAt` — alive; do nothing.
    - `blocked` — act now on `blockedOn` (a `SECRET REQUEST`, a `VAULT REQUEST`, a blocker); do not
      wait for the return.
    - `done` / `failed` with no completion notice yet — the work is finished; use `summaryPath`.
-   - `STALE` (a live state older than the grace window), or `INVALID` — go to step 3.
-   Fall back to the **process list** and the file mtimes under `spec-memory/` only where no status
-   file exists: the spec-consistency-checker (it has no Write tool — its liveness is the process
-   list and its completion notice), and an agent that has not reached its first write yet. Use
+   - `STALE` (a live state with no file write for the grace window), or `INVALID` — go to step 3.
+   - `MISSING` (exit 3) — the agent has not made its first write. Within the grace window after
+     launch, wait; past it, go to step 3.
+   The spec-consistency-checker has no Write tool and keeps no status file: its liveness is its
+   completion notice and the harness's task list (`TaskOutput`), with the same grace window. Use
    `ScheduleWakeup` for the heartbeat; the check never sits in a blocking call.
-3. **Nudge, then time out.** If no completion notice has arrived **and** the status is `STALE` past
-   a grace window (default a few minutes; longer for a vault-reader over a large vault), first
+3. **Nudge, then time out.** If no completion notice has arrived **and** the status is `STALE` (or
+   `MISSING`) past the grace window (default a few minutes; longer for a vault-reader over a large vault), first
    `SendMessage` the specialist a nudge. If the mtime is still stale after a second window and no
    live process remains, treat the specialist as dead.
 4. **Kill, then respawn ONCE — confirm the stop from the actor (process-lesson 3).** `TaskStop` the
    dead specialist and confirm the process is gone **before** you relaunch. A stand-down to a
    dispatcher does not stop the actor, and two instances on one artifact corrupt it silently. Then
    re-invoke the same specialist once.
-5. **Resume idempotently (process-lesson 4).** The respawn uses `attempt` + 1 for its status file,
-   so the dead instance's file stays as the record. The respawned specialist resumes from its on-disk
+5. **Resume idempotently (process-lesson 4).** The respawn uses `attempt` + 1 (recorded in
+   `invocations` before launch) for its status file, so the dead instance's file stays as the record
+   and is never read as the live one. The respawned specialist resumes from its on-disk
    ledger. It does not restart completed work, and it never re-runs an already-applied propagation
    (the silent-duplication hazard, process-lesson 3). This is what makes recovery cost one step.
 6. **Halt, do not loop.** If the single respawn also stalls, halt and surface it to the user with
@@ -694,7 +704,7 @@ task completion/failure.
 Keys this playbook adds as they arise: `taskStatus[N].deferredFindings`, `blockingHistory` (per
 attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,
 `deferredBy`, and `retryResetBy` (per task); `suiteRecord`, `preflight`, `overnightAuthorization`,
-`userApprovalNeeded`, `publishPending`, and `modularity` (top level). `taskStatus[N].status` takes exactly one of
+`userApprovalNeeded`, `publishPending`, `modularity`, and `invocations` (top level). `taskStatus[N].status` takes exactly one of
 `pending`, `in_progress`, `complete`, or `deferred`. Use these exact names — a key spelled differently in each feature
 breaks resume and status.
 

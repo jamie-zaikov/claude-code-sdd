@@ -102,7 +102,15 @@ def changed_files(repo: Path, base: str) -> List[Tuple[str, str]]:
         if real.is_file():
             shutil.copyfile(real, index)
         env = dict(os.environ, GIT_INDEX_FILE=str(index))
-        git(repo, "add", "-A", "--", ":/", env=env)
+        # Tracked edits and deletions, then only untracked SOURCE files: a large untracked data file
+        # is never hashed into .git/objects. Literal pathspecs, so `[` or `*` in a name is a name.
+        git(repo, "add", "-u", "--", ":/", env=env)
+        untracked = [rel for rel in git(repo, "ls-files", "-z", "--others", "--exclude-standard",
+                                        env=env).split("\0")
+                     if rel and Path(rel).suffix.lower() in CODE_SUFFIXES]
+        literal = dict(env, GIT_LITERAL_PATHSPECS="1")
+        for start in range(0, len(untracked), 200):
+            git(repo, "add", "--", *untracked[start:start + 200], env=literal)
         out = git(repo, "diff", "--cached", "--name-status", "-M", "-z", base, "--", env=env)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -114,7 +122,7 @@ def changed_files(repo: Path, base: str) -> List[Tuple[str, str]]:
             changes.append((fields[i + 2], fields[i + 1]))
             i += 3
         else:
-            if status[0] in "AM":
+            if status[0] in "AMT":  # T: a symlink or submodule replaced by a regular file
                 changes.append((fields[i + 1], fields[i + 1]))
             i += 2
     return sorted(changes)
@@ -127,9 +135,14 @@ def base_lines(repo: Path, base: str, path: str) -> int:
 
 
 def check(repo: Path, base: str, limit: int, exempt: List[str],
-          only: Optional[List[str]] = None) -> List[Tuple[str, int, int]]:
+          only: Optional[List[str]] = None,
+          unmatched: Optional[List[str]] = None) -> List[Tuple[str, int, int]]:
     violations = []
-    for path, old_path in changed_files(repo, base):
+    changes = changed_files(repo, base)
+    if only is not None and unmatched is not None:
+        changed = {path for path, _ in changes}
+        unmatched.extend(p for p in only if p not in changed)
+    for path, old_path in changes:
         if only is not None and path not in only:
             continue
         if Path(path).suffix.lower() not in CODE_SUFFIXES or is_exempt(path, exempt):
@@ -142,6 +155,17 @@ def check(repo: Path, base: str, limit: int, exempt: List[str],
         if now > limit and now > before:
             violations.append((path, before, now))
     return violations
+
+
+def repo_relative(repo: Path, arg: str) -> str:
+    """Normalize a path argument — `./x`, absolute, or relative to the current directory — to the
+    repo-root-relative form git reports. A path outside the repository is an error, never a skip."""
+    path = Path(arg)
+    path = (path if path.is_absolute() else Path.cwd() / path).resolve()
+    try:
+        return path.relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        raise ValueError(f"{arg} is outside the repository {repo}") from None
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -168,10 +192,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             base = git(repo, "merge-base", base, "HEAD").strip()
         steer_limit, steer_exempt = steering_config(repo)
         limit = next(v for v in (args.limit, steer_limit, DEFAULT_LIMIT) if v is not None)
-        found = check(repo, base, limit, steer_exempt + args.exempt, args.paths or None)
+        only = [repo_relative(repo, p) for p in args.paths] or None
+        unmatched: List[str] = []
+        found = check(repo, base, limit, steer_exempt + args.exempt, only, unmatched)
     except GitError as exc:
         print(f"sdd-module-size: git error: {exc}", file=sys.stderr)
         return 2
+    except ValueError as exc:
+        print(f"sdd-module-size: {exc}", file=sys.stderr)
+        return 2
+    for rel in unmatched:
+        print(f"sdd-module-size: warning: {rel} is not in the changed set (not checked)",
+              file=sys.stderr)
     violations = []
     for path, before, now in found:
         waived = path in args.waive

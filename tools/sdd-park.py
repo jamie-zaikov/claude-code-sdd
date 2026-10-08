@@ -16,6 +16,7 @@ Exit codes: 0 done, 1 unpark conflict (tree restored), 2 refused or git error. S
 """
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +38,26 @@ def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProce
 
 def message(task: str) -> str:
     return f"sdd-task-{task}-parked"
+
+
+def is_park_of(repo: Path, ref: str, task: str) -> bool:
+    """Exactly git's stash subject `On <branch>: sdd-task-<N>-parked` — a user's stash whose message
+    merely ends in those words does not match."""
+    return re.fullmatch(rf"On [^:]+: {re.escape(message(task))}", subject(repo, ref)) is not None
+
+
+def created_paths(repo: Path, ref: str) -> List[str]:
+    """Paths the stash would create: its untracked files (`ref^3`) and files the task had added to
+    the index or tree (new against the stash base `ref^1`)."""
+    paths = set()
+    proc = git(repo, "ls-tree", "-r", "-z", "--name-only", f"{ref}^3", check=False)
+    if proc.returncode == 0:
+        paths.update(filter(None, proc.stdout.split("\0")))
+    for tree in (f"{ref}^2", ref):
+        out = git(repo, "diff", "--name-only", "-z", "--diff-filter=A", f"{ref}^1", tree,
+                  check=False).stdout
+        paths.update(filter(None, out.split("\0")))
+    return sorted(paths)
 
 
 def dirty(repo: Path) -> List[str]:
@@ -61,26 +82,33 @@ def park(repo: Path, task: str) -> str:
     after = stash_head(repo)
     if not after or after == before:
         raise Refused("git stash created no entry; nothing was parked")
-    if not subject(repo, after).endswith(message(task)):
+    if not is_park_of(repo, after, task):
         raise Refused(f"newest stash is not {message(task)}; refusing to record it")
     if dirty(repo):
-        raise Refused("working tree still dirty after park")
+        # The stash exists and holds the work: name it, so the caller can record it as parkedRef.
+        raise Refused(f"working tree still dirty after park; the parked work is in stash {after}")
     return after
 
 
 def unpark(repo: Path, task: str, ref: str) -> None:
-    if not subject(repo, ref).endswith(message(task)):
+    if not is_park_of(repo, ref, task):
         raise Refused(f"{ref} is not a {message(task)} stash")
     if dirty(repo):
         raise Refused("working tree is not clean outside .specs/; refusing to apply over it")
+    created = created_paths(repo, ref)
+    # Refuse up front when any path the stash would create already exists — committed by a later
+    # task, or an ignored/user file git cannot see. Nothing is touched, so nothing can be lost.
+    present = [rel for rel in created if (repo / rel).exists() or (repo / rel).is_symlink()]
+    if present:
+        raise Refused("paths the parked work would create already exist: " + ", ".join(present))
     applied = git(repo, "stash", "apply", ref, check=False)
     if applied.returncode == 0:
         return
-    # Restore the clean tree we started from: drop tracked edits and the stash's untracked files.
+    # Restore the clean tree we started from. Every path in `created` was absent before the apply
+    # (checked above), so deleting it removes only what the apply wrote.
     git(repo, "reset", "-q", "--", *PATHSPEC, check=False)
     git(repo, "checkout", "-q", "HEAD", "--", *PATHSPEC, check=False)
-    untracked = git(repo, "ls-tree", "-r", "--name-only", f"{ref}^3", check=False).stdout.split("\n")
-    for rel in filter(None, untracked):
+    for rel in created:
         (repo / rel).unlink(missing_ok=True)
     raise ConflictError(applied.stderr.strip() or "stash apply conflicted")
 

@@ -146,7 +146,7 @@ class RoundTwoTest(RepoCase):
     def test_paths_filter_ignores_unrelated_scratch_files(self):
         self.write("scratch.py", lines(99))
         self.write("small.py", lines(6))
-        self.assertEqual(self.run_tool("--limit", "20", "small.py"), 0)
+        self.assertEqual(self.run_tool("--limit", "20", str(self.repo / "small.py")), 0)
         self.assertEqual(self.run_tool("--limit", "20"), 1)
 
     def test_waiver_reports_but_does_not_fail(self):
@@ -165,6 +165,59 @@ class RoundTwoTest(RepoCase):
     def test_bold_steering_line_is_read(self):
         self.write(".specs/steering/tech.md", "- **Module size limit:** 7 lines\n")
         self.assertEqual(tool.steering_config(self.repo)[0], 7)
+
+
+class RoundThreeTest(RepoCase):
+    """Review round 3: path forms in task mode, type changes, untracked data files."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("src/seed.py", lines(1))
+        self.commit()
+        self.write("src/big.py", lines(30))
+
+    def in_dir(self, rel, *argv):
+        import os
+        old = os.getcwd()
+        os.chdir(self.repo / rel)
+        try:
+            return tool.main(list(argv))
+        finally:
+            os.chdir(old)
+
+    def test_every_path_form_is_checked(self):
+        for form in ("src/big.py", "./src/big.py", str(self.repo / "src" / "big.py")):
+            self.assertEqual(self.in_dir(".", "--limit", "20", form), 1, form)
+        self.assertEqual(self.in_dir("src", "--limit", "20", "big.py"), 1, "subdir-relative")
+
+    def test_path_outside_the_repo_is_an_error(self):
+        with tempfile.TemporaryDirectory() as other:
+            self.assertEqual(self.in_dir(".", "--limit", "20", other + "/x.py"), 2)
+
+    def test_unchanged_path_warns_and_is_not_silently_passed(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.in_dir(".", "--limit", "20", "src/seed.py")
+        self.assertIn("not in the changed set", err.getvalue())
+
+    def test_symlink_replaced_by_a_big_file_is_checked(self):
+        (self.repo / "src" / "big.py").unlink()
+        (self.repo / "link.py").symlink_to("src/seed.py")
+        self.commit()
+        (self.repo / "link.py").unlink()
+        self.write("link.py", lines(30))
+        self.assertEqual(tool.check(self.repo, "HEAD", 20, []), [("link.py", 1, 30)])
+
+    def test_untracked_data_file_is_never_hashed(self):
+        self.write("dump.csv", "x" * 1000 + "\n")
+        tool.check(self.repo, "HEAD", 20, [])
+        objects = subprocess.run(["git", "-C", str(self.repo), "cat-file", "--batch-all-objects",
+                                  "--batch-check"], capture_output=True, text=True).stdout
+        blob = subprocess.run(["git", "-C", str(self.repo), "hash-object", "dump.csv"],
+                              capture_output=True, text=True).stdout.strip()
+        self.assertNotIn(blob, objects, "an untracked data file was written into .git/objects")
 
 
 class SteeringConfigTest(RepoCase):
