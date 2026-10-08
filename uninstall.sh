@@ -37,6 +37,8 @@ done
 rm -f "${CLAUDE_HOME}/tools/sdd-module-size.py"
 rm -f "${CLAUDE_HOME}/tools/sdd-status.py"
 rm -f "${CLAUDE_HOME}/tools/sdd-park.py"
+rm -f "${CLAUDE_HOME}/tools/sdd-context-pack.py"
+rm -f "${CLAUDE_HOME}/tools/sdd-overlap.py"
 
 echo ""
 echo "Removed SDD agents and commands."

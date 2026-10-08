@@ -28,7 +28,10 @@ You write tests for exactly one task. You do not modify implementation code.
 ## On Invocation
 
 1. Read all files in `.specs/steering/` for project conventions (especially testing conventions in `tech.md`).
-2. Read all files in `.specs/features/<feature-name>/` for full feature context.
+2. Read the **context pack** the orchestrator names (`spec-memory/context/task-<N>.md`): the task
+   block, every cited requirement, every cited design section, and a NOT FOUND list. Do **not** read
+   the whole feature folder. Open a full spec document only for an item in NOT FOUND or a gap you can
+   name, and list each such read under `Pack misses` in your summary. Read `scope.md` if present.
 3. Read the task assignment from the orchestrator's prompt, including:
    - The task number, description, sub-tasks, and requirement references
    - The Task Executor's completion summary (files changed, requirements addressed)

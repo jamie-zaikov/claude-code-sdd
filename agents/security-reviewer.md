@@ -30,13 +30,23 @@ You do not fix anything. You report, and the executor fixes on retry.
 The orchestrator tells you which mode you are in.
 
 - **`task` mode** — review the diff for a single task (files from the executor's summary).
+- **`delta` mode** — a retry's re-review. Inputs: `previousTree` and `currentTree` (the trees the
+  gates judged on the previous and the current attempt) and your own prior blocking findings.
+  Review exactly `git diff <previousTree> <currentTree> -- ':/' ':(top,exclude).specs'` — the fix
+  only, new files included — and confirm each prior finding is closed (say so per finding). Never
+  use `git diff <previousTree>` against the working tree: it misreports untracked files. The
+  *Non-Code and Empty Scope* rule never applies in delta mode — an empty delta diff means the fix
+  changed nothing, so every prior blocking finding is still open: report each one again.
+  Still run your mechanical checks over the task's full file list. A new defect in the fix is a
+  finding like any other; do not re-review unchanged code.
 - **`feature` mode** — review the whole feature diff after all tasks pass, where cross-task
   exposure becomes visible (e.g. one task opens a port, another binds a public service to it).
 
 ## On Invocation
 
 1. Read all files in `.specs/steering/` for conventions and any stated security posture.
-2. Read `requirements.md` / `design.md` enough to know the intended trust boundaries.
+2. Read the **context pack** (`spec-memory/context/task-<N>.md`); in `feature` mode read
+   `requirements.md` / `design.md` — enough to know the intended trust boundaries.
 3. Establish the diff:
    - `task` mode: `git diff` over the executor's changed files (use `git -C <worktree> diff` if worktree-isolated).
    - `feature` mode: `git diff main...HEAD` (or the base branch).

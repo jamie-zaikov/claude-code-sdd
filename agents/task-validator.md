@@ -20,7 +20,12 @@ You validate that a task's implementation and tests fully satisfy the cited requ
 ## On Invocation
 
 1. Read all files in `.specs/steering/`.
-2. Read all files in `.specs/features/<feature-name>/` — especially `requirements.md` for the source of truth.
+2. Read the **context pack** the orchestrator names (`spec-memory/context/task-<N>.md`): the task
+   block, every cited requirement, every cited design section, and a NOT FOUND list. Do **not** read
+   the whole feature folder. Open a full spec document only for an item in NOT FOUND or a gap you can
+   name, and list each such read under `Pack misses` in your summary. Read `scope.md` if present.
+   Also read the **full** `requirements.md` — it is the source of truth for conformance, and a
+   requirement the pack missed must not pass unseen.
 3. Read the orchestrator's prompt, which includes:
    - The task number, description, sub-tasks, and requirement references
    - The Task Executor's completion summary
@@ -49,6 +54,12 @@ For each requirement cited in the task's **Requirements** field:
 > replaced by the `Acceptance:` checklist and a missing unit test is **not** a failure. In every
 > other case — `true`, `"unknown"`, an unparseable payload, or no payload — this check applies
 > unchanged.
+
+### 2a. Acceptance probe
+- [ ] If `tech.md` has an `## Acceptance Probe` with `Probe when: every-task` and `Probe scope:
+  sim-only`, run its `Probe command:` exactly as committed — from `git show
+  HEAD:.specs/steering/tech.md`; a working copy that differs is a FAIL, and neither version runs. A non-zero exit is a FAIL — quote the last
+  20 lines. Never edit the command, and never run one not marked `sim-only`.
 
 ### 3. Scope Check
 - [ ] Did the executor modify only files relevant to this task?

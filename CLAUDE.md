@@ -72,6 +72,14 @@ work, not to the gates themselves. The orchestrator playbook therefore enforces:
   JSON status file (`spec-memory/status/<task>-<agent>-a<n>.json`: state, step, updatedAt,
   summaryPath). The orchestrator acts on completion notices and, on a heartbeat, reads that state
   with `~/.claude/tools/sdd-status.py check` — never guessing liveness from silence.
+- **Context packs, not whole folders.** `~/.claude/tools/sdd-context-pack.py` gives each task one
+  file with only the spec text it cites (typically 1–13% of the specs) and a NOT FOUND list; the
+  validator still reads the full `requirements.md`.
+- **Validation and review run concurrently**, and a retry gets a delta re-review of the fix only.
+  A user-written, sim-only **acceptance probe** in `tech.md` is the one gate that checks behaviour.
+- **Stage overlap (Level 1).** While task N is reviewed, task N+1's executor works in a speculative
+  worktree (`~/.claude/tools/sdd-overlap.py`); it lands only if N is committed unchanged, otherwise
+  it is discarded and re-run. No gate ever sees speculative code.
 - **Overnight mode covers implementation only.** `/sdd-overnight <feature>` is its one switch. It
   runs the phase check and the preflight first, and it ends with one fixed summary template. It never asks and waits — it picks the fail-closed,
   reversible option, records it under `userApprovalNeeded`, and moves to the next independent task.

@@ -30,7 +30,17 @@ convinced yourself otherwise. You do not fix anything — you report, and the ex
 The orchestrator tells you which mode you are in.
 
 - **`task` mode** — review the diff for a single task. Inputs: the task block, the executor's
-  completion summary (files changed), the tester's summary, the validator's verdict.
+  completion summary (files changed), and the tester's summary. The validator runs concurrently;
+  you do not wait for its verdict.
+- **`delta` mode** — a retry's re-review. Inputs: `previousTree` and `currentTree` (the trees the
+  gates judged on the previous and the current attempt) and your own prior blocking findings.
+  Review exactly `git diff <previousTree> <currentTree> -- ':/' ':(top,exclude).specs'` — the fix
+  only, new files included — and confirm each prior finding is closed (say so per finding). Never
+  use `git diff <previousTree>` against the working tree: it misreports untracked files. The
+  *Non-Code and Empty Scope* rule never applies in delta mode — an empty delta diff means the fix
+  changed nothing, so every prior blocking finding is still open: report each one again.
+  Still run your mechanical checks over the task's full file list. A new defect in the fix is a
+  finding like any other; do not re-review unchanged code.
 - **`feature` mode** — review the entire feature diff after all tasks pass. This is the only stage
   that sees how the tasks *compose*. Hunt for integration seams, cross-task contract drift,
   duplicated logic, and dead code left stranded between tasks.
@@ -38,7 +48,8 @@ The orchestrator tells you which mode you are in.
 ## On Invocation
 
 1. Read all files in `.specs/steering/` for project conventions (especially `tech.md`).
-2. Read `requirements.md` and `design.md` for the feature — enough to judge intent, not to re-validate.
+2. Read the **context pack** (`spec-memory/context/task-<N>.md`) for intent; in `feature` mode read
+   `requirements.md` and `design.md` — enough to judge intent, not to re-validate.
 3. Establish the diff you are reviewing:
    - `task` mode: inspect the files named in the executor's summary. Use `git diff` (and, if the
      work is in a worktree, `git -C <worktree> diff`) to see exactly what changed.
@@ -69,6 +80,14 @@ Read the changed code adversarially against each class. Do not stop at the first
 - Dead code, unreachable branches, leftover scaffolding or debug output.
 - Needless complexity or an algorithm materially worse than the obvious one (e.g. O(n²) on a hot path).
 - Violations of conventions in `tech.md`.
+
+### Acceptance probe (feature mode)
+If `tech.md` has an `## Acceptance Probe` section whose `Probe scope:` is `sim-only`, run its
+`Probe command:` exactly as committed — read it from `git show HEAD:.specs/steering/tech.md`; if the
+working copy of the section differs, that is a **High** finding and you do not run either version —
+once, in `feature` mode. A non-zero exit is a **High** finding
+(quote the last 20 lines of its output). Never edit the command, and never run one that is not
+marked `sim-only` — report that as a Medium finding instead.
 
 ### Modularity (no god files) — mechanical
 Run `sdd-module-size.py` exactly as below — the script is the definition, so two reviews of the same
