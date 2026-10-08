@@ -105,6 +105,68 @@ class RatchetTest(RepoCase):
         self.assertEqual(self.run_tool("--base", "no-such-ref"), 2)
 
 
+class RoundTwoTest(RepoCase):
+    """Review round 2: renames, merge-base, quoted paths, and the CLI options."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("big.py", lines(30))
+        self.write("small.py", lines(5))
+        self.commit()
+
+    def test_git_mv_of_a_god_file_is_not_new(self):
+        self.git("mv", "big.py", "core.py")
+        self.assertEqual(tool.check(self.repo, "HEAD", 20, []), [])
+
+    def test_unstaged_move_of_a_god_file_is_not_new(self):
+        (self.repo / "big.py").rename(self.repo / "pkg_core.py")
+        self.assertEqual(tool.check(self.repo, "HEAD", 20, []), [])
+
+    def test_renamed_god_file_that_grows_still_violates(self):
+        self.git("mv", "big.py", "core.py")
+        self.write("core.py", lines(31))
+        self.assertEqual(tool.check(self.repo, "HEAD", 20, []), [("core.py", 30, 31)])
+
+    def test_non_ascii_path_is_checked(self):
+        self.write("caf\u00e9.py", lines(21))
+        self.assertEqual(tool.check(self.repo, "HEAD", 20, []), [("caf\u00e9.py", 0, 21)])
+
+    def test_merge_base_ignores_changes_on_the_base_branch(self):
+        self.git("branch", "-M", "main")
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("small.py", lines(6))
+        self.git("commit", "-qam", "feature work")
+        self.git("checkout", "-q", "main")
+        self.write("big.py", lines(10))  # main splits the god file after the branch point
+        self.git("commit", "-qam", "split on main")
+        self.git("checkout", "-q", "feature")
+        self.assertEqual(self.run_tool("--base", "main", "--limit", "20"), 1)  # tip: wrongly blamed
+        self.assertEqual(self.run_tool("--base", "main", "--merge-base", "--limit", "20"), 0)
+
+    def test_paths_filter_ignores_unrelated_scratch_files(self):
+        self.write("scratch.py", lines(99))
+        self.write("small.py", lines(6))
+        self.assertEqual(self.run_tool("--limit", "20", "small.py"), 0)
+        self.assertEqual(self.run_tool("--limit", "20"), 1)
+
+    def test_waiver_reports_but_does_not_fail(self):
+        self.write("big.py", lines(31))
+        self.assertEqual(self.run_tool("--limit", "20", "--waive", "big.py"), 0)
+        self.assertEqual(self.run_tool("--limit", "20"), 1)
+
+    def test_limit_zero_is_honoured(self):
+        self.write("small.py", lines(6))
+        self.assertEqual(self.run_tool("--limit", "0"), 1)
+
+    def test_root_file_matches_double_star_glob(self):
+        self.write("foo_pb2.py", lines(99))
+        self.assertEqual(tool.check(self.repo, "HEAD", 20, ["**/*_pb2.py"]), [])
+
+    def test_bold_steering_line_is_read(self):
+        self.write(".specs/steering/tech.md", "- **Module size limit:** 7 lines\n")
+        self.assertEqual(tool.steering_config(self.repo)[0], 7)
+
+
 class SteeringConfigTest(RepoCase):
     def test_limit_and_exempt_come_from_tech_md(self):
         self.write(".specs/steering/tech.md",

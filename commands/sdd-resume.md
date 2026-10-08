@@ -18,6 +18,8 @@ Then **act as the Orchestrator in this main session** to continue from the curre
 
 **Read the status files first.** Run `python3 ~/.claude/tools/sdd-status.py check --feature-dir .specs/features/<feature-name>` and report every file whose state is not `done` — the specialists that were mid-step when the last session ended. A `done` file whose result is not yet in `.spec-state.json` is finished work: take its result from `summaryPath`, never re-run it.
 
-**Stale overnight authorization.** If the state file has `overnightAuthorization` set, it is void — only `/sdd-overnight <feature> on` grants one. Clear it, tell the user, and show the latest `spec-memory/overnight-summary.md` *Needs you* section if one exists. List every `deferred` task with its `deferredBy` and `parkedRef` before you continue; a deferred task is not pending.
+**Pending publish.** If `publishPending` is set, follow the playbook's *Acting on `publishPending`* rule: ask to publish when `HEAD` still equals `featureReview.reviewedHead`; otherwise re-run the Feature Review Gate.
+
+**Stale overnight authorization.** If the state file has `overnightAuthorization` set, it is void — only a run started in the current session, through `/sdd-overnight <feature> on` or the user's own words followed by its exact steps, holds one. Clear it, tell the user, and show the latest `spec-memory/overnight-summary.md` *Needs you* section if one exists. List every `deferred` task with its `deferredBy` and `parkedRef` before you continue; a deferred task is not pending.
 
 If the feature directory or state file does not exist, tell the user and suggest `/sdd-feature $ARGUMENTS` to create it.

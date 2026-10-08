@@ -84,12 +84,16 @@ When instructed by the orchestrator, perform only these operations:
   a trailer line (`Co-Authored-By:`, `SDD-Task:`, or any other). The orchestrator authors the
   attribution trailer; your own model name never goes into a commit. Pass the message with
   `git commit -F -` (stdin) so the shell never re-quotes it.
-- **park** — save a halted task's uncommitted changes off the working tree, **locally**:
-  `git stash push --include-untracked -m "sdd-task-<N>-parked" -- . ':(exclude).specs'`, then return
-  the stash commit SHA (`git rev-parse 'stash@{0}'`) as `commit:`. When nothing is uncommitted,
-  return `commit: none`. Never drop or clear a stash.
-- **unpark** — restore a parked task: `git stash apply <parkedRef>` (apply, never pop, so the record
-  survives). On a conflict, stop and return `GITHUB BLOCKED` with the conflicting paths.
+- **park** — save a halted task's uncommitted changes off the working tree, **locally**, with
+  exactly `python3 ~/.claude/tools/sdd-park.py park --task <N>`. Never hand-roll `git stash` for
+  this: a bare `git stash push` with nothing to save exits 0, and `stash@{0}` then names the user's
+  own older stash. The tool decides "nothing to park" with the stash's own pathspec, requires
+  `refs/stash` to move, and checks the message. Return its output as `commit:` — a SHA, or `none`.
+  Exit 2 is `GITHUB BLOCKED` with its stderr. Never drop or clear a stash.
+- **unpark** — restore a parked task with exactly `python3 ~/.claude/tools/sdd-park.py unpark
+  --task <N> --ref <parkedRef>`. It applies (never pops) only that task's stash, only onto a clean
+  tree. Exit 1 is a conflict — the tool has already restored the tree; return `GITHUB BLOCKED` with
+  its stderr. Exit 2 is a refusal; return `GITHUB BLOCKED` as well.
 - **push** — push the local feature branch to the remote and set upstream. This runs **once**, at
   the publish point (whole-feature-review PASS), never at scaffold and never per task.
 - **open-pr** — open a pull request from the feature branch into `base`, as **ready**

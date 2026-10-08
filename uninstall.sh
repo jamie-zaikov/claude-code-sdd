@@ -10,7 +10,7 @@ echo ""
 echo "This will remove SDD agents, commands, and CLAUDE.md from ${CLAUDE_HOME}/"
 echo ""
 echo "  Agents to remove:"
-for agent in orchestrator requirements-agent design-agent tasks-agent task-executor task-tester task-validator; do
+for agent in orchestrator requirements-agent design-agent tasks-agent spec-consistency-checker task-executor task-tester task-validator code-reviewer security-reviewer github-agent vault-reader vault-writer; do
   [ -f "${CLAUDE_HOME}/agents/${agent}.md" ] && echo "    • ${agent}.md"
 done
 echo ""
@@ -24,7 +24,7 @@ read -rp "Continue? (y/N) " reply
 [[ "$reply" =~ ^[Yy]$ ]] || exit 0
 
 # Remove agents
-for agent in orchestrator requirements-agent design-agent tasks-agent task-executor task-tester task-validator; do
+for agent in orchestrator requirements-agent design-agent tasks-agent spec-consistency-checker task-executor task-tester task-validator code-reviewer security-reviewer github-agent vault-reader vault-writer; do
   rm -f "${CLAUDE_HOME}/agents/${agent}.md"
 done
 
@@ -36,6 +36,7 @@ done
 # Remove agent tools
 rm -f "${CLAUDE_HOME}/tools/sdd-module-size.py"
 rm -f "${CLAUDE_HOME}/tools/sdd-status.py"
+rm -f "${CLAUDE_HOME}/tools/sdd-park.py"
 
 echo ""
 echo "Removed SDD agents and commands."

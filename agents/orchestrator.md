@@ -195,12 +195,20 @@ feature start is not yet a locked decision.
   validated under the non-code exemption; never cleared, because the whole-feature review must
   re-cover them under the code path). Report the value locked and what it changes.
 
-**Modularity at the same gate.** On a `"code"` feature, also write `modularity: { enforced: true,
-limit: <tech.md "Module size limit", default 500>, decidedAt }`. From then on the code-reviewer
+**Modularity at the same gate.** On a `"code"` feature — and on **reclassification** to `"code"` —
+also write `modularity: { enforced: true, limit: <tech.md "Module size limit", default 500>,
+decidedAt, waivers: [] }`. From then on the code-reviewer
 treats every `sdd-module-size.py` violation as **High** (blocking). A feature whose state file has
 no `modularity` key was planned before the rule: it is **not** enforced — its violations are Medium
 and land in `deferredFindings` — until the user asks to enforce it (then write the key). Never
 infer enforcement for such a feature, and never remove the key once written.
+
+**Waivers — the one escape hatch, granted by the user only.** When a task cannot pass without growing
+an over-limit file and a split is not feasible now (say, a one-line fix in a legacy god file), ask
+the user — never overnight, where the task is parked instead. On a yes, append `{ path, reason,
+decidedBy: "user", decidedAt }` to `modularity.waivers`. The reviewers then pass `--waive <path>`:
+the finding stays visible as Medium and is never blocking. A waiver names one file; it is never a
+glob and never granted by an agent.
 
 **Switching to non-code here.** If the user sets the track to `"non-code"` at this gate and the
 tasks were authored as code tasks (no `Acceptance:` checklists), re-invoke the tasks-agent with
@@ -285,17 +293,20 @@ had been invoked. Record the authorization as `overnightAuthorization: { granted
   tree is clean (`git status --porcelain` empty outside `.specs/`) before the next task starts; if it
   is not, stop the run. The next task never inherits a parked task's code.
 - **Which task runs next — mechanical, never guessed.** After a park, a later task may run only
-  when `tasks.md` gives it a `Depends:` line and neither that line nor any task it names
-  (transitively) names a parked task. A task without a `Depends:` line depends on every earlier
-  task. When no task qualifies, the run ends.
+  when **every task its `Depends:` line names is `complete`**. Because each named task had to meet
+  the same rule, the check is transitive by construction. A task without a `Depends:` line depends
+  on every earlier task, so it runs only when all of them are `complete`. Run the qualifying tasks
+  in `tasks.md` order. When no task qualifies, the run ends.
 - **The end of the run — one rule.** The run ends when no runnable task remains. If every task is
   `complete`, run the **Feature Review Gate** once, but **never publish** overnight: record the
-  verdict under `featureReview`, set `publishPending: true` on PASS, and do not ask on FAIL — the
+  verdict under `featureReview` with `reviewedHead: <git rev-parse HEAD>`, set `publishPending: true` on PASS, and do not ask on FAIL — the
   findings go to the summary. The publish sequence waits for the user's explicit word. Then write
   `spec-memory/overnight-summary.md` with the **Overnight summary template** below.
-- The authorization ends when the run stops; clear it then. **A stale authorization is void:** on
-  any entry other than `/sdd-overnight <feature> on` (`/sdd-resume`, a new session, a crash
-  recovery), a set `overnightAuthorization` is cleared and reported, never obeyed.
+- The authorization ends when the run stops; clear it then. **A stale authorization is void:** an
+  authorization is held only by the run that wrote it in the current session (started through
+  `/sdd-overnight <feature> on`, or the user's own words followed by its exact steps). On any other
+  entry (`/sdd-resume`, a new session, a crash recovery), a set `overnightAuthorization` is cleared
+  and reported, never obeyed.
 
 **After the run — recover deferred tasks.** A `deferred` task is not pending. When the user answers
 its `userApprovalNeeded` entry (or fixes the halt cause), route an amendment through its owner agent
@@ -350,7 +361,7 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   **Suite record (one full run per tree).** Pass every stage the feature's **suite record** — the
   last full-suite result as `{ treeHash, result, counts, durationSeconds }`, where `treeHash` is
   the hash of the working tree computed through a **temporary index**, so the real index is never
-  touched: `d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- . ":(exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]`.
+  touched: `d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- ":/" ":(top,exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]`.
   The tester produces it (Stage 2) after its final change; the executor uses targeted tests while it
   works. A stage **reuses** the record when its own `treeHash` equals the record's, and runs the full
   suite itself only when the tree has changed since the record was written. `.specs/` is excluded,
@@ -405,7 +416,7 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   Pass each reviewer:
   - The single task block and requirement references
   - `modularity: enforced` or `modularity: not-enforced`, read from the state file (the code-reviewer
-    sets the severity of its mechanical module-size check from it)
+    sets the severity of its mechanical module-size check from it), plus `modularity.waivers`
   - The executor's completion summary (files changed) and, if worktree-isolated, the worktree path
   - The tester's and validator's summaries, and the **classification payload**
   - An explicit `mode: task` instruction
@@ -453,8 +464,12 @@ track gets, which is why the per-task code-review stage is safely skipped.
 **On PASS (both reviewers PASS):**
 - Record `featureReview.codeReview = "pass"` and `featureReview.securityReview = "pass"`.
 - **Overnight: stop here.** If `overnightAuthorization` is set, do **not** publish — set
-  `publishPending: true` and end the run (see *The end of the run*). Run the publish sequence below
-  only on the user's explicit word.
+  `publishPending: true`, record `featureReview.reviewedHead`, and end the run (see *The end of the
+  run*). Run the publish sequence below only on the user's explicit word.
+- **Acting on `publishPending` (the next attended session).** If `HEAD` still equals
+  `featureReview.reviewedHead`, ask the user whether to publish; on yes, run the publish sequence
+  below. If `HEAD` moved, the PASS is stale: re-run this gate. Clear `publishPending` after the
+  publish sequence completes.
 - **This is the single publish point (local-first).** Only now does GitHub see the feature. Invoke
   **github-agent** in this order:
   1. `{ action: push, branch: feature/<feature-name> }` — push the branch and set upstream.

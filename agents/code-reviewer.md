@@ -71,13 +71,20 @@ Read the changed code adversarially against each class. Do not stop at the first
 - Violations of conventions in `tech.md`.
 
 ### Modularity (no god files) — mechanical
-Run `python3 ~/.claude/tools/sdd-module-size.py --base <base>` — `HEAD` in `task` mode (the task's uncommitted
-change), the base branch (default `main`) in `feature` mode. Each line it prints is one finding: a
-source file over the module size limit that grew. Its severity comes from the orchestrator's
-`modularity` payload: **High** (blocking) when `modularity: enforced`, **Medium** otherwise (a
-feature planned before the rule). Never soften or skip it: the script is the definition, so two
-reviews of the same diff reach the same verdict. If `python3` or the script is missing, report that
-as a High finding — the check did not run.
+Run `sdd-module-size.py` exactly as below — the script is the definition, so two reviews of the same
+diff reach the same verdict:
+- `task` mode: `python3 ~/.claude/tools/sdd-module-size.py --base HEAD <each file in the executor's
+  changed-files list>` — the task's own files only, so an unrelated scratch file never counts.
+- `feature` mode: `python3 ~/.claude/tools/sdd-module-size.py --base <base branch, default main>
+  --merge-base` — against the branch point, so work merged to the base later is never blamed here.
+- Add `--waive <path>` for each path in the payload's `modularity.waivers` (user-granted only).
+
+Each line it prints without `WAIVED` is one finding: a source file over the module size limit that
+grew. A `WAIVED` line is a **Medium** finding, recorded with its waiver. Severity comes from the
+orchestrator's `modularity` payload: **High** (blocking) when `modularity: enforced`, **Medium**
+otherwise (a feature planned before the rule). Never soften or skip it. If `python3` or the script is
+missing, or it exits 2, the check did not run: report that at the same severity — High when
+enforced, Medium otherwise.
 
 ### Integration (feature mode especially)
 - Contract drift between tasks — one task changed a signature/shape another still assumes.

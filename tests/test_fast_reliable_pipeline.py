@@ -16,6 +16,8 @@ Run:
 """
 
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -124,7 +126,7 @@ class SuiteRecordTest(Base):
                         self.fail(f"{path.name}: `git add` outside a temporary index: {line.strip()[:90]}")
 
     def test_tree_hash_excludes_specs_and_never_matches_empty(self):
-        self.has(self.impl, r'":\(exclude\)\.specs"', "tree hash excludes .specs")
+        self.has(self.impl, r'":/" ":\(top,exclude\)\.specs"', "tree hash excludes .specs")
         self.has(self.impl, r"An empty hash, or a command that exits\s+non-zero, never matches", "empty hash")
         self.has(self.impl, r"rc=\$\?; rm -rf \"\$d\"; \[ \"\$rc\" -eq 0 \]", "exit status kept")
         self.has(self.impl, r"\*\*Limit:\*\* the hash covers tracked and untracked,\s+non-ignored files only", "limit stated")
@@ -244,13 +246,13 @@ class OvernightReviewFixesTest(Base):
         self.has(self.impl, r"Confirm the working\s+tree is clean", "clean tree")
         self.has(self.impl, r"never inherits a parked task's code", "no inheritance")
         gh = read("agents/github-agent.md")
-        self.has(gh, r"git stash push --include-untracked -m \"sdd-task-<N>-parked\"", "github-agent park")
-        self.has(gh, r"git stash apply <parkedRef>` \(apply, never pop", "github-agent unpark")
+        self.has(gh, r"sdd-park\.py park --task <N>", "github-agent park")
+        self.has(gh, r"sdd-park\.py unpark\s+--task <N> --ref <parkedRef>", "github-agent unpark")
         self.has(gh, r"Never drop or clear a stash", "stash kept")
 
     def test_next_task_is_chosen_by_depends_line(self):
         self.has(self.impl, r"Which task runs next — mechanical, never guessed", "next task")
-        self.has(self.impl, r"A task without a `Depends:` line depends on every earlier\s+task", "default dependency")
+        self.has(self.impl, r"A task without a `Depends:` line depends\s+on every earlier task", "default dependency")
         tasks = read("agents/tasks-agent.md")
         self.has(tasks, r"^\*\*Depends:\*\* <Task numbers", "tasks template")
         self.has(tasks, r"lists \*\*every\*\* earlier task whose output it needs", "complete deps")
@@ -270,7 +272,7 @@ class OvernightReviewFixesTest(Base):
 
     def test_stale_authorization_is_void(self):
         self.has(self.impl, r"A stale authorization is void", "playbook")
-        self.has(read("commands/sdd-resume.md"), r"it is void — only `/sdd-overnight <feature> on` grants one", "resume")
+        self.has(read("commands/sdd-resume.md"), r"it is void — only a run started in the current session", "resume")
 
     def test_deferred_tasks_have_a_way_back(self):
         self.has(self.impl, r"After the run — recover deferred tasks", "recovery")
@@ -309,9 +311,8 @@ class NoGodFilesTest(Base):
 
     def test_code_reviewer_runs_the_tool_and_maps_severity(self):
         cr = read("agents/code-reviewer.md")
-        self.has(cr, self.TOOL + r" --base <base>", "reviewer runs the tool")
+        self.has(cr, self.TOOL + r" --base HEAD", "reviewer runs the tool")
         self.has(cr, r"\*\*High\*\* \(blocking\) when `modularity: enforced`", "severity")
-        self.has(cr, r"If `python3` or the script is missing, report that\s+as a High finding", "missing tool")
 
     def test_executor_design_and_tasks_agents_carry_the_rule(self):
         self.has(read("agents/task-executor.md"), self.TOOL, "executor self-check")
@@ -328,6 +329,73 @@ class NoGodFilesTest(Base):
         inst = read("install.sh")
         self.has(inst, r'for tool_file in "\$\{SCRIPT_DIR\}/tools/"\*\.py; do', "install loop")
         self.has(inst, r'"\$\{CLAUDE_HOME\}/tools/\$\{name\}"', "install target")
+
+
+class TreeHashExecutionTest(Base):
+    """Run the playbook's tree-hash one-liner itself, extracted from orchestrator.md, in real repos."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        m = re.search(r"touched: `(d=\$\(mktemp -d\).*?)`\.", cls.impl, re.DOTALL)
+        assert m, "tree-hash command not found in the playbook"
+        cls.cmd = m.group(1)
+        for name in ("agents/task-tester.md", "agents/task-validator.md"):
+            assert cls.cmd in read(name), f"{name} carries a different tree-hash command"
+
+    def sh(self, cwd):
+        proc = subprocess.run(["bash", "-c", self.cmd], cwd=cwd, capture_output=True, text=True)
+        return proc.returncode, proc.stdout.strip()
+
+    def test_behaviour_in_a_real_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            git = lambda *a: subprocess.run(["git", "-C", tmp, *a], check=True, capture_output=True)
+            git("init", "-q")
+            (repo / "sub").mkdir()
+            (repo / "top.py").write_text("a\n")
+            (repo / "sub" / "s.py").write_text("b\n")
+            (repo / ".specs").mkdir()
+            (repo / ".specs" / "state.json").write_text("{}\n")
+            rc, h1 = self.sh(tmp)  # fresh repo: no index file yet
+            self.assertEqual(rc, 0)
+            self.assertRegex(h1, r"^[0-9a-f]{40}$")
+            self.assertFalse((repo / ".git" / "index").exists(), "the real index was touched")
+            (repo / ".specs" / "state.json").write_text('{"x": 1}\n')
+            self.assertEqual(self.sh(tmp)[1], h1, ".specs changes must not change the hash")
+            (repo / "top.py").write_text("changed\n")
+            rc, h2 = self.sh(str(repo / "sub"))  # run from a subdirectory
+            self.assertNotEqual(h2, h1, "a top-level change seen from a subdirectory")
+        rc, out = self.sh(tempfile.gettempdir())  # outside any repo
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(out, "")
+
+
+class RoundTwoProseTest(Base):
+    def test_github_agent_parks_only_through_the_tool(self):
+        gh = read("agents/github-agent.md")
+        self.has(gh, r"python3 ~/\.claude/tools/sdd-park\.py park --task <N>", "park via tool")
+        self.has(gh, r"Never hand-roll `git stash`", "no hand-rolled stash")
+        self.lacks(gh, r"git rev-parse 'stash@\{0\}'", "stash@{0} lookup")
+
+    def test_module_size_modes_and_waivers(self):
+        cr = read("agents/code-reviewer.md")
+        self.has(cr, r"--base HEAD <each file in the executor's\s+changed-files list>", "task mode")
+        self.has(cr, r"--merge-base` — against the branch point", "feature mode")
+        self.has(cr, r"`--waive <path>` for each path in the payload's `modularity\.waivers`", "waivers")
+        self.has(cr, r"report that at the same severity — High when\s+enforced, Medium otherwise", "missing tool")
+        self.has(self.orch, r"A waiver names one file; it is never a\s+glob and never granted by an agent", "waiver rule")
+        self.has(self.orch, r"and on \*\*reclassification\*\* to `\"code\"`", "reclassification")
+
+    def test_depends_requires_complete(self):
+        self.has(self.impl, r"every task its `Depends:` line names is `complete`", "Depends complete")
+
+    def test_publish_pending_has_a_consumer(self):
+        gate = section(self.orch, "Feature Review Gate (runs automatically after the last task completes, before `complete`)")
+        self.has(gate, r"Acting on `publishPending`", "consumer")
+        self.has(gate, r"If `HEAD` moved, the PASS is stale: re-run this gate", "stale PASS")
+        self.has(gate, r"Clear `publishPending` after the\s+publish sequence completes", "clear")
+        self.has(read("commands/sdd-resume.md"), r"\*\*Pending publish\.\*\*", "resume")
 
 
 class ClaudeMdSummaryTest(unittest.TestCase):
