@@ -25,6 +25,7 @@ commands/
   sdd-feature.md          # /sdd-feature <name> — create a new feature spec
   sdd-status.md           # /sdd-status — show progress across all features
   sdd-resume.md           # /sdd-resume <name> — resume work on a feature
+  sdd-overnight.md        # /sdd-overnight <name> [on|off|status] — unattended implementation run
 
 hooks/                    # Secret-handling safeguards (installed manually — see hooks/README.md)
   secret-guard.py         # PreToolUse: blocks secret dumps, allows sanctioned use
@@ -231,7 +232,8 @@ Everything installs to `~/.claude/`:
 │   ├── sdd-init.md
 │   ├── sdd-feature.md
 │   ├── sdd-status.md
-│   └── sdd-resume.md
+│   ├── sdd-resume.md
+│   └── sdd-overnight.md
 ├── hooks/           # Secret-handling safeguards (manual install)
 │   ├── secret-guard.py
 │   └── secret-redact.py

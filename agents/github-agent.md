@@ -80,7 +80,10 @@ When instructed by the orchestrator, perform only these operations:
 - **switch-branch** — switch to an existing branch.
 - **commit** — commit the staged `paths` with the supplied `message` **locally**. Do **not** push:
   this is the per-phase and per-task commit during the local-first build. The branch stays local
-  until the single publish point.
+  until the single publish point. Use the `message` **byte for byte**: never add, remove, or change
+  a trailer line (`Co-Authored-By:`, `SDD-Task:`, or any other). The orchestrator authors the
+  attribution trailer; your own model name never goes into a commit. Pass the message with
+  `git commit -F -` (stdin) so the shell never re-quotes it.
 - **push** — push the local feature branch to the remote and set upstream. This runs **once**, at
   the publish point (whole-feature-review PASS), never at scaffold and never per task.
 - **open-pr** — open a pull request from the feature branch into `base`, as **ready**
@@ -162,6 +165,7 @@ GITHUB DONE
 action: <action>
 target: <branch | pr#N | comment-url | label>
 result: <1–2 lines: what now exists/differs on the remote>
+commit: <full SHA of the new commit — commit action only; read it back with `git rev-parse HEAD`>
 auth: <present via GH_TOKEN | present via GITHUB_TOKEN>   # name only, never the value
 ```
 
@@ -174,6 +178,9 @@ reason: <prohibited op (merge/force-push/delete) | missing gh CLI | not a scribe
          | ambiguous/absent content>
 suggestion: <what the orchestrator should do next>
 ```
+
+Never return an empty report. A `commit` action whose report has no `commit:` SHA is a failed
+action — the orchestrator treats it as `GITHUB BLOCKED` and checks `git log -1` itself.
 
 On a missing token, return instead the bare `SECRET REQUEST` line described in Authentication —
 this halts rather than working around the absence.

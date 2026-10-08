@@ -38,7 +38,10 @@ For each requirement cited in the task's **Requirements** field:
 ### 2. Test Coverage
 - [ ] Does at least one test exist for this requirement?
 - [ ] Do the tests verify the actual behaviour described in the requirement (not just that the code runs)?
-- [ ] Do all tests pass?
+- [ ] Do all tests pass? Use the tester's **suite record**: compute the tree hash with a temporary index
+  (`t=$(mktemp) && cp "$(git rev-parse --git-path index)" "$t" && GIT_INDEX_FILE="$t" git add -A && GIT_INDEX_FILE="$t" git write-tree; rm -f "$t"` — never stage into the real index);
+  when it equals the record's tree hash, the record is the answer — do not run the full suite again.
+  Run the suite yourself only when the hash differs, and say so in your report.
 
 > *Artifact-conformance mode only (see `## Artifact-Conformance Mode`):* where the orchestrator's
 > payload sets `taskProducesApplicationCode: false`, the "at least one test exists" check above is

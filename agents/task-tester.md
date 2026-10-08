@@ -58,8 +58,12 @@ You write tests for exactly one task. You do not modify implementation code.
 
 ### Running Tests
 
-- Run the tests you wrote to verify they pass.
-- Also run any existing tests in the affected area to check for regressions.
+- Run the tests you wrote to verify they pass. Iterate with targeted runs (by path or `-k`).
+- After your **final** change, run the **full suite once** — with the parallel runner `tech.md`
+  names (e.g. `pytest -n auto`) when it names one — and write the **suite record**: the tree hash
+  from `t=$(mktemp) && cp "$(git rev-parse --git-path index)" "$t" && GIT_INDEX_FILE="$t" git add -A && GIT_INDEX_FILE="$t" git write-tree; rm -f "$t"`
+  (a temporary index, so the real index is never touched), the result, the counts, and the duration. Later stages reuse
+  this record while the tree is unchanged. A full-suite run before your final change is wasted.
 - If existing tests fail due to the new implementation, report which tests and why — do not fix them unless they are testing the same requirements this task covers.
 
 ## Completion Summary
@@ -76,6 +80,7 @@ You write tests for exactly one task. You do not modify implementation code.
 - FR-1.1: covered by test_name
 
 ### Test Results
+- Suite record: tree <hash> | PASS / FAIL | <passed>/<failed>/<skipped> | <seconds> s
 - All new tests: PASS / FAIL (details if fail)
 - Existing tests in affected area: PASS / FAIL (details if fail)
 

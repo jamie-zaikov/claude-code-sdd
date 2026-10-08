@@ -52,6 +52,13 @@ import from it, and expect the integrating tasks to see the modules earlier task
 - Write clear, readable code. Add inline comments only where the intent is non-obvious.
 - Do not leave TODO comments — either implement it or flag it in your summary.
 
+### Test Runs
+
+While you work, run **targeted** tests only — the tests for the modules you touched (by path or
+`-k`). Do **not** run the full suite: the tester runs it once, after its final change, and records
+the result as the suite record. You may run the full suite once at the end only when the task
+changes a shared module whose callers you cannot list; report it under `Notes` if you do.
+
 ### On Retry
 
 If the orchestrator includes a failure report from a previous attempt:
