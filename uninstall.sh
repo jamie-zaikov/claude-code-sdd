@@ -35,6 +35,7 @@ done
 
 # Remove agent tools
 rm -f "${CLAUDE_HOME}/tools/sdd-module-size.py"
+rm -f "${CLAUDE_HOME}/tools/sdd-status.py"
 
 echo ""
 echo "Removed SDD agents and commands."

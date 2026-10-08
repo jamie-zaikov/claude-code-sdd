@@ -29,6 +29,7 @@ commands/
 
 tools/                    # Mechanical checks the agents run (installed to ~/.claude/tools/)
   sdd-module-size.py      # "No god files" ratchet: a file over the limit may not grow
+  sdd-status.py           # Specialist status files: atomic `set`, schema/staleness `check`
 
 hooks/                    # Secret-handling safeguards (installed manually — see hooks/README.md)
   secret-guard.py         # PreToolUse: blocks secret dumps, allows sanctioned use

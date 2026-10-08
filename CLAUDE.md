@@ -68,6 +68,10 @@ work, not to the gates themselves. The orchestrator playbook therefore enforces:
   over it and grow — existing god files may only hold or shrink. `~/.claude/tools/sdd-module-size.py`
   is the one definition; the code-reviewer runs it, and on a feature planned under the rule every
   violation is High.
+- **Status files, not polling.** Every specialist except the read-only consistency checker keeps one
+  JSON status file (`spec-memory/status/<task>-<agent>-a<n>.json`: state, step, updatedAt,
+  summaryPath). The orchestrator acts on completion notices and, on a heartbeat, reads that state
+  with `~/.claude/tools/sdd-status.py check` — never guessing liveness from silence.
 - **Overnight mode covers implementation only.** `/sdd-overnight <feature>` is its one switch. It
   runs the phase check and the preflight first, and it ends with one fixed summary template. It never asks and waits — it picks the fail-closed,
   reversible option, records it under `userApprovalNeeded`, and moves to the next independent task.
