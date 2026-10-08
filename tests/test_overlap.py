@@ -138,6 +138,29 @@ class OverlapTest(unittest.TestCase):
         self.assertEqual((self.repo / "src" / "a.py").read_text(), "a = 2\n")
         self.assertEqual((self.repo / ".specs/f/.spec-state.json").read_text(), '{"n": "complete"}\n')
 
+    def test_a_failed_pick_keeps_staged_specs_work(self):
+        wt, base = self.start()
+        self.write("src/m.py", "m = 1\n", root=wt)
+        self.commit_task_n()
+        self.write(".specs/f/staged.md", "staged work\n")
+        self.git("add", ".specs/f/staged.md")
+        orig_run = ov.subprocess.run
+
+        def fake_run(argv, *a, **kw):
+            if "cherry-pick" in argv:
+                orig_run(argv, *a, **kw)
+                return ov.subprocess.CompletedProcess(argv, 1, "", "simulated conflict")
+            return orig_run(argv, *a, **kw)
+
+        ov.subprocess.run = fake_run
+        self.addCleanup(setattr, ov.subprocess, "run", orig_run)
+        with self.assertRaises(ov.Stale):
+            ov.land(self.repo, "2", base)
+        ov.subprocess.run = orig_run
+        self.assertIn(".specs/f/staged.md", self.git("diff", "--cached", "--name-only"))
+        self.assertEqual((self.repo / ".specs/f/staged.md").read_text(), "staged work\n")
+        self.assertFalse((self.repo / "src" / "m.py").exists())
+
     def test_an_orphaned_directory_is_discarded_and_unblocks_start(self):
         wt, _ = self.start()
         self.git("worktree", "remove", "--force", str(wt))

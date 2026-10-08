@@ -114,23 +114,38 @@ def land(repo: Path, task: str, base: str) -> None:
         raise Stale("the base task changed after the snapshot; discard and restart this task")
     wip_tree = tree_of(path)
     wip = git(repo, "commit-tree", wip_tree, "-p", base, "-m", f"sdd-speculative work for task {task}").strip()
-    added = [p for p in git(repo, "diff", "--name-only", "-z", "--diff-filter=A", base, wip,
-                            "--").split("\0") if p]
-    absent = [p for p in added if not (repo / p).exists() and not (repo / p).is_symlink()]
+    touched = [p for p in git(repo, "diff", "--name-only", "-z", "--no-renames", base, wip,
+                              "--").split("\0") if p]
+    in_head = set(filter(None, git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
+                                   *touched).split("\0"))) if touched else set()
+    absent = [p for p in touched if p not in in_head
+              and not (repo / p).exists() and not (repo / p).is_symlink()]
     picked = subprocess.run(["git", "-C", str(repo), "cherry-pick", "--no-commit", wip],
                             capture_output=True, text=True)
     if picked.returncode != 0:
-        # `--no-commit` writes no CHERRY_PICK_HEAD, so `cherry-pick --abort` is a no-op. Restore by
-        # hand: `reset --merge` returns the paths the pick touched to HEAD and keeps every other
-        # change (the .specs/ state files); then delete the new files the pick wrote.
-        git(repo, "reset", "-q", "--merge", check=False)
-        for rel in absent:
-            target = repo / rel
-            if target.is_symlink() or target.is_file():
-                target.unlink()
+        restore(repo, sorted(in_head), absent)
         raise Stale(f"cherry-pick failed; the tree was restored: {picked.stderr.strip()}")
     git(repo, "reset", "-q")  # leave M's work as plain working-tree changes, like any executor's
     discard(repo, task)
+
+
+def restore(repo: Path, tracked: List[str], absent: List[str]) -> None:
+    """Undo a failed `cherry-pick --no-commit` on exactly the paths the pick could touch: tracked
+    ones go back to HEAD (index and file), new ones that were absent before are unstaged and
+    deleted. Nothing else — staged `.specs/` work, untracked user files — is touched. (`cherry-pick
+    --abort` is a no-op after `--no-commit`.) A restore that fails is reported, never hidden."""
+    env = dict(os.environ, GIT_LITERAL_PATHSPECS="1")
+    for start in range(0, len(tracked), 200):
+        chunk = tracked[start:start + 200]
+        git(repo, "restore", "--source=HEAD", "--staged", "--worktree", "--", *chunk, env=env)
+    for rel in absent:
+        git(repo, "rm", "-q", "--cached", "--ignore-unmatch", "--", rel, env=env)
+        target = repo / rel
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+    if any(line[:2] in ("UU", "AA", "DU", "UD", "AU", "UA")
+           for line in git(repo, "status", "--porcelain").splitlines()):
+        raise Refused("the restore left conflicted paths; the tree needs a manual check")
 
 
 def discard(repo: Path, task: str) -> None:

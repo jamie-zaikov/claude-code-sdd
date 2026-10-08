@@ -201,6 +201,13 @@ class PackTest(unittest.TestCase):
         sections, _ = cp.sections_for(DESIGN, ["C20"], False)
         self.assertNotIn("Must not match C20", "\n".join(sections))
 
+    def test_an_exact_first_cell_wins_over_a_shared_row(self):
+        doc = "| ID | x |\n|---|---|\n| C2 / C3 | shared |\n| C2-legacy | old |\n| C2 | the real one |\n"
+        sections, missing = cp.sections_for(doc, ["C2"], False)
+        self.assertEqual(missing, [])
+        self.assertIn("the real one", sections[0])
+        self.assertNotIn("shared", sections[0])
+
     def test_cross_parent_range_is_never_guessed(self):
         self.assertEqual(cp.cited_requirements("FR-1.2–FR-2.3"), ["FR-1.2", "FR-2.3"])
 

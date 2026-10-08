@@ -167,16 +167,17 @@ def sections_for(doc: str, wanted: List[str], descend: bool) -> Tuple[List[str],
     sections = ["\n".join(lines[s:e]).rstrip() for s, e in sorted(picked)]
     # A component defined as a table row (`| C19 | ... |`): the row, under its table header.
     for want in [w for w in wanted if w not in found]:
-        row = re.compile(rf"^\|\s*\**{re.escape(want)}\**(?!\w|\.\w)[^|]*\|")  # first cell starts with it
-        for i, line in enumerate(lines):
-            if row.match(line):
-                top = i
-                while top > 0 and lines[top - 1].lstrip().startswith("|"):
-                    top -= 1
-                header = lines[top:min(top + 2, i)]
-                sections.append("\n".join(header + [line]).rstrip())
-                found.add(want)
-                break
+        exact = re.compile(rf"^\|\s*\**{re.escape(want)}\**\s*\|")
+        prefix = re.compile(rf"^\|\s*\**{re.escape(want)}\**(?!\w|\.\w|-\w)[^|]*\|")
+        hits = [i for i, line in enumerate(lines) if exact.match(line)]
+        hits = hits or [i for i, line in enumerate(lines) if prefix.match(line)]  # `| **DD-4** (OQ-10) |`
+        if hits:
+            i = hits[0]
+            top = i
+            while top > 0 and lines[top - 1].lstrip().startswith("|"):
+                top -= 1
+            sections.append("\n".join(lines[top:min(top + 2, i)] + [lines[i]]).rstrip())
+            found.add(want)
     return sections, [w for w in wanted if w not in found]
 
 
