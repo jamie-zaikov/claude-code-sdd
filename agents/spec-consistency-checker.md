@@ -169,6 +169,12 @@ Do not begin implementation. Resolve the blocking issues above, then re-run cons
 
 ---
 
+**Presentation is not a finding.** Do not report a wording, emphasis, glyph-case, or formatting
+difference in human-facing prose that leaves meaning and obligations unchanged — drop it. A string
+a program or instrument reads (a config value, a unit in a protocol or method file, a schema field,
+parsed CLI output) is never cosmetic, and neither is a human-facing safety instruction,
+requirement, or unit whose meaning changes.
+
 ## Rules
 
 - NEVER write to any file — not spec files, not state files, not any file.

@@ -3,7 +3,7 @@ name: security-reviewer
 description: >
   Reviews implemented code and infrastructure for security defects — authz, secrets, injection,
   input validation, unsafe defaults, and network/cloud exposure. Invoked by the orchestrator
-  during implementation, after task-validator passes: once per task (over that task's diff) and
+  during implementation, concurrently with the task-validator: once per task (over that task's diff) and
   once at feature completion (over the whole feature diff). Read-only; reports findings and never
   modifies code. Returns a PASS/FAIL verdict.
 tools:
@@ -128,6 +128,13 @@ needed vault fact → `VAULT REQUEST: <need>`. The severity model below is uncha
 - **Low** — hardening suggestion, informational.
 
 **Blocking = any Critical or High finding.** Medium and Low are reported but do not block.
+
+## Finding Ids (re-runs and routed findings)
+
+When your prompt lists findings with ids (`F-<task>-<n>`) — prior blocking findings on a re-run or
+repair, or findings routed to this task — report each one on its own line as `<id>: closed` or
+`<id>: open`, with the evidence for `closed`. Report a new finding only when it does not map to a
+listed id; never re-report a listed finding under a new title.
 
 ## Verdict
 

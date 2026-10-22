@@ -11,6 +11,11 @@ import re
 import unittest
 from pathlib import Path
 
+try:
+    from tests import prose
+except ImportError:  # run from inside tests/
+    import prose
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -26,11 +31,11 @@ class Base(unittest.TestCase):
         cls.impl = cls.orch[start:cls.orch.index("### Feature Review Gate", start)]
 
     def has(self, text, pat, label):
-        if not re.search(pat, text, re.IGNORECASE | re.MULTILINE | re.DOTALL):
+        if not prose.search(text, pat):
             self.fail(f"{label}: missing /{pat}/")
 
     def lacks(self, text, pat, label):
-        if re.search(pat, text, re.IGNORECASE | re.MULTILINE | re.DOTALL):
+        if prose.search(text, pat):
             self.fail(f"{label}: forbidden /{pat}/ present")
 
 
@@ -187,6 +192,29 @@ class OverlapTest(Base):
         self.has(self.orch, r"`invocations`, and `speculation` \(top level\)", "state key")
 
 
+def _install_uninstall_roundtrip(tools):
+    """Install into a temp destination, then uninstall; return {tool: (after_install, after_uninstall)}."""
+    import subprocess
+    import sys
+    import tempfile
+
+    out = {}
+    with tempfile.TemporaryDirectory(prefix="sdd install ") as d:
+        dest = Path(d) / "claude home"
+        common = ["--claude-home", str(dest)]
+        inst = subprocess.run([sys.executable, str(ROOT / "install.py"), "--yes", "--no-hooks",
+                               "--no-pre-push"] + common, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True)
+        assert inst.returncode == 0, inst.stdout + inst.stderr
+        present = {t: (dest / "tools" / t).is_file() for t in tools}
+        un = subprocess.run([sys.executable, str(ROOT / "uninstall.py"), "--yes"] + common,
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        assert un.returncode == 0, un.stdout + un.stderr
+        for t in tools:
+            out[t] = (present[t], (dest / "tools" / t).exists())
+    return out
+
+
 class DocsTest(unittest.TestCase):
     def test_claude_md_summarises_pr2(self):
         text = read("CLAUDE.md")
@@ -195,9 +223,12 @@ class DocsTest(unittest.TestCase):
             self.assertRegex(text, pat)
 
     def test_readme_and_uninstall_list_the_tools(self):
-        for tool in ("sdd-context-pack.py", "sdd-overlap.py"):
+        # Behaviour, not spelling: install ships each tool and uninstall removes it.
+        tools = ("sdd-context-pack.py", "sdd-overlap.py")
+        for tool, (installed, left) in _install_uninstall_roundtrip(tools).items():
             self.assertIn(tool, read("README.md"))
-            self.assertIn(f'rm -f "${{CLAUDE_HOME}}/tools/{tool}"', read("uninstall.sh"))
+            self.assertTrue(installed, f"install.py did not install {tool}")
+            self.assertFalse(left, f"uninstall.py did not remove {tool}")
 
 
 if __name__ == "__main__":

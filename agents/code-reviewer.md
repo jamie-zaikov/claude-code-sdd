@@ -3,7 +3,7 @@ name: code-reviewer
 description: >
   Adversarially reviews implemented code for correctness, robustness, and maintainability —
   the bug classes a requirement-anchored validator misses by construction. Invoked by the
-  orchestrator during implementation, after task-validator passes: once per task (over that
+  orchestrator during implementation, concurrently with the task-validator: once per task (over that
   task's diff) and once at feature completion (over the whole feature diff). Read-only; reports
   findings and never modifies code. Returns a PASS/FAIL verdict.
 tools:
@@ -98,12 +98,20 @@ diff reach the same verdict:
   --merge-base` — against the branch point, so work merged to the base later is never blamed here.
 - Add `--waive <path>` for each path in the payload's `modularity.waivers` (user-granted only).
 
-Each line it prints without `WAIVED` is one finding: a source file over the module size limit that
-grew. A `WAIVED` line is a **Medium** finding, recorded with its waiver. Severity comes from the
+Each line it prints without `WAIVED` or `WARNING (test file)` is one finding: a source file over the
+module size limit that grew. A `WAIVED` line is a **Medium** finding, recorded with its waiver. A
+`WARNING (test file)` line is never blocking — at most a **Low** finding; a real correctness or
+maintainability problem in a large test file is reported on its own merits. Severity comes from the
 orchestrator's `modularity` payload: **High** (blocking) when `modularity: enforced`, **Medium**
 otherwise (a feature planned before the rule). Never soften or skip it. If `python3` or the script is
 missing, or it exits 2, the check did not run: report that at the same severity — High when
 enforced, Medium otherwise.
+
+**Presentation is not a finding.** Do not report a wording, emphasis, glyph-case, or formatting
+difference in human-facing prose that leaves meaning and obligations unchanged — drop it. A string
+a program or instrument reads (a config value, a unit in a protocol or method file, a schema field,
+parsed CLI output) is never cosmetic, and neither is a human-facing safety instruction,
+requirement, or unit whose meaning changes.
 
 ### Integration (feature mode especially)
 - Contract drift between tasks — one task changed a signature/shape another still assumes.
@@ -171,6 +179,13 @@ Assign every finding a severity. Severity drives the verdict.
 - **Low** — style, minor duplication, nits.
 
 **Blocking = any Critical or High finding.** Medium and Low are reported but do not block.
+
+## Finding Ids (re-runs and routed findings)
+
+When your prompt lists findings with ids (`F-<task>-<n>`) — prior blocking findings on a re-run or
+repair, or findings routed to this task — report each one on its own line as `<id>: closed` or
+`<id>: open`, with the evidence for `closed`. Report a new finding only when it does not map to a
+listed id; never re-report a listed finding under a new title.
 
 ## Verdict
 

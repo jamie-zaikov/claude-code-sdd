@@ -70,8 +70,12 @@ Where the artifact is a behaviour-bearing contract in Markdown, inspection prove
 recurring defect was **correct logic that nothing pinned** — it read right, and no test held it
 in place. Three separate High-severity findings shared that exact shape.
 
-- Prove a pin **bites**: mutate the pinned text (re-indent one line, add one trailing space) and
-  confirm the assertion goes RED.
+- Prove a pin **bites on meaning**: make a dangerous semantic mutation (delete the rule, invert
+  it, weaken its scope) and confirm the assertion goes RED.
+- Prove a pin **tolerates presentation**: make an equivalent change (re-indent, re-wrap, drop
+  emphasis, reword without changing the obligation) and confirm the assertion stays GREEN. A pin
+  that goes RED on a harmless reformat is a false blocker, not extra safety. Exact bytes are
+  pinned only where a parser, wire format, machine instruction or public interface requires them.
 - Prove a guard **discriminates**: a probe that matches both the forbidden text and its
   legitimate replacement proves nothing.
 - Beware **verb blindness**: a census keyed on one verb (`set`) misses the same action phrased
@@ -88,8 +92,9 @@ divergence immediately and fix the design — never degrade the implementation t
 
 ## 7. One pull request per feature. The merge is human and gated.
 
-Tasks accumulate on the feature branch under a single **draft** PR, merged by a human only after
-the whole-feature review passes and `ready-to-merge` is applied. Mid-feature merges were tried
+Tasks accumulate as local commits on the feature branch; the branch is pushed and the one PR is
+opened **ready**, carrying `ready-to-merge`, only at the whole-feature-review PASS (local-first),
+and a human merges it. Mid-feature merges were tried
 and are the deviation, not the model: they leave the whole-feature gate with no accumulated diff
 to review and make `ready-to-merge` gate nothing.
 

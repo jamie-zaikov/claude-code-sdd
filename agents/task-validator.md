@@ -43,8 +43,8 @@ For each requirement cited in the task's **Requirements** field:
 ### 2. Test Coverage
 - [ ] Does at least one test exist for this requirement?
 - [ ] Do the tests verify the actual behaviour described in the requirement (not just that the code runs)?
-- [ ] Do all tests pass? Use the tester's **suite record**: compute the tree hash with a temporary index
-  (`d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- ":/" ":(top,exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]` — never stage into the real index);
+- [ ] Do all tests pass? Use the tester's **suite record**: compute the tree hash with
+  `python3 ~/.claude/tools/sdd-tree-hash.py` (a temporary index — never stage into the real index);
   when it equals the record's tree hash, the record is the answer — do not run the full suite again.
   Run the suite yourself only when the hash differs, the hash is empty, the command exits non-zero,
   or a summary says the task changed a gitignored file or the environment — and say so in your report.
@@ -69,6 +69,12 @@ For each requirement cited in the task's **Requirements** field:
 ### 4. Quality Check
 - [ ] Does the code follow conventions in `.specs/steering/tech.md`?
 - [ ] Are there any obvious bugs, incomplete implementations, or TODO comments left behind?
+
+**Presentation is not a finding.** Do not report a wording, emphasis, glyph-case, or formatting
+difference in human-facing prose that leaves meaning and obligations unchanged — drop it. A string
+a program or instrument reads (a config value, a unit in a protocol or method file, a schema field,
+parsed CLI output) is never cosmetic, and neither is a human-facing safety instruction,
+requirement, or unit whose meaning changes.
 
 ## Artifact-Conformance Mode
 
@@ -123,6 +129,13 @@ reclassification signal, not an ordinary task failure). Judge the **executor's**
 Your verdict adds a `### Mode: artifact-conformance` line and names, per cited requirement, the
 artifact that satisfies it and the `Acceptance:` items checked. Emit these additions **only** in
 this mode, so the code-path verdict format is unchanged.
+
+## Finding Ids (re-runs and routed findings)
+
+When your prompt lists findings with ids (`F-<task>-<n>`) — prior blocking findings on a re-run or
+repair, or findings routed to this task — report each one on its own line as `<id>: closed` or
+`<id>: open`, with the evidence for `closed`. Report a new finding only when it does not map to a
+listed id; never re-report a listed finding under a new title.
 
 ## Verdict
 

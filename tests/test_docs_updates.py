@@ -21,6 +21,7 @@ Stdlib-only. Run:
     python3 tests/test_docs_updates.py
 """
 
+import os
 import re
 import unittest
 from pathlib import Path
@@ -31,8 +32,11 @@ ROOT = Path(__file__).resolve().parent.parent
 REPO_CLAUDE = ROOT / "CLAUDE.md"
 README = ROOT / "README.md"
 
-# The GLOBAL CLAUDE.md lives outside the worktree; read it at its absolute path.
-GLOBAL_CLAUDE = Path("/Users/jamie.zaikov/.claude/CLAUDE.md")
+# The GLOBAL CLAUDE.md is the installed copy. Comparing it with the repo checks the INSTALL STATE,
+# not the repo: on a feature branch the installed copy is expected to lag (it is synced only after
+# merge). So the cross-file checks run only when asked: SDD_CHECK_GLOBAL_SYNC=1 after ./install.sh.
+GLOBAL_CLAUDE = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "CLAUDE.md"
+CHECK_GLOBAL = os.environ.get("SDD_CHECK_GLOBAL_SYNC") == "1"
 
 
 # --- Markdown structural helpers -------------------------------------------
@@ -162,6 +166,8 @@ class ClaudeOwnershipContentTest(unittest.TestCase):
         cls.global_available = False
         cls.global_text = None
         cls.global_section = None
+        if not CHECK_GLOBAL:
+            return  # install-state checks are opt-in; the tests below skip with that reason
         try:
             cls.global_text = GLOBAL_CLAUDE.read_text(encoding="utf-8")
             cls.global_available = True
@@ -196,13 +202,13 @@ class ClaudeOwnershipContentTest(unittest.TestCase):
     def test_global_claude_available_or_skip(self):
         """FR-23: the GLOBAL CLAUDE.md is readable at its absolute path (informational)."""
         if not self.global_available:
-            self.skipTest(f"global CLAUDE.md not readable at {GLOBAL_CLAUDE}; cross-file check skipped")
+            self.skipTest(f"install-state check off (set SDD_CHECK_GLOBAL_SYNC=1) or global CLAUDE.md not readable at {GLOBAL_CLAUDE}; cross-file check skipped")
         self.assertTrue(self.global_text.strip(), "global CLAUDE.md is empty")
 
     def test_global_required_lines_present(self):
         """FR-23/FR-23.1/NFR-4: bullet + gh/git-push line + invariant present in the GLOBAL CLAUDE.md."""
         if not self.global_available:
-            self.skipTest(f"global CLAUDE.md not readable at {GLOBAL_CLAUDE}; cross-file check skipped")
+            self.skipTest(f"install-state check off (set SDD_CHECK_GLOBAL_SYNC=1) or global CLAUDE.md not readable at {GLOBAL_CLAUDE}; cross-file check skipped")
         self.assertIsNotNone(self.global_section, "global CLAUDE.md missing an Agent Ownership section")
         lines = github_agent_lines(self.global_section)
         self.assertIn("bullet", lines, "global CLAUDE.md missing the `- github-agent` bullet")
@@ -212,7 +218,7 @@ class ClaudeOwnershipContentTest(unittest.TestCase):
     def test_two_claude_ownership_lines_consistent(self):
         """FR-23/NFR-4: the github-agent bullet, gh/git-push line, and invariant match across both files."""
         if not self.global_available:
-            self.skipTest(f"global CLAUDE.md not readable at {GLOBAL_CLAUDE}; cross-file consistency skipped")
+            self.skipTest(f"install-state check off (set SDD_CHECK_GLOBAL_SYNC=1) or global CLAUDE.md not readable at {GLOBAL_CLAUDE}; cross-file consistency skipped")
         repo_lines = github_agent_lines(self.repo_section)
         global_lines = github_agent_lines(self.global_section)
         for key in ("bullet", "gh_line", "invariant"):
@@ -231,7 +237,7 @@ class ClaudeOwnershipContentTest(unittest.TestCase):
         stays meaningful even if the byte-identical convention later changes.
         """
         if not self.global_available:
-            self.skipTest(f"global CLAUDE.md not readable at {GLOBAL_CLAUDE}; byte-identity skipped")
+            self.skipTest(f"install-state check off (set SDD_CHECK_GLOBAL_SYNC=1) or global CLAUDE.md not readable at {GLOBAL_CLAUDE}; byte-identity skipped")
         self.assertEqual(
             self.repo_text, self.global_text,
             "repo-root and global CLAUDE.md are not byte-identical (sync convention broken)",

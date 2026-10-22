@@ -14,8 +14,12 @@
 #      stored in this file (the repo's own secret-scan gate would otherwise flag
 #      it).
 #   3. `bash -n` on install.sh, plus `shellcheck install.sh` when shellcheck is
-#      available. shellcheck's ABSENCE is not a failure (skipped gracefully); a
-#      shellcheck FINDING is a check failure.
+#      available. A missing shellcheck is not a failure (skipped gracefully); any
+#      finding it reports is a check failure.
+#   4. The unittest suite, as ONE process over tests/ (override the directory with
+#      SDD_CI_TEST_DIR — the seam tests/test_dogfood_ci.py uses so it never runs
+#      this suite recursively). Zero collected tests is a failure: an import error
+#      or a moved test directory must never pass silently.
 
 set -euo pipefail
 
@@ -26,6 +30,19 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 cd "$REPO_ROOT"
 
 say() { printf '%s\n' "$*"; }
+
+# Interpreter policy: python3, then the Windows launcher `py -3`, then python (the same order
+# as sdd-global's scripts/find-python.sh). Git Bash on Windows often has no python3, so when it
+# is missing a `python3` shell function forwards to the first working fallback. Later
+# `command -v python3` checks see the function, and command substitutions inherit it.
+# A Microsoft Store `python3` alias stub exists on PATH but does not run: probe by running it.
+if ! python3 -c 'import sys' >/dev/null 2>&1; then
+  if command -v py >/dev/null 2>&1 && py -3 -c 'import sys' >/dev/null 2>&1; then
+    python3() { py -3 "$@"; }
+  elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+    python3() { python "$@"; }
+  fi
+fi
 
 # --- 1. Byte-compile the Python scripts ------------------------------------
 say "==> py_compile: hook scripts + shared scanner"
@@ -75,6 +92,24 @@ if command -v shellcheck >/dev/null 2>&1; then
 else
   say "==> shellcheck: not installed — skipping (advisory; not a failure)"
 fi
+
+# --- 4. The regression suite ---------------------------------------------
+test_dir="${SDD_CI_TEST_DIR:-tests}"
+say "==> unittest: ${test_dir} (one process)"
+suite_log=$(mktemp)
+if python3 -m unittest discover -s "$test_dir" -p 'test_*.py' >"$suite_log" 2>&1; then
+  suite_rc=0
+else
+  suite_rc=$?
+fi
+grep -E '^(Ran [0-9]+ tests?|OK|FAILED)' "$suite_log" | sed 's/^/    /' || true
+if [ "$suite_rc" -ne 0 ] || ! grep -Eq '^Ran [1-9][0-9]* tests?' "$suite_log"; then
+  say "    FAIL: the suite failed or collected no tests (exit ${suite_rc}):"
+  cat "$suite_log"
+  rm -f "$suite_log"
+  exit 1
+fi
+rm -f "$suite_log"
 
 say ""
 say "ci.sh: all checks passed."

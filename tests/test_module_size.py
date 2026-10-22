@@ -8,6 +8,8 @@ Run:
     python3 -m unittest tests.test_module_size -v
 """
 
+import contextlib
+import io
 import importlib.util
 import subprocess
 import sys
@@ -281,3 +283,35 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestFileWarningTest(RepoCase):
+    """Test files over the limit warn and never block (scope parallel-waves, O8)."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("app.py", lines(5))
+        self.commit()
+
+    def test_big_test_file_warns_and_exits_zero(self):
+        for rel in ("tests/test_big.py", "pkg/test_big.py", "src/big_test.go",
+                    "web/big.test.ts", "web/__tests__/big.js", "tests/helpers.py"):
+            with self.subTest(rel=rel):
+                self.write(rel, lines(21))
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    rc = self.run_tool("--limit", "20")
+                self.assertEqual(rc, 0, f"{rel} must not block")
+                self.assertIn(f"{rel}: 0 -> 21 (limit 20) WARNING (test file)", out.getvalue())
+                (self.repo / rel).unlink()
+
+    def test_big_source_file_still_blocks_beside_a_big_test(self):
+        self.write("tests/test_big.py", lines(21))
+        self.write("big.py", lines(21))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.run_tool("--limit", "20"), 1)
+
+    def test_names_that_only_look_like_tests_are_source(self):
+        for rel in ("contest.py", "latest.py", "attestation/x.py", "testimony.py"):
+            with self.subTest(rel=rel):
+                self.assertFalse(tool.is_test_file(rel), rel)

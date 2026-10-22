@@ -28,15 +28,26 @@ commands/
   sdd-overnight.md        # /sdd-overnight <name> [on|off|status] — unattended implementation run
 
 tools/                    # Mechanical checks the agents run (installed to ~/.claude/tools/)
-  sdd-module-size.py      # "No god files" ratchet: a file over the limit may not grow
+  sdd-module-size.py      # "No god files" ratchet: a file over the limit may not grow (tests: warn)
   sdd-status.py           # Specialist status files: atomic `set`, schema/staleness `check`
   sdd-park.py             # Park/unpark a halted task's work (github-agent); never records a foreign stash
   sdd-context-pack.py     # One task's cited spec text + a NOT FOUND list, instead of the whole folder
   sdd-overlap.py          # Level 1 stage overlap: speculative worktree for task N+1 during N's reviews
+  sdd-tree-hash.py        # Working-tree identity for suite records (temporary index, .specs/ excluded)
+  sdd-findings.py         # One findings index (orchestrator-only writer) + in-attempt repair check
+  sdd-wave.py             # Two-task wave: isolated worktrees, combined candidate, land/unland/adopt
 
-hooks/                    # Secret-handling safeguards (installed manually — see hooks/README.md)
-  secret-guard.py         # PreToolUse: blocks secret dumps, allows sanctioned use
-  secret-redact.py        # PostToolUse: scrubs secret-shaped strings from Bash output
+playbooks/                # Procedures the orchestrator reads on demand (installed to ~/.claude/playbooks/)
+  sdd-waves.md            # The two-task wave procedure (opt-in: `Task waves: 2` in tech.md)
+
+hooks/                    # Secret-handling safeguards (installer opt-in — see hooks/README.md)
+  secret-guard.py         # PreToolUse (Bash|PowerShell): blocks secret dumps, allows sanctioned use
+  secret-redact.py        # PostToolUse (Bash|PowerShell): scrubs secret-shaped strings from output
+
+install.py, uninstall.py  # All installer logic (stdlib Python >= 3.9), core in sdd_install/
+install.sh, uninstall.sh  # Thin shims (macOS, Linux, Git Bash): find Python, run the .py
+install.ps1, uninstall.ps1 # Thin shims for Windows PowerShell / pwsh
+scripts/find-python.sh    # The interpreter-resolution order: python3, py -3, python
 
 ci-templates/             # CI enforcement layer — distributed by /sdd-init, dogfooded in .github/
   workflows/
@@ -64,15 +75,18 @@ steering-templates/       # Reference copies of default steering files
   Opus for every planning, implementation, and review agent (the executor runs Opus on every
   attempt, first and retry alike), Sonnet only for the scribes (github-agent, vault-reader,
   vault-writer), which never author content.
-- Python 3 on `PATH` — only if you enable the secret-handling hooks (see below).
+- Python 3.9 or later. The installer itself is Python; the shims look for `python3`, then the
+  Windows launcher `py -3`, then `python`.
+- Windows (native): Windows 10 1809 or later; **Git for Windows recommended** (Claude Code's Bash
+  tool is Git Bash; without it the PowerShell tool is the only shell tool). See
+  [Windows](#windows).
 
 ## Install
 
 ```bash
 git clone <repo-url> sdd-global
 cd sdd-global
-chmod +x install.sh
-./install.sh
+./install.sh            # or: bash install.sh
 ```
 
 Or if you downloaded the archive:
@@ -80,23 +94,55 @@ Or if you downloaded the archive:
 ```bash
 tar xzf sdd-global.tar.gz
 cd sdd-global
-chmod +x install.sh
 ./install.sh
 ```
 
 The installer will:
 
-1. Copy all 13 agents to `~/.claude/agents/`
-2. Copy all 4 slash commands to `~/.claude/commands/`
-3. Install the global CLAUDE.md to `~/.claude/CLAUDE.md`
+1. Copy all 13 agents to `<claude home>/agents/`, the slash commands to `commands/`, the
+   playbooks (`playbooks/*.md`, when the checkout has them) to `playbooks/`, and the agent tools to
+   `tools/`
+2. Install the global CLAUDE.md
    - If you already have one, it offers to overwrite, append, or skip
-4. Check if `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is set
+3. Offer the secret-handling safeguards: `permissions.deny` rules plus the guard/redact hooks in
+   `settings.json` (backup written, idempotent, verified — see [`hooks/README.md`](hooks/README.md))
+4. Offer the SDD CI pre-push hook for this repository
+5. Check if `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is set
    - Offers to add it to your shell profile if missing
-5. Print VS Code settings.json recommendations
+6. Print VS Code settings.json recommendations
 
-> The installer does **not** set up the secret-handling hooks or `permissions.deny` rules — those
-> are machine-level config in `~/.claude/settings.json`. Enable them separately following
-> [`hooks/README.md`](hooks/README.md). See [Security & secret handling](#security--secret-handling).
+**Destination.** `<claude home>` is `--claude-home PATH` if given, else `$CLAUDE_CONFIG_DIR`, else
+`~/.claude` (on Windows `%USERPROFILE%\.claude`). `uninstall` uses the same rule.
+
+**Non-interactive.** `./install.sh --yes` enables the safeguards and the pre-push hook, keeps a
+differing CLAUDE.md, and never edits a shell profile. Override any step with `--no-hooks`,
+`--no-pre-push`, `--claude-md overwrite|append|skip`, `--shell-profile`. `./install.sh --help`
+lists every flag. `python3 install.py --verify` re-checks an installed copy.
+
+**Exit status.** If you enable the safeguards and they cannot be installed and verified (no Python
+3.9+, malformed `settings.json`, a failed write, a hook that fails its self-test), the installer
+prints `NOT PROTECTED` and exits non-zero. It never prints a warning and then reports success.
+
+### Windows
+
+Prerequisites: Windows 10 1809+, Python 3.9+ (python.org installer or `winget install
+Python.Python.3.12`; the `py` launcher is enough), Git for Windows recommended.
+
+```powershell
+cd sdd-global
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+# or, from Git Bash:  ./install.sh
+```
+
+Both shims run the same `install.py`. The hooks register for `Bash|PowerShell`, in exec form with
+absolute paths, so a user name with a space works.
+
+**Known limit — agent playbooks call `python3`.** Agents and commands run their tools as
+`python3 ~/.claude/tools/...` through the Bash tool (Git Bash). Git Bash often has no `python3`
+(the python.org installer ships `python.exe` and `py.exe`). Make `python3` resolve in Git Bash,
+for example add to `~/.bashrc`: `python3() { py -3 "$@"; }` — or create a `python3` alias of your
+interpreter. Native PowerShell execution of the SDD playbooks is not supported. The pre-push hook
+and `scripts/ci.sh` already fall back to `py -3` / `python` on their own.
 
 ## After Install
 
@@ -173,9 +219,10 @@ The orchestrator walks you through:
    never inferred. A non-code feature later found to touch application code reclassifies to code.
 6. **Implementation** — per task, the pipeline depends on the track:
    - **code:** a five-stage pipeline `executor → tester → validator → code-reviewer →
-     security-reviewer`. The validator checks spec conformance; the two reviewers (which run only
-     after the validator passes) hunt the bugs and security holes a requirement-anchored check
-     misses. Any blocking review finding sends the task back to the executor on retry.
+     security-reviewer`. The validator checks spec conformance; the two reviewers (which run
+     concurrently with it, on the same tree) hunt the bugs and security holes a requirement-anchored
+     check misses. A validator FAIL discards the reviewers' PASS verdicts but keeps their blocking
+     findings; any blocking finding sends the task back to the executor on retry.
    - **non-code:** a two-gate pipeline `executor → validator → security scan`. Prose and diagrams
      have no compiler, so the tester and the per-task code-review stage are skipped. Instead each
      task carries a finite `Acceptance:` checklist, and the validator checks exactly it (plus a
@@ -241,7 +288,7 @@ Everything installs to `~/.claude/`:
 │   ├── sdd-status.md
 │   ├── sdd-resume.md
 │   └── sdd-overnight.md
-├── hooks/           # Secret-handling safeguards (manual install)
+├── hooks/           # Secret-handling safeguards (installer opt-in)
 │   ├── secret-guard.py
 │   └── secret-redact.py
 └── settings.json    # Machine config: permissions.deny + hook registration
@@ -297,11 +344,12 @@ work (ssh, authenticated curl, API calls). Four layers, all enforced globally fo
    the agent is re-invoked.
 4. **Hooks** (`hooks/`) — `secret-guard.py` (PreToolUse) blocks secret *dumps* like `printenv` and
    `cat .env` while allowing sanctioned use; `secret-redact.py` (PostToolUse) scrubs secret-shaped
-   strings from Bash output as a backstop.
+   strings from Bash and PowerShell output as a backstop.
 
-Layers 1–3 ship in the agents/CLAUDE.md and are installed by `install.sh`. **Layer 4 (hooks) and
-the deny list are machine config and must be enabled manually** — see [`hooks/README.md`](hooks/README.md)
-for the exact `settings.json` block.
+Layers 1–3 ship in the agents/CLAUDE.md. **Layer 4 (hooks) and the deny list are machine config**
+in `settings.json`; the installer sets them up when you opt in (or with `--yes` / `--hooks`) — see
+[`hooks/README.md`](hooks/README.md) for the exact entries, the supported protection vectors and
+their limits. Regex hooks stop the common dump vectors; they do not stop every exfiltration.
 
 ## GitHub integration & CI enforcement
 
@@ -360,11 +408,15 @@ CI layer that re-runs the quality gates server-side.
 
 ```bash
 cd sdd-global
-chmod +x uninstall.sh
-./uninstall.sh
+./uninstall.sh            # Windows: powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
 
-Removes agents and commands. Leaves `~/.claude/CLAUDE.md` intact (remove SDD sections manually if needed).
+Removes only what the installer owns: the files it copied (recorded with their hashes in
+`.sdd-install-manifest.json`; a file you changed since is kept), the two hook entries, and the deny
+rules it added (rules you had before stay). It reports what it keeps: `CLAUDE.md` (remove SDD
+sections manually if needed), the `settings.json` backups, and any repo pre-push hook. Same
+`--claude-home` / `--yes` flags as the installer. An install made by the old `install.sh` has no
+manifest; then only files identical to this checkout are removed.
 
 ## Tips
 

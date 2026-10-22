@@ -29,6 +29,15 @@ The consistency check runs automatically after tasks are confirmed — no extra 
 but a FAIL blocks implementation until resolved.
 Never start implementation if any prior phase is unconfirmed.
 
+**Discretion inside approved intent.** Approval protects the user's intent, not an early
+implementation guess. Task file paths and internal signatures are estimates; only a `Contract:`
+interface is binding. The executor may do a local prerequisite refactor inside the task's subsystem.
+A **material** change (acceptance, a contract, authority, an external effect, an agreed risk) needs
+the user's confirmation; an **internal reconciliation** goes to the owner agent with no user gate.
+Probes come in three tiers — read-only discovery (always), an isolated prototype (under a prototype
+authority the user grants once), and live mutation (project-level authority only). A retained
+prototype patch may be adopted after confirmation; every gate still runs on it.
+
 **Feature class — the user declares the track.** Right after the consistency check passes, the
 Classification Gate locks `featureClass`: `code` (the default) or `non-code`. It is a declared human
 decision, never inferred — a `non-code` feature ships no application code (a write-up, documentation,
@@ -36,8 +45,10 @@ a diagram, a knowledge-vault update). A `non-code` feature found to touch applic
 reclassifies to `code` (monotonic; never back).
 
 Within Implementation, a **code** task runs the five-stage pipeline:
-Execute → Test → Validate → Code Review → Security Review. The two reviews run automatically
-after the validator passes; any blocking finding sends the task back to the executor on retry.
+Execute → Test → Validate → Code Review → Security Review. The validator and the two reviews run
+concurrently on the same tree after the tester; a validator FAIL discards the reviewers' PASS
+verdicts but keeps their blocking findings, and any blocking finding sends the task back to the
+executor on retry.
 
 A **non-code** task runs a **two-gate** pipeline: Execute → Validate → Security scan. Prose and
 diagrams have no compiler, so the tester and the per-task code-review stage are skipped — an
@@ -57,7 +68,10 @@ holes a requirement-anchored check misses by construction.
 work, not to the gates themselves. The orchestrator playbook therefore enforces:
 
 - **Only Critical/High block.** Medium and Low findings never open a fix round; they are recorded as
-  `deferredFindings` and re-checked at the Feature Review Gate.
+  deferred findings in one findings index (`spec-memory/findings.jsonl`, written only by the
+  orchestrator through `~/.claude/tools/sdd-findings.py`), routed forward when a later task owns the
+  fix site, and re-checked at the Feature Review Gate. A localized blocker is repaired inside the
+  same attempt while its stable blocking set strictly shrinks; otherwise the normal retry runs.
 - **One full suite run per tree.** The tester runs the full suite once after its final change and
   records a suite record keyed by tree hash; later stages reuse it while the tree is unchanged.
 - **Retry by convergence.** A third attempt runs without asking only when the blocking findings
@@ -67,7 +81,7 @@ work, not to the gates themselves. The orchestrator playbook therefore enforces:
 - **No god files.** `tech.md` sets a module size limit (default 500 lines). A source file may not end
   over it and grow — existing god files may only hold or shrink. `~/.claude/tools/sdd-module-size.py`
   is the one definition; the code-reviewer runs it, and on a feature planned under the rule every
-  violation is High.
+  violation is High. A **test file** over the limit is a warning only — it never blocks.
 - **Status files, not polling.** Every specialist except the read-only consistency checker keeps one
   JSON status file (`spec-memory/status/<task>-<agent>-a<n>.json`: state, step, updatedAt,
   summaryPath). The orchestrator acts on completion notices and, on a heartbeat, reads that state
@@ -92,7 +106,7 @@ work, not to the gates themselves. The orchestrator playbook therefore enforces:
 - design-agent: owns design.md exclusively
 - tasks-agent: owns tasks.md exclusively; for a non-code feature, gives every task a finite `Acceptance:` checklist instead of a testing sub-task
 - spec-consistency-checker: read-only cross-document auditor; fires after tasks confirmed, before implementation; receives no planning context
-- task-executor: implements one task at a time in the shared feature-branch checkout (tasks run sequentially, so each executor inherits prior tasks' committed output)
+- task-executor: implements one task at a time in the shared feature-branch checkout (tasks run sequentially by default, so each executor inherits prior tasks' committed output; with `Task waves: 2` two independent tasks run in isolated worktrees and land as one combined candidate — `playbooks/sdd-waves.md`)
 - task-tester: writes tests for one task, never modifies implementation; **not invoked for a non-code task**
 - task-validator: validates against requirements, read-only, returns pass/fail; on a non-code task runs artifact-conformance mode (the `Acceptance:` checklist + render/lint + a closed coherence rubric)
 - code-reviewer: adversarial correctness/robustness/maintainability review, read-only, returns pass/fail; **per-task code-review is skipped on the non-code track**; at feature review a non-code feature gets one closed-rubric coherence pass
@@ -171,6 +185,14 @@ Agents **use** secrets without **reading** them:
 - Never `echo`/`print` a secret, run `env`/`printenv`, use `set -x`, or use authenticated `curl -v`/`-i`.
   When reporting a *found* secret (e.g. security-reviewer), give its type and `path:line`, never the value.
 
+**Denials are never laundered.** A real permission or security denial is never bypassed through
+another agent, the main session, or an equivalent tool. A normal harness approval request follows
+the harness's own escalation path, and an existing authorization stays valid. A missing tool or a
+transient error is not a denial: an authorized actor may perform the operation through the proper
+path when that evades no restriction. A hook block or a deny result **is** a security denial, even
+when the harness shows it as an "error"; if it looks like a false positive, report it to the user —
+never rephrase or obfuscate the command to get past the pattern.
+
 **Escalation — `SECRET REQUEST`.** When an agent needs a secret it cannot obtain safely (not in the
 environment, or a deny rule blocked it), it does NOT guess and does NOT work around the block — it
 halts and returns `SECRET REQUEST: <what it needs and why>`, proposing provisioning (operator
@@ -220,6 +242,11 @@ When all implementation tasks for a feature are complete, ask the user:
 - Requirements use EARS syntax (FR-N, NFR-N).
 - Every task references at least one requirement.
 - Every requirement traces to at least one design component.
+- **Presentation is not a finding.** A wording, emphasis, glyph-case, or formatting difference in
+  human-facing prose that leaves meaning and obligations unchanged never yields a finding, an
+  amendment, or a test assertion. A string a program or instrument reads (a config value, a unit in
+  a protocol or method file, a schema field, parsed CLI output) is never cosmetic, and neither is a
+  human-facing safety instruction, requirement, or unit whose meaning changes.
 
 ## Communication Style — Simplified Technical English
 

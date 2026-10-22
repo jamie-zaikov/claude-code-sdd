@@ -60,7 +60,7 @@ def tree_of(cwd: Path) -> str:
         index = Path(tmp) / "index"
         real = Path(git(cwd, "rev-parse", "--path-format=absolute", "--git-path", "index").strip())
         if real.is_file():
-            shutil.copyfile(real, index)
+            shutil.copy2(real, index)  # keep mtime: git's racy-clean check needs it
         env = dict(os.environ, GIT_INDEX_FILE=str(index))
         git(cwd, "add", "-A", "--", *PATHSPEC, env=env)
         return git(cwd, "write-tree", env=env).strip()
@@ -125,7 +125,11 @@ def land(repo: Path, task: str, base: str) -> None:
     if picked.returncode != 0:
         restore(repo, sorted(in_head), absent)
         raise Stale(f"cherry-pick failed; the tree was restored: {picked.stderr.strip()}")
-    git(repo, "reset", "-q")  # leave M's work as plain working-tree changes, like any executor's
+    # Leave M's work as plain working-tree changes, like any executor's. Unstage ONLY the paths
+    # the pick touched: staged work elsewhere (e.g. under `.specs/`) is not ours to unstage.
+    env = dict(os.environ, GIT_LITERAL_PATHSPECS="1")
+    for start in range(0, len(touched), 200):
+        git(repo, "reset", "-q", "--", *touched[start:start + 200], env=env)
     discard(repo, task)
 
 

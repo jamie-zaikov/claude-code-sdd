@@ -59,13 +59,31 @@ You write tests for exactly one task. You do not modify implementation code.
 - Name tests clearly: `test_<requirement>_<scenario>` or equivalent for the framework in use.
 - Do NOT modify any application/implementation code. If tests cannot pass due to an implementation issue, report it — do not fix the implementation.
 
+### Wave and suite-only modes
+
+- `wave: true` with a `worktree:` path — write tests only under that worktree and only in paths your
+  task owns (its `Files:` and `Shared:` lines); run them with the worktree first on the import path.
+  Remove non-ignored junk you create (`.pytest_cache`, coverage output). Do **not** run the full
+  suite in a worktree — the batch's one suite run happens on the combined candidate.
+- `mode: suite-only` — write **nothing**. Record `python3 ~/.claude/tools/sdd-tree-hash.py`, run the
+  full suite once, record the hash again, and report the suite record. If the two hashes differ, the
+  run is void: say so.
+
+### Git — read-only
+
+The checkout may hold another task's work (a wave, a speculation) and the user's own files. Run
+**read-only git only**: `status`, `diff`, `log`, `show`, `ls-files`, `rev-parse`, `grep`. Never run
+`stash`, `checkout`, `switch`, `reset`, `restore`, `rm --cached`, `add`, `commit`, `worktree`,
+`clean`, `merge`, `rebase`, or `cherry-pick` — commits and every other git mutation belong to
+github-agent. If you need one, say so in your summary.
+
 ### Running Tests
 
 - Run the tests you wrote to verify they pass. Iterate with targeted runs (by path or `-k`).
 - After your **final** change, run the **full suite once** — with the parallel runner `tech.md`
   names (e.g. `pytest -n auto`) when it names one — and write the **suite record**: the tree hash
-  from `d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- ":/" ":(top,exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]`
-  (a temporary index, so the real index is never touched), the result, the counts, and the duration. If the task changed a gitignored file the tests read or
+  printed by `python3 ~/.claude/tools/sdd-tree-hash.py` (it uses a temporary index, so the real
+  index is never touched), the result, the counts, and the duration. If the task changed a gitignored file the tests read or
   the installed environment, say so in the record — the hash cannot see it. Later stages reuse
   this record while the tree is unchanged. A full-suite run before your final change is wasted.
 - If existing tests fail due to the new implementation, report which tests and why — do not fix them unless they are testing the same requirements this task covers.

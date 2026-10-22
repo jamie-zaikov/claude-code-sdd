@@ -35,6 +35,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    from tests import winsupport
+except ImportError:  # run from inside tests/
+    import winsupport
+
 # Resolve the repo root relative to this test so it survives both the worktree layout
 #   <root>/tests/test_install_pre_push_hook.py -> <root>/install.sh
 # and later consolidation onto feat/github-agent.
@@ -50,16 +55,16 @@ SENTINEL = "# >>> sdd-pre-push (managed) >>>"
 TEMPLATE_SENTINEL_COUNT = HOOK_SRC.read_text().count(SENTINEL)
 
 GIT = shutil.which("git")
-BASH = shutil.which("bash") or "/bin/bash"
+BASH = winsupport.BASH or "/bin/bash"
 SHELLCHECK = shutil.which("shellcheck")
 
 # What install.sh reads out of SCRIPT_DIR. Copied into each sandbox so the run is faithful.
-COPY_DIRS = ("agents", "commands", "hooks", "ci-templates")
-COPY_FILES = ("install.sh", "CLAUDE.md")
+# install.sh is a shim: it sources scripts/find-python.sh and runs install.py (+ sdd_install/).
+COPY_DIRS = ("agents", "commands", "hooks", "ci-templates", "tools", "scripts", "sdd_install")
+COPY_FILES = ("install.sh", "install.py", "CLAUDE.md")
 
 
-def is_executable(path: Path) -> bool:
-    return bool(os.stat(path).st_mode & 0o111)
+is_executable = winsupport.is_executable
 
 
 class InstallerSandbox:
@@ -83,9 +88,7 @@ class InstallerSandbox:
                 shutil.copytree(src, self.script_dir / name)
 
         # Fake `claude` so `command -v claude` succeeds -> deterministic prompt order.
-        shim = self.fakebin / "claude"
-        shim.write_text("#!/bin/sh\necho 'fake-claude 0.0.0'\n")
-        shim.chmod(0o755)
+        winsupport.fake_claude(self.fakebin)
 
         if git_repo:
             subprocess.run(
@@ -117,6 +120,9 @@ class InstallerSandbox:
     def run(self, answers: str) -> subprocess.CompletedProcess:
         env = os.environ.copy()
         env["HOME"] = str(self.home)
+        # The real destination override: never fall back to the user's real config dir
+        # (on Windows ~ is USERPROFILE, not HOME).
+        env["CLAUDE_CONFIG_DIR"] = str(self.home / ".claude")
         env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
         env["PATH"] = str(self.fakebin) + os.pathsep + env.get("PATH", "")
         if not self.git_repo:

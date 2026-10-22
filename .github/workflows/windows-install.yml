@@ -1,0 +1,152 @@
+# Windows install acceptance for THIS repository (dogfood only - deliberately NOT under
+# ci-templates/, so /sdd-init never pushes a Windows policy into downstream projects, and NOT a
+# second job in sdd-build-test-lint.yml, whose single-job required-check contract stays as is).
+#
+# On windows-latest with Git Bash it installs into a temp destination whose path has a space,
+# proves the reinstall is idempotent, runs the EXACT hook commands read back from the generated
+# settings.json (exec form: command + args, no shell) with Bash and PowerShell payloads, installs
+# through both PowerShell shims, uninstalls and checks that only owned entries go, and runs the
+# unittest suite. The matrix pins the declared Python minimum (3.9) next to a current release.
+name: windows-install
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches-ignore: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-install:
+    name: windows-install (py${{ matrix.python }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: [ "3.9", "3.13" ]
+    defaults:
+      run:
+        shell: bash   # Git Bash - the shell the Claude Code Bash tool uses on Windows
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Record interpreters
+        run: |
+          python --version
+          command -v python3 || echo "python3: not on PATH (the shims fall back to py -3 / python)"
+          command -v py || echo "py: not on PATH"
+
+      - name: Install through install.sh into a path with a space
+        run: |
+          set -euo pipefail
+          DEST="$RUNNER_TEMP/claude home"
+          bash install.sh --yes --no-pre-push --claude-home "$DEST"
+          cp "$DEST/settings.json" "$RUNNER_TEMP/settings.first.json"
+
+      - name: Reinstall is idempotent (no duplicate hooks, identical settings)
+        run: |
+          set -euo pipefail
+          DEST="$RUNNER_TEMP/claude home"
+          bash install.sh --yes --no-pre-push --claude-home "$DEST"
+          cmp "$DEST/settings.json" "$RUNNER_TEMP/settings.first.json"
+          python install.py --verify --claude-home "$DEST"
+
+      - name: Run the exact registered hook commands (Bash and PowerShell payloads)
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/claude home/settings.json" <<'PY'
+          import json, subprocess, sys
+          s = json.load(open(sys.argv[1], encoding="utf-8"))
+          def entries(event, script):
+              return [h for g in s["hooks"][event] if g.get("matcher") == "Bash|PowerShell"
+                      for h in g["hooks"] if script in " ".join([h["command"], *h.get("args", [])])]
+          guard, = entries("PreToolUse", "secret-guard.py")
+          redact, = entries("PostToolUse", "secret-redact.py")
+          def run(entry, payload):
+              argv = [entry["command"], *entry["args"]]   # exec form: no shell, literal args
+              return subprocess.run(argv, input=json.dumps(payload), capture_output=True, text=True)
+          env = "." + "env"
+          cases = [("Bash", "cat " + env, True), ("PowerShell", "Get-Content " + env, True),
+                   ("PowerShell", "Get-ChildItem env:", True), ("PowerShell", "Write-Output $env:GH_TOKEN", True),
+                   ("PowerShell", "type C:\\Users\\me\\.aws\\credentials", True),
+                   ("Bash", "ls -la", False), ("PowerShell", "Get-ChildItem .", False),
+                   ("PowerShell", 'curl.exe -H "Authorization: Bearer $env:API_TOKEN" https://x.invalid', False)]  # pragma: allowlist secret (env-var reference, no value)
+          bad = []
+          for tool, cmd, deny in cases:
+              p = run(guard, {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": {"command": cmd}})
+              if p.returncode != 0 or ('"deny"' in p.stdout) != deny:
+                  bad.append((tool, cmd, p.returncode, p.stdout, p.stderr))
+          tok = "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+          for tool in ("Bash", "PowerShell"):
+              p = run(redact, {"hook_event_name": "PostToolUse", "tool_name": tool, "tool_response": {"stdout": "k=" + tok}})
+              if tok in p.stdout or "[REDACTED-SECRET]" not in p.stdout:
+                  bad.append((tool, "redact", p.returncode, "", p.stderr))
+          print("hook cases checked:", len(cases) + 2)
+          if bad:
+              print("FAILED:", *bad, sep="\n  ")
+              sys.exit(1)
+          PY
+
+      - name: Install through install.ps1 (PowerShell 7)
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'pwsh claude home'
+          ./install.ps1 --yes --no-pre-push --claude-home $dest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python install.py --verify --claude-home $dest
+          exit $LASTEXITCODE
+
+      - name: Install through install.ps1 (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'winps claude home'
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 --yes --no-pre-push --claude-home $dest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python install.py --verify --claude-home $dest
+          exit $LASTEXITCODE
+
+      - name: Uninstall removes only owned entries
+        run: |
+          set -euo pipefail
+          DEST="$RUNNER_TEMP/claude home"
+          python - "$DEST/settings.json" <<'PY'
+          import json, sys
+          p = sys.argv[1]
+          s = json.load(open(p, encoding="utf-8"))
+          s["model"] = "user-value"
+          s["hooks"].setdefault("Stop", []).append({"hooks": [{"type": "command", "command": "echo user"}]})
+          json.dump(s, open(p, "w", encoding="utf-8"), indent=2)
+          PY
+          echo "mine" > "$DEST/agents/user-agent.md"
+          bash uninstall.sh --yes --claude-home "$DEST"
+          python - "$DEST" <<'PY'
+          import json, os, sys
+          d = sys.argv[1]
+          s = json.load(open(os.path.join(d, "settings.json"), encoding="utf-8"))
+          text = json.dumps(s)
+          assert "secret-guard.py" not in text and "secret-redact.py" not in text, text
+          assert s["model"] == "user-value", s
+          assert s["hooks"]["Stop"], s
+          assert "deny" not in s.get("permissions", {}), s
+          assert os.path.exists(os.path.join(d, "agents", "user-agent.md"))
+          assert not os.path.exists(os.path.join(d, "agents", "orchestrator.md"))
+          assert not os.path.exists(os.path.join(d, "hooks"))
+          assert os.path.exists(os.path.join(d, "CLAUDE.md"))
+          print("uninstall kept only user-owned entries")
+          PY
+
+      - name: Unit test suite
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pyyaml
+          python -m unittest discover -s tests -p "test_*.py"

@@ -9,6 +9,11 @@ lines than it had at the base. So:
   * a file already over the limit that grows  -> violation (legacy god files may not grow)
   * a file over the limit that holds or shrinks -> ok (splitting a god file is always allowed)
 
+A TEST file (see `is_test_file`) that meets the same condition is reported as a WARNING and never
+fails the check: test size is a maintainability signal, not a correctness defect, so it never
+blocks a task. Correctness or maintainability concerns about a large test file stay reviewable as
+normal findings.
+
 The limit and the exemptions come from `.specs/steering/tech.md`:
 
     Module size limit: 500 lines
@@ -20,8 +25,9 @@ tracked or untracked, non-ignored — read through a temporary index (rename-awa
 a task's new files are covered before they are committed and a moved file keeps its base size.
 Feature mode passes `--merge-base` so changes on the base branch are never blamed on the feature.
 
-Exit codes: 0 no violation, 1 violation(s), 2 usage or git error. Output is one line per violation:
-    <path>: <base lines> -> <lines now> (limit <N>)
+Exit codes: 0 no violation (warnings allowed), 1 violation(s), 2 usage or git error. Output is one
+line per finding:
+    <path>: <base lines> -> <lines now> (limit <N>)[ WAIVED| WARNING (test file)]
 Stdlib only.
 """
 
@@ -46,6 +52,20 @@ CODE_SUFFIXES = {
 # Tolerates list bullets and markdown bold: `- **Module size limit:** 500 lines`.
 LIMIT_LINE = re.compile(r"^\s*[-*]?\s*\**Module size limit:\**\s*(\d+)\s*lines?\b", re.I | re.M)
 EXEMPT_LINE = re.compile(r"^\s*[-*]?\s*\**Module size exempt:\**\s*(.+)$", re.I | re.M)
+
+
+TEST_DIRS = {"tests", "test", "__tests__", "testing"}
+TEST_NAMES = ("test_*", "*_test.*", "*.test.*", "*_spec.*", "*.spec.*", "conftest.py")
+
+
+def is_test_file(path: str) -> bool:
+    """A repo-relative POSIX path is a test file when a directory on it is a test directory or its
+    name follows a common test-file convention."""
+    parts = path.split("/")
+    name = parts[-1]
+    if any(d.lower() in TEST_DIRS for d in parts[:-1]):
+        return True
+    return any(fnmatch.fnmatch(name, g) for g in TEST_NAMES)
 
 
 class GitError(Exception):
@@ -100,7 +120,7 @@ def changed_files(repo: Path, base: str) -> List[Tuple[str, str]]:
         real = Path(git(repo, "rev-parse", "--git-path", "index").strip())
         real = real if real.is_absolute() else repo / real
         if real.is_file():
-            shutil.copyfile(real, index)
+            shutil.copy2(real, index)  # keep mtime: git's racy-clean check needs it
         env = dict(os.environ, GIT_INDEX_FILE=str(index))
         # Tracked edits and deletions, then only untracked SOURCE files: a large untracked data file
         # is never hashed into .git/objects. Literal pathspecs, so `[` or `*` in a name is a name.
@@ -224,8 +244,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     violations = []
     for path, before, now in found:
         waived = path in args.waive
-        print(f"{path}: {before} -> {now} (limit {limit})" + (" WAIVED" if waived else ""))
-        if not waived:
+        test = is_test_file(path)
+        tag = " WAIVED" if waived else " WARNING (test file)" if test else ""
+        print(f"{path}: {before} -> {now} (limit {limit}){tag}")
+        if not waived and not test:
             violations.append(path)
     if violations:
         print(f"sdd-module-size: {len(violations)} file(s) over the {limit}-line limit grew. "

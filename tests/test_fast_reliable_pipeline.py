@@ -17,9 +17,15 @@ Run:
 
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+try:
+    from tests import prose
+except ImportError:  # run from inside tests/
+    import prose
 
 ROOT = Path(__file__).resolve().parent.parent
 AGENTS = ROOT / "agents"
@@ -57,11 +63,11 @@ class Base(unittest.TestCase):
         assert cls.rules is not None, "orchestrator.md lost its Critical Rules section"
 
     def has(self, text, pat, label):
-        if not re.search(pat, text, re.IGNORECASE | re.MULTILINE | re.DOTALL):
+        if not prose.search(text, pat):
             self.fail(f"{label}: missing /{pat}/")
 
     def lacks(self, text, pat, label):
-        if re.search(pat, text, re.IGNORECASE | re.MULTILINE | re.DOTALL):
+        if prose.search(text, pat):
             self.fail(f"{label}: forbidden /{pat}/ present")
 
 
@@ -69,7 +75,7 @@ class SeverityGateTest(Base):
     def test_only_critical_high_block_in_implementation(self):
         self.has(self.impl, r"only\s+Critical/High\s+block", "severity gate")
         self.has(self.impl, r"Medium and Low findings \*\*never\*\*\s+open a fix round", "severity gate")
-        self.has(self.impl, r"deferredFindings", "severity gate record")
+        self.has(self.impl, r"Record each one as a\s+deferred finding in the findings index", "severity gate record")
 
     def test_critical_rule_forbids_medium_fix_round(self):
         self.has(self.rules, r"NEVER open a fix round for Medium or Low", "critical rule")
@@ -77,7 +83,7 @@ class SeverityGateTest(Base):
     def test_feature_review_receives_deferred_findings(self):
         gate = section(self.orch, "Feature Review Gate (runs automatically after the last task completes, before `complete`)")
         self.assertIsNotNone(gate)
-        self.has(gate, r"accumulated `deferredFindings`", "feature review input")
+        self.has(gate, r"The open and routed findings from the index", "feature review input")
 
     def test_reviewers_keep_blocking_definition(self):
         for name in ("code-reviewer.md", "security-reviewer.md"):
@@ -97,7 +103,7 @@ class ConvergenceRetryTest(Base):
 
 
 class SuiteRecordTest(Base):
-    TREE = r"GIT_INDEX_FILE=\"\$d/index\" git write-tree"
+    TREE = r"python3 ~/\.claude/tools/sdd-tree-hash\.py"
 
     def test_orchestrator_defines_suite_record_with_temp_index(self):
         self.has(self.impl, r"Suite record \(one full run per tree\)", "suite record")
@@ -117,19 +123,19 @@ class SuiteRecordTest(Base):
         self.has(validator, r"never stage into the real index", "validator read-only")
 
     def test_no_agent_stages_into_the_real_index(self):
-        """Every `git add` in an agent or command file runs against a temporary index."""
+        """No agent or command file tells an agent to run `git add` against the real index: any
+        `git add` must run with a GIT_INDEX_FILE override on the same command line."""
         files = sorted(AGENTS.glob("*.md")) + sorted((ROOT / "commands").glob("*.md"))
         for path in files:
             for line in path.read_text(encoding="utf-8").splitlines():
                 for m in re.finditer(r"git add\b", line):
-                    if not re.search(r'GIT_INDEX_FILE="\$d/index" $', line[:m.start()]):
+                    if not re.search(r"GIT_INDEX_FILE=\S+\s+(?:\S+=\S+\s+)*$", line[:m.start()]):
                         self.fail(f"{path.name}: `git add` outside a temporary index: {line.strip()[:90]}")
 
     def test_tree_hash_excludes_specs_and_never_matches_empty(self):
-        self.has(self.impl, r'":/" ":\(top,exclude\)\.specs"', "tree hash excludes .specs")
+        self.has(self.impl, r"`?\.specs/`? is excluded", "tree hash excludes .specs")
         self.has(self.impl, r"An empty hash, or a command that exits\s+non-zero, never matches", "empty hash")
-        self.has(self.impl, r"rc=\$\?; rm -rf \"\$d\"; \[ \"\$rc\" -eq 0 \]", "exit status kept")
-        self.has(self.impl, r"\*\*Limit:\*\* the hash covers tracked and untracked,\s+non-ignored files only", "limit stated")
+        self.has(self.impl, r"Limit: the hash covers tracked and untracked,\s+non-ignored files only", "limit stated")
 
     def test_executor_uses_targeted_tests(self):
         executor = read("agents/task-executor.md")
@@ -229,7 +235,7 @@ class OvernightCommandTest(Base):
         self.assertIsNotNone(tpl, "playbook lost the overnight summary template")
         heads = re.findall(r"^## (.+)$", tpl.group(1), re.MULTILINE)
         self.assertEqual(heads, ["Result", "Feature review", "Needs you", "Tasks", "Deferred",
-                                "Deferred findings", "Incidents"])
+                                "Deferred findings", "Incidents", "Timing"])
 
     def test_claude_md_and_readme_list_the_command(self):
         self.has(read("CLAUDE.md"), r"`/sdd-overnight <feature-name>`", "CLAUDE.md key commands")
@@ -266,8 +272,10 @@ class OvernightReviewFixesTest(Base):
         self.has(self.impl, r"Stopped because: <all tasks complete \| no runnable task \| user \| off>", "template")
         self.has(self.impl, r"^## Feature review$", "template section")
 
-    def test_amendment_is_mechanical_and_always_parks(self):
-        self.has(self.impl, r"would change the text of\s+`requirements\.md`, `design\.md`, or `tasks\.md`", "amendment test")
+    def test_material_amendment_always_parks(self):
+        # The amendment test is the effect (scope parallel-waves, mechanism 4): defined once in the
+        # playbook's Amendments section, applied overnight here.
+        self.has(self.impl, r"A material amendment is recorded under `userApprovalNeeded` and its\s+task is parked", "amendment parks")
         self.has(self.impl, r"it is never implemented overnight", "amendment parks")
 
     def test_stale_authorization_is_void(self):
@@ -326,25 +334,32 @@ class NoGodFilesTest(Base):
         self.has(self.impl, r"`modularity: enforced` or `modularity: not-enforced`", "payload")
 
     def test_install_ships_the_tool(self):
-        inst = read("install.sh")
-        self.has(inst, r'for tool_file in "\$\{SCRIPT_DIR\}/tools/"\*\.py; do', "install loop")
-        self.has(inst, r'"\$\{CLAUDE_HOME\}/tools/\$\{name\}"', "install target")
+        # Behaviour, not spelling: a real install into a temp destination ships every tool.
+        import sys
+        with tempfile.TemporaryDirectory(prefix="sdd install ") as d:
+            dest = Path(d) / "claude home"
+            r = subprocess.run([sys.executable, str(ROOT / "install.py"), "--yes", "--no-hooks",
+                                "--no-pre-push", "--claude-home", str(dest)],
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            for tool in sorted((ROOT / "tools").glob("*.py")):
+                self.assertTrue((dest / "tools" / tool.name).is_file(), f"{tool.name} not installed")
 
 
 class TreeHashExecutionTest(Base):
-    """Run the playbook's tree-hash one-liner itself, extracted from orchestrator.md, in real repos."""
+    """Run the tree-hash tool the playbook names, in real repos."""
+
+    TOOL = ROOT / "tools" / "sdd-tree-hash.py"
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        m = re.search(r"touched: `(d=\$\(mktemp -d\).*?)`\.", cls.impl, re.DOTALL)
-        assert m, "tree-hash command not found in the playbook"
-        cls.cmd = m.group(1)
-        for name in ("agents/task-tester.md", "agents/task-validator.md"):
-            assert cls.cmd in read(name), f"{name} carries a different tree-hash command"
+        for name in ("agents/orchestrator.md", "agents/task-tester.md", "agents/task-validator.md"):
+            assert "tools/sdd-tree-hash.py" in read(name), f"{name} does not use the tree-hash tool"
 
     def sh(self, cwd):
-        proc = subprocess.run(["bash", "-c", self.cmd], cwd=cwd, capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, str(self.TOOL)], cwd=cwd, capture_output=True,
+                              text=True)
         return proc.returncode, proc.stdout.strip()
 
     def test_behaviour_in_a_real_repo(self):
@@ -369,6 +384,45 @@ class TreeHashExecutionTest(Base):
         rc, out = self.sh(tempfile.gettempdir())  # outside any repo
         self.assertNotEqual(rc, 0)
         self.assertEqual(out, "")
+
+
+class TreeHashRacyCleanTest(unittest.TestCase):
+    """A same-size edit in the same second as the index write must still change the hash.
+
+    The tools copy the real index into a temporary one. If the copy gets a new mtime, git treats
+    entries modified in the index's second as clean by stat and never re-hashes them, so the hash
+    reports the OLD content. Every tool that copies the index must keep its mtime (copy2)."""
+
+    TOOLS = ("sdd-tree-hash.py", "sdd-overlap.py", "sdd-module-size.py")
+
+    def test_index_copy_keeps_mtime_in_every_tool(self):
+        for name in self.TOOLS:
+            text = read(f"tools/{name}")
+            self.assertNotIn("shutil.copyfile(real, index)", text, name)
+            self.assertIn("shutil.copy2(real, index)", text, name)
+
+    def test_same_second_same_size_edit_changes_the_hash(self):
+        import os
+        import time
+        tool = ROOT / "tools" / "sdd-tree-hash.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            git = lambda *a: subprocess.run(["git", "-C", tmp, *a], check=True, capture_output=True)
+            git("init", "-q")
+            git("config", "core.trustctime", "false")  # ctime cannot be set; mtime decides
+            f = Path(tmp) / "a.py"
+            index = Path(tmp) / ".git" / "index"
+            stamp = int(time.time()) - 100  # one past second for the file, the entry and the index
+            f.write_text("a = 1\n")
+            os.utime(f, (stamp, stamp))
+            git("add", "a.py")  # the entry records mtime == stamp; the index is written now
+            run = lambda: subprocess.run([sys.executable, str(tool)], cwd=tmp, capture_output=True,
+                                         text=True).stdout.strip()
+            before = run()
+            f.write_text("a = 2\n")  # same size, same mtime: only the content differs
+            os.utime(f, (stamp, stamp))
+            os.utime(index, (stamp, stamp))  # the index was written in the entry's second
+            after = run()
+        self.assertNotEqual(before, after, "a racily-clean edit was hashed as unchanged")
 
 
 class RoundTwoProseTest(Base):

@@ -22,6 +22,7 @@ Run:
     python3 tests/test_orchestrator_label_lifecycle.py
 """
 
+import os
 import re
 import unittest
 from pathlib import Path
@@ -30,8 +31,10 @@ from pathlib import Path
 #   <root>/tests/test_orchestrator_label_lifecycle.py  ->  <root>/agents/orchestrator.md
 ORCH_PATH = Path(__file__).resolve().parent.parent / "agents" / "orchestrator.md"
 
-# The reconciled global copy lives at a fixed absolute path (out-of-band, byte-identical target).
-GLOBAL_ORCH_PATH = Path("/Users/jamie.zaikov/.claude/agents/orchestrator.md")
+# The installed global copy. Comparing it checks the INSTALL STATE, which lags on a feature branch
+# by design (synced only after merge), so the check is opt-in: SDD_CHECK_GLOBAL_SYNC=1.
+GLOBAL_ORCH_PATH = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "agents" / "orchestrator.md"
+CHECK_GLOBAL = os.environ.get("SDD_CHECK_GLOBAL_SYNC") == "1"
 
 
 def split_frontmatter(text):
@@ -221,6 +224,8 @@ class OrchestratorLabelLifecycleTest(unittest.TestCase):
         """(6) The repo agents/orchestrator.md and the reconciled global copy are byte-identical.
         If the global copy is unreadable (absent / permission-denied), SKIP cleanly rather than
         fail — the global reconciliation is out-of-band and not always present in every env."""
+        if not CHECK_GLOBAL:
+            self.skipTest("install-state check off; set SDD_CHECK_GLOBAL_SYNC=1 after ./install.sh")
         if not GLOBAL_ORCH_PATH.exists():
             self.skipTest(f"global orchestrator copy not present at {GLOBAL_ORCH_PATH}")
         try:
