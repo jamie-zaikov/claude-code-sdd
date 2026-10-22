@@ -119,6 +119,56 @@ This contract applies to **every** specialist the phase routing invokes.
 3. If `.specs/features/<feature-name>/scope.md` exists, read it. This artifact is produced by the main session during pre-orchestrator scoping and captures resolved open questions, scope boundaries, discrepancies reconciled, and cross-cutting rules. Treat it as authoritative input alongside steering, and pass it to every specialist agent you invoke.
 4. If the user says "new feature", ask for a name and description before proceeding. **Ask which track the feature is on — a normal code feature (the default) or a `non-code` feature** (a write-up, documentation, a diagram, or a knowledge-vault update, which ships no application code). Record the answer as a *provisional* `featureClass` (default `"code"`); it is **locked** later at the Feature Classification Gate. A provisional `"non-code"` tells the tasks-agent to author an `Acceptance:` checklist per task.
 
+## Discovery, Prototypes and Probes (any phase)
+
+Approval protects the user's **intent**, not an early implementation guess. Agents may discover,
+try and solve inside the approved outcome; the gates judge what is delivered.
+
+**Three probe tiers.** A probe is not a task and runs no specialist pipeline.
+1. **Discovery** — read-only: read code and inputs, reproduce a defect with existing tests, compare
+   approaches, run a read-only probe of a live system the preflight allows. Always permitted.
+2. **Isolated prototype** — a reversible local experiment that writes code, outside the product
+   checkout (a scratch worktree or a temporary directory), touching no live system, no shared
+   resource, and no user data except copies from `input-data/`. Permitted only under a
+   **prototype authority** the user grants **once** for the feature (or in project steering), with
+   its boundary: record `prototypeAuthority: { grantedAt, grantedBy: "user", boundary, quote }`.
+   No per-attempt approval. Never inferred, and never a source of live-system authority.
+3. **Live mutation** — anything that changes a VM, cloud resource, instrument, or shared resource.
+   Authorized only at the project level (steering or the user's explicit word for that action),
+   never by a global rule, never by a prototype authority, and never during preflight.
+
+**Evidence and cleanup.** Scrub a capture **before** it is written anywhere (transcript or file):
+device connection blocks, hostnames, addresses, tokens. Delete raw captures the same turn; keep
+the sanitized evidence a later step needs under `spec-memory/probes/`. Never delete user input
+(`input-data/`).
+
+**Retained prototypes.** A prototype that proves useful is kept as a patch,
+`spec-memory/prototypes/<slug>.patch`, with a short evidence note (question, result, base commit).
+After the required confirmations, pass it to the task-executor as `prototype: <path>`; the executor
+may adopt it, and every gate runs on the delivered result. A prototype is never recorded as a passed
+task, and no confirmation or verdict is ever back-dated to cover it.
+
+### Amendments — material vs internal reconciliation
+
+A discovery made during design or implementation changes the specs in one of two ways. The test is
+the **effect**, not whether text changes:
+
+- **Material amendment** — it changes acceptance (an FR/NFR or its acceptance criteria), a public
+  contract the design states as a constraint (a `Contract:` line, public API, CLI, wire or file
+  format, schema), authority (permissions, secrets, live systems), an external effect, or an agreed
+  risk. Route it through its owner agent and the consistency check, and get the **user's
+  confirmation**. Overnight it is recorded under `userApprovalNeeded` and its task is parked.
+- **Internal reconciliation** — the implementation legitimately chose a different internal detail
+  the confirmed outcome already permits (a module or file path, a helper, a signature that is not a
+  contract, a task's file list, a local prerequisite refactor). Route it through its **owner agent**
+  to fold the outcome into the base text with a one-line reason; run the consistency check on the
+  touched documents only. **No user gate** — report it in the next progress line. Never edit the
+  owner's document yourself.
+- **A choice the confirmed text already permits** is a decision, not an amendment: decide it, record
+  it in `spec-memory/decisions.md`, and do not ask the user — attended or overnight.
+
+When in doubt whether a change is material, treat it as material.
+
 ## Phase Routing
 
 Based on the current `phase` in `.spec-state.json`:
@@ -297,11 +347,11 @@ had been invoked. Record the authorization as `overnightAuthorization: { granted
   settle, choose the **fail-closed, reversible** option, record it under `userApprovalNeeded`
   (`{ id, task, options, chosen, why }`), and continue. When the decision blocks the task itself,
   **park** the task (below).
-- **Decision or amendment — the test is mechanical.** A choice that would change the text of
-  `requirements.md`, `design.md`, or `tasks.md` (a new or changed FR/NFR, component, interface, or
-  task) is a **spec amendment**, never a decision. An amendment is recorded under
-  `userApprovalNeeded` and its task is parked; it is never implemented overnight. Only a choice the
-  confirmed text already permits is a decision.
+- **Decision or amendment — the test is the effect** (*Amendments — material vs internal
+  reconciliation*, above). A **material amendment** is recorded under `userApprovalNeeded` and its
+  task is parked; it is never implemented overnight. An **internal reconciliation** goes to its
+  owner agent with no user gate, as in attended mode. A choice the confirmed text already permits
+  is a decision.
 - **Never self-confirm a planning gate.** Overnight authorization covers the implementation phase
   only. Requirements, design, and tasks confirmations — including amendments raised mid-build — and
   a feature-review override always wait for the user.

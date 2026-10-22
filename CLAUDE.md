@@ -29,6 +29,15 @@ The consistency check runs automatically after tasks are confirmed — no extra 
 but a FAIL blocks implementation until resolved.
 Never start implementation if any prior phase is unconfirmed.
 
+**Discretion inside approved intent.** Approval protects the user's intent, not an early
+implementation guess. Task file paths and internal signatures are estimates; only a `Contract:`
+interface is binding. The executor may do a local prerequisite refactor inside the task's subsystem.
+A **material** change (acceptance, a contract, authority, an external effect, an agreed risk) needs
+the user's confirmation; an **internal reconciliation** goes to the owner agent with no user gate.
+Probes come in three tiers — read-only discovery (always), an isolated prototype (under a prototype
+authority the user grants once), and live mutation (project-level authority only). A retained
+prototype patch may be adopted after confirmation; every gate still runs on it.
+
 **Feature class — the user declares the track.** Right after the consistency check passes, the
 Classification Gate locks `featureClass`: `code` (the default) or `non-code`. It is a declared human
 decision, never inferred — a `non-code` feature ships no application code (a write-up, documentation,

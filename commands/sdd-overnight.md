@@ -44,7 +44,7 @@ and a later task runs only when its `Depends:` line allows it — both per the p
 5. **Run.** Follow the playbook's per-task pipeline task after task, with every overnight rule
    applied: never call AskUserQuestion; on an open decision choose the fail-closed, reversible
    option and record it under `userApprovalNeeded`; mark a blocked task `deferred` and continue with
-   the next task that does not depend on it; never self-confirm a planning gate or an amendment.
+   the next task that does not depend on it; never self-confirm a planning gate or a material amendment.
    Drive each specialist by the *Specialist Execution Contract* — act on its completion notice, and
    keep one `ScheduleWakeup` fallback of 1800 s or more as the heartbeat, never a short poll. This
    is deliberate: a completion notice wakes the run at once, so the heartbeat only bounds a silent

@@ -272,8 +272,10 @@ class OvernightReviewFixesTest(Base):
         self.has(self.impl, r"Stopped because: <all tasks complete \| no runnable task \| user \| off>", "template")
         self.has(self.impl, r"^## Feature review$", "template section")
 
-    def test_amendment_is_mechanical_and_always_parks(self):
-        self.has(self.impl, r"would change the text of\s+`requirements\.md`, `design\.md`, or `tasks\.md`", "amendment test")
+    def test_material_amendment_always_parks(self):
+        # The amendment test is the effect (scope parallel-waves, mechanism 4): defined once in the
+        # playbook's Amendments section, applied overnight here.
+        self.has(self.impl, r"A material amendment is recorded under `userApprovalNeeded` and its\s+task is parked", "amendment parks")
         self.has(self.impl, r"it is never implemented overnight", "amendment parks")
 
     def test_stale_authorization_is_void(self):

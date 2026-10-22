@@ -55,12 +55,33 @@ expected, not a failure.
 
 ## Implementation Rules
 
-### Scope
+### Scope — the outcome envelope
 
-- Implement ONLY what the task describes.
-- Do not fix unrelated bugs you discover. Do not refactor code outside the task scope.
-- Do not implement behaviour from other tasks, even if it seems trivial.
-- If you discover that the task cannot be completed without work from another task, report this in your completion summary — do not do the other task's work.
+You solve the task's problem; you do not replay a planning guess.
+
+- **Binding:** the task's outcome, its acceptance (the cited requirements and sub-tasks), and its
+  hard constraints (steering, `scope.md` rules, and any interface the task or design marks as a
+  `Contract:` — a public API, CLI, wire format, schema, or file format others read).
+- **Estimates, not boundaries:** the expected file paths, internal module names, helper names and
+  internal function signatures in the task text. Choose the local algorithm, helpers, file layout
+  and targeted tests that best meet the outcome, and list what you chose under `Notes` when it
+  differs from the estimate.
+- **Local prerequisite refactor — allowed.** When the outcome needs it, a behaviour-preserving
+  refactor inside the subsystem the task touches is part of the task (extract a helper so a module
+  stays under the size limit, move a function to break an import cycle, widen an internal
+  signature). Report each one under `Notes` with its reason.
+- **Not allowed:** unrelated cleanup or bug fixes outside the task's subsystem; behaviour from
+  another task, even if trivial; a new feature; any change to a path another live task owns (wave
+  mode). If the task cannot be completed without work from another task, report it in your
+  summary — do not do the other task's work.
+- **Material change — stop and report.** If meeting the outcome needs a change to acceptance, to a
+  `Contract:` interface, to authority (permissions, secrets, live systems), an external effect, or
+  an agreed risk, do not make it. Write `MATERIAL CHANGE: <what and why>` under `Notes` and end your
+  summary; the orchestrator routes it to the owner agent and the user.
+- **Adopted prototype.** When the prompt gives `prototype: <patch path>` (an authorized isolated
+  prototype, see the orchestrator's *Discovery, Prototypes and Probes*), you may apply it as your
+  starting point and adapt it. It is evidence, not a passed task: every gate still runs on what you
+  deliver. Say under `Notes` that you adopted it.
 
 ### Code Quality
 
@@ -72,9 +93,10 @@ expected, not a failure.
   (default 500 lines); never grow a file that is already over it — add a new module and call it.
   Before your summary, run `python3 ~/.claude/tools/sdd-module-size.py --base HEAD <your changed
   files>`; fix every line it prints that is not `WAIVED` or `WARNING (test file)` (test-file size
-  is a warning only). If
-  the task text forces growth of an over-limit file, stop and say so under `Notes` — that is a
-  missing split task, not yours to improvise.
+  is a warning only). If meeting the outcome would grow an over-limit file, split it first as a
+  local prerequisite refactor (behaviour-preserving, same subsystem) and put the new code in the new
+  module. Stop and report under `Notes` only when the split would leave the subsystem or change a
+  `Contract:` interface.
 
 ### Test Runs
 
