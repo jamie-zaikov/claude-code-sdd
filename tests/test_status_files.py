@@ -19,7 +19,9 @@ import json
 import re
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -286,6 +288,56 @@ class OrchestratorContractTest(unittest.TestCase):
     def test_install_and_uninstall_cover_the_tool(self):
         self.assertIn('for tool_file in "${SCRIPT_DIR}/tools/"*.py; do', read("install.sh"))
         self.assertIn('rm -f "${CLAUDE_HOME}/tools/sdd-status.py"', read("uninstall.sh"))
+
+
+class TimingLedgerTest(ToolTest):
+    """launch/finish/times: elapsed wall time recorded by the orchestrator through the tool."""
+
+    def ev(self, cmd, *extra, task="7", attempt="1"):
+        with redirect_stderr(io.StringIO()):
+            return self.run_tool(cmd, "--feature-dir", str(self.feature), "--task", task,
+                                 "--agent", "task-executor", "--attempt", attempt, *extra)[0]
+
+    def ledger(self):
+        return self.feature / "spec-memory" / "status" / "timing.jsonl"
+
+    def test_launch_then_finish_reports_elapsed(self):
+        self.assertEqual(self.ev("launch"), 0)
+        lines = self.ledger().read_text().splitlines()
+        first = json.loads(lines[0])
+        first["at"] = "2026-10-22T10:00:00Z"  # pin the launch 90 s before the finish
+        self.ledger().write_text(json.dumps(first) + "\n")
+        with mock.patch.object(tool, "now_utc", return_value=datetime(2026, 10, 22, 10, 1, 30, tzinfo=timezone.utc)):
+            self.assertEqual(self.ev("finish", "--outcome", "done"), 0)
+            code, out = self.run_tool("times", "--feature-dir", str(self.feature))
+        self.assertEqual(code, 0)
+        self.assertIn("7 task-executor a1 launched=2026-10-22T10:00:00Z finished=2026-10-22T10:01:30Z elapsed=90s", out)
+
+    def test_open_invocation_is_reported_running(self):
+        self.ev("launch")
+        out = self.run_tool("times", "--feature-dir", str(self.feature))[1]
+        self.assertRegex(out, r"finished=- elapsed=running\(\d+\)s")
+
+    def test_finish_without_launch_and_double_events_are_refused(self):
+        self.assertEqual(self.ev("finish", "--outcome", "done"), 2)
+        self.assertEqual(self.ev("launch"), 0)
+        self.assertEqual(self.ev("launch"), 2, "a second launch of one invocation")
+        self.assertEqual(self.ev("finish", "--outcome", "failed"), 0)
+        self.assertEqual(self.ev("finish", "--outcome", "done"), 2, "a second finish")
+        self.assertEqual(self.ev("launch", attempt="2"), 0, "a new attempt is a new invocation")
+
+    def test_ledger_never_breaks_status_check(self):
+        self.ev("launch")
+        self.set()
+        code, out = self.run_tool("check", "--feature-dir", str(self.feature))
+        self.assertEqual(code, 0)
+        self.assertNotIn("timing", out)
+
+    def test_orchestrator_records_both_events(self):
+        orch = read("agents/orchestrator.md")
+        self.assertRegex(orch, r"sdd-status\.py launch")
+        self.assertRegex(orch, r"finish --outcome")
+        self.assertRegex(orch, r"(?s)only\s+writer of that\s+\*?\*?timing ledger")
 
 
 if __name__ == "__main__":

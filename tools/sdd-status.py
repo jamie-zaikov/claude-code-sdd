@@ -16,6 +16,15 @@ with exactly these keys (see STATES / REQUIRED):
 Subcommands:
   set    write (atomically) a status file — for agents that have Bash. Agents without Bash write
          the same JSON with their Write tool.
+  launch / finish
+         append one event to the feature's TIMING LEDGER (`spec-memory/status/timing.jsonl`), stamped
+         by this tool's clock. Only the orchestrator writes it: `launch` immediately before it
+         launches a specialist invocation, `finish --outcome done|failed|stopped` when the
+         completion notice arrives (or after a stop). Agents never write it, so their missing clock
+         never matters.
+  times  print elapsed wall time per invocation from the ledger:
+             <task> <agent> a<attempt> launched=<UTC> finished=<UTC|-> elapsed=<seconds|running>s
+         Elapsed is launch-to-finish; it includes waits and pauses (no active/wait split).
   check  validate every status file of a feature and print one line each:
              <file> <state> <step> age=<seconds>s [STALE] [INVALID: reason]
          With --stale-seconds N, a `started`/`working` file not modified for N seconds is STALE.
@@ -26,7 +35,8 @@ that invocation has not written yet. Age is the file's mtime, never the self-rep
 (agents without Bash cannot read a clock, so their `updatedAt` is approximate).
 
 Exit codes (check): 0 all valid and none stale, 1 an invalid or stale file, 2 usage error,
-3 the exact file asked for does not exist yet.
+3 the exact file asked for does not exist yet. launch/finish/times: 0 ok, 2 usage error (a finish
+without a matching launch, or a second launch of the same invocation, is refused).
 Stdlib only.
 """
 
@@ -107,6 +117,70 @@ def cmd_set(args) -> int:
         handle.write("\n")
     os.replace(tmp, target)  # atomic: a reader never sees a half-written file
     print(target)
+    return 0
+
+
+TIMING = "timing.jsonl"
+OUTCOMES = ("done", "failed", "stopped")
+
+
+def _timing_events(feature_dir: Path) -> List[dict]:
+    path = status_dir(feature_dir) / TIMING
+    if not path.is_file():
+        return []
+    events = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            continue  # a torn last line from a crash is skipped, never fatal
+    return events
+
+
+def _key(event: dict):
+    return str(event.get("task")), str(event.get("agent")), event.get("attempt")
+
+
+def cmd_timing(args) -> int:
+    feature_dir = Path(args.feature_dir)
+    key = (str(args.task), args.agent, args.attempt)
+    seen = [e for e in _timing_events(feature_dir) if _key(e) == key]
+    kinds = [e.get("event") for e in seen]
+    if args.cmd == "launch" and "launch" in kinds:
+        print(f"sdd-status: refused: {key} already launched (use a new attempt number)",
+              file=sys.stderr)
+        return 2
+    if args.cmd == "finish" and ("launch" not in kinds or "finish" in kinds):
+        print(f"sdd-status: refused: {key} has no open launch to finish", file=sys.stderr)
+        return 2
+    event = {"event": args.cmd, "task": key[0], "agent": key[1], "attempt": key[2],
+             "at": now_utc().strftime(STAMP)}
+    if args.cmd == "finish":
+        event["outcome"] = args.outcome
+    target_dir = status_dir(feature_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with open(target_dir / TIMING, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event) + "\n")
+    return 0
+
+
+def cmd_times(args) -> int:
+    rows = {}
+    for event in _timing_events(Path(args.feature_dir)):
+        row = rows.setdefault(_key(event), {})
+        row[event.get("event")] = event.get("at")
+    current = now_utc()
+    for (task, agent, attempt), row in sorted(rows.items(), key=lambda kv: str(kv[0])):
+        if "launch" not in row:
+            continue
+        start = datetime.strptime(row["launch"], STAMP).replace(tzinfo=timezone.utc)
+        if "finish" in row:
+            end = datetime.strptime(row["finish"], STAMP).replace(tzinfo=timezone.utc)
+            elapsed = str(int((end - start).total_seconds()))
+        else:
+            elapsed = f"running({int((current - start).total_seconds())})"
+        print(f"{task} {agent} a{attempt} launched={row['launch']} "
+              f"finished={row.get('finish', '-')} elapsed={elapsed}s")
     return 0
 
 
@@ -202,7 +276,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     c.add_argument("--attempt", type=int)
     c.add_argument("--all", action="store_true", help="include superseded attempts")
     c.add_argument("--stale-seconds", type=int)
+    for name in ("launch", "finish"):
+        t = sub.add_parser(name, help=f"append a {name} event to the timing ledger")
+        t.add_argument("--feature-dir", required=True)
+        t.add_argument("--task", required=True)
+        t.add_argument("--agent", required=True)
+        t.add_argument("--attempt", type=int, required=True)
+        if name == "finish":
+            t.add_argument("--outcome", required=True, choices=OUTCOMES)
+    m = sub.add_parser("times", help="elapsed wall time per invocation")
+    m.add_argument("--feature-dir", required=True)
     args = parser.parse_args(argv)
+    if args.cmd in ("launch", "finish"):
+        return cmd_timing(args)
+    if args.cmd == "times":
+        return cmd_times(args)
     return cmd_set(args) if args.cmd == "set" else cmd_check(args)
 
 

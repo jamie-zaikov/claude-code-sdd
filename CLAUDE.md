@@ -36,8 +36,10 @@ a diagram, a knowledge-vault update). A `non-code` feature found to touch applic
 reclassifies to `code` (monotonic; never back).
 
 Within Implementation, a **code** task runs the five-stage pipeline:
-Execute → Test → Validate → Code Review → Security Review. The two reviews run automatically
-after the validator passes; any blocking finding sends the task back to the executor on retry.
+Execute → Test → Validate → Code Review → Security Review. The validator and the two reviews run
+concurrently on the same tree after the tester; a validator FAIL discards the reviewers' PASS
+verdicts but keeps their blocking findings, and any blocking finding sends the task back to the
+executor on retry.
 
 A **non-code** task runs a **two-gate** pipeline: Execute → Validate → Security scan. Prose and
 diagrams have no compiler, so the tester and the per-task code-review stage are skipped — an

@@ -174,9 +174,10 @@ The orchestrator walks you through:
    never inferred. A non-code feature later found to touch application code reclassifies to code.
 6. **Implementation** — per task, the pipeline depends on the track:
    - **code:** a five-stage pipeline `executor → tester → validator → code-reviewer →
-     security-reviewer`. The validator checks spec conformance; the two reviewers (which run only
-     after the validator passes) hunt the bugs and security holes a requirement-anchored check
-     misses. Any blocking review finding sends the task back to the executor on retry.
+     security-reviewer`. The validator checks spec conformance; the two reviewers (which run
+     concurrently with it, on the same tree) hunt the bugs and security holes a requirement-anchored
+     check misses. A validator FAIL discards the reviewers' PASS verdicts but keeps their blocking
+     findings; any blocking finding sends the task back to the executor on retry.
    - **non-code:** a two-gate pipeline `executor → validator → security scan`. Prose and diagrams
      have no compiler, so the tester and the per-task code-review stage are skipped. Instead each
      task carries a finite `Acceptance:` checklist, and the validator checks exactly it (plus a

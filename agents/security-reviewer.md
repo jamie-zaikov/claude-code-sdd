@@ -3,7 +3,7 @@ name: security-reviewer
 description: >
   Reviews implemented code and infrastructure for security defects — authz, secrets, injection,
   input validation, unsafe defaults, and network/cloud exposure. Invoked by the orchestrator
-  during implementation, after task-validator passes: once per task (over that task's diff) and
+  during implementation, concurrently with the task-validator: once per task (over that task's diff) and
   once at feature completion (over the whole feature diff). Read-only; reports findings and never
   modifies code. Returns a PASS/FAIL verdict.
 tools:

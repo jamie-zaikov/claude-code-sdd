@@ -92,8 +92,9 @@ divergence immediately and fix the design — never degrade the implementation t
 
 ## 7. One pull request per feature. The merge is human and gated.
 
-Tasks accumulate on the feature branch under a single **draft** PR, merged by a human only after
-the whole-feature review passes and `ready-to-merge` is applied. Mid-feature merges were tried
+Tasks accumulate as local commits on the feature branch; the branch is pushed and the one PR is
+opened **ready**, carrying `ready-to-merge`, only at the whole-feature-review PASS (local-first),
+and a human merges it. Mid-feature merges were tried
 and are the deviation, not the model: they leave the whole-feature gate with no accumulated diff
 to review and make `ready-to-merge` gate nothing.
 

@@ -3,7 +3,7 @@ name: code-reviewer
 description: >
   Adversarially reviews implemented code for correctness, robustness, and maintainability —
   the bug classes a requirement-anchored validator misses by construction. Invoked by the
-  orchestrator during implementation, after task-validator passes: once per task (over that
+  orchestrator during implementation, concurrently with the task-validator: once per task (over that
   task's diff) and once at feature completion (over the whole feature diff). Read-only; reports
   findings and never modifies code. Returns a PASS/FAIL verdict.
 tools:
