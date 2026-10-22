@@ -116,8 +116,9 @@ def _gcloud_token_leak(command: str) -> bool:
     return bool(GCLOUD_TOKEN_PRINT.search(GCLOUD_TOKEN_SUBST.sub("", command)))
 
 # --- PowerShell vectors (PowerShell is case-insensitive, so these are (?i)) ------------------
-# A PowerShell statement ends at `;`, `|`, or a newline.
-_PS_SEG = r"[^;|\n]*"
+# A statement ends at `;`, `&` (`&&` in pwsh 7 and Bash), `|`, or a newline. Stopping at `&` keeps
+# one command's argument (`ssh -i x.pem` after `cat notes.txt &&`) out of another command's match.
+_PS_SEG = r"[^;&|\n]*"
 # Cmdlets and aliases that print a file's content. `(?<![\w-])` keeps `--type` / `Foo-gc` out.
 PS_DUMP_OF_SECRET = re.compile(
     r"(?i)(?<![\w-])(?:Get-Content|gc|type|cat|Select-String|sls|Format-Hex|fhx|more|Get-Item|gi)"
@@ -127,10 +128,10 @@ PS_FILE_READ = re.compile(r"(?i)\[(?:System\.)?IO\.File\]::ReadAll(?:Text|Lines|
 # The `env:` drive lists names AND values. `(?<![\w$])` keeps `$env:NAME` (a variable) out.
 PS_ENV_DRIVE = re.compile(
     r"(?i)(?<![\w-])(?:Get-ChildItem|gci|dir|ls|Get-Item|gi|Get-Content|gc|cat|type)(?![\w-])"
-    r"[^;|\n]*?(?<![\w$])env:"
+    r"[^;&|\n]*?(?<![\w$])env:"
 )
 PS_ENV_API = re.compile(r"(?i)\[(?:System\.)?Environment\]::GetEnvironmentVariables?\b")
-PS_TRACE = re.compile(r"(?i)\bSet-PSDebug\b[^;|\n]*-Trace\s*:?\s*[12]\b")
+PS_TRACE = re.compile(r"(?i)\bSet-PSDebug\b[^;&|\n]*-Trace\s*:?\s*[12]\b")
 # A secret-shaped environment variable name in `$env:NAME` or `${env:NAME}` form.
 _PS_SECRET_VAR = (
     r"\$\{?env:\w*(?:token|secret|passw(?:or)?d|pwd|api_?key|access_?key|private_?key"

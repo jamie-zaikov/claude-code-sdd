@@ -35,7 +35,8 @@ say() { printf '%s\n' "$*"; }
 # as sdd-global's scripts/find-python.sh). Git Bash on Windows often has no python3, so when it
 # is missing a `python3` shell function forwards to the first working fallback. Later
 # `command -v python3` checks see the function, and command substitutions inherit it.
-if ! command -v python3 >/dev/null 2>&1; then
+# A Microsoft Store `python3` alias stub exists on PATH but does not run: probe by running it.
+if ! python3 -c 'import sys' >/dev/null 2>&1; then
   if command -v py >/dev/null 2>&1 && py -3 -c 'import sys' >/dev/null 2>&1; then
     python3() { py -3 "$@"; }
   elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then

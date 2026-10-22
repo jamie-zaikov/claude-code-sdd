@@ -59,7 +59,7 @@ def load(path: Path) -> Tuple[dict, Optional[str]]:
     if not path.exists():
         return {}, None
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")  # tolerate a BOM (Windows PowerShell 5.1)
     except OSError as e:
         raise InstallError(f"cannot read {path} ({e}).") from e
     if not text.strip():

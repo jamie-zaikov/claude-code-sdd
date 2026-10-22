@@ -25,6 +25,7 @@ Subcommands (all take --feature-dir):
             FIRST     the first round (the starting set)
             CONTINUE  a strict subset, nothing new, every dropped id closed or invalid
             CLEAR     no blocker left (task acceptance still needs every applicable gate)
+          A STOP is final for that task and attempt: every later round of it also prints STOP.
             STOP <reason>  not a strict subset, a new or reopened blocker, or a blocker that left
                       without being closed/invalid (deferred, downgraded, or simply missing)
           The comparison never restarts: a new checker invocation or reworded report keeps the ids.
@@ -124,30 +125,32 @@ def cmd_round(a, view, evs) -> int:
         return 2
     prior = [e for e in evs if e.get("event") == "round" and e.get("task") == str(a.task)
              and e.get("attempt") == a.attempt]
+    if any(e.get("verdict") == "STOP" for e in prior):
+        print("STOP this attempt already stopped; in-attempt repair never resumes after a STOP")
+        return 1
+    verdict = verdict_of(set(ids), set(prior[-1]["ids"]) if prior else None, view)
     append(a.feature_dir, {"event": "round", "task": str(a.task), "attempt": a.attempt,
-                           "ids": sorted(set(ids))})
-    current = set(ids)
-    if not prior:
-        print("CLEAR" if not current else "FIRST")
-        return 0
-    previous = set(prior[-1]["ids"])
+                           "ids": sorted(set(ids)), "verdict": verdict.split()[0]})
+    print(verdict)
+    return 1 if verdict.startswith("STOP") else 0
+
+
+def verdict_of(current, previous, view) -> str:
+    """The repair verdict for one round against the previous one (None = the first round)."""
+    if previous is None:
+        return "CLEAR" if not current else "FIRST"
     if not current and not previous:
-        print("CLEAR")
-        return 0
+        return "CLEAR"
     new = sorted(current - previous)
     if new:
-        print(f"STOP new or reopened blocker(s): {','.join(new)}")
-        return 1
+        return f"STOP new or reopened blocker(s): {','.join(new)}"
     dropped = previous - current
     unresolved = sorted(i for i in dropped if view[i]["status"] not in ("closed", "invalid"))
     if unresolved:
-        print(f"STOP blocker(s) left without close/invalid: {','.join(unresolved)}")
-        return 1
+        return f"STOP blocker(s) left without close/invalid: {','.join(unresolved)}"
     if not dropped:
-        print("STOP the blocking set did not shrink")
-        return 1
-    print("CLEAR" if not current else "CONTINUE")
-    return 0
+        return "STOP the blocking set did not shrink"
+    return "CLEAR" if not current else "CONTINUE"
 
 
 def cmd_list(a, view) -> int:

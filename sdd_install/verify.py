@@ -9,7 +9,11 @@ import json
 import subprocess
 from typing import List, Tuple
 
-from .settings import MANAGED_HOOKS, MATCHER, is_managed
+from .settings import DENY_RULES, MANAGED_HOOKS, MATCHER, is_managed
+
+# Settings that make the harness run no user hooks at all. The installer can only see the user
+# settings file; project, local and managed settings can set these too (a documented limit).
+HOOKS_OFF = ("disableAllHooks", "allowManagedHooksOnly")
 
 # (tool_name, command, expect_deny)
 GUARD_CASES = [
@@ -19,6 +23,8 @@ GUARD_CASES = [
     ("PowerShell", "Get-ChildItem env:", True),
     ("Bash", "ls -la", False),
     ("PowerShell", "Get-ChildItem .", False),
+    ("Bash", "cat notes.txt && ssh -i deploy.pem host", False),
+    ("Bash", "cd sub && cat .env", True),
 ]
 
 
@@ -88,8 +94,15 @@ def check_redact(argv: List[str]) -> List[str]:
 
 
 def verify_settings(settings: dict) -> List[str]:
-    """Check the generated settings: one managed entry per event, right matcher, hooks behave."""
-    problems = []
+    """Check the generated settings: hooks not switched off, every deny rule present, one managed
+    entry per event, right matcher, hooks behave. A hook process that works proves nothing if the
+    harness is told not to run it, so a switched-off setting is a failure, never a warning."""
+    problems = [f"settings set {key}: the harness runs no user hooks"
+                for key in HOOKS_OFF if settings.get(key) is True]
+    deny = (settings.get("permissions") or {}).get("deny") or []
+    missing = [rule for rule in DENY_RULES if rule not in deny]
+    if missing:
+        problems.append("deny rules missing: " + ", ".join(missing))
     argvs: dict = {}
     for event, script in MANAGED_HOOKS.items():
         entries = managed_entries(settings, event)

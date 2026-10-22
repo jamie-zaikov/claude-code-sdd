@@ -189,7 +189,9 @@ Agents **use** secrets without **reading** them:
 another agent, the main session, or an equivalent tool. A normal harness approval request follows
 the harness's own escalation path, and an existing authorization stays valid. A missing tool or a
 transient error is not a denial: an authorized actor may perform the operation through the proper
-path when that evades no restriction.
+path when that evades no restriction. A hook block or a deny result **is** a security denial, even
+when the harness shows it as an "error"; if it looks like a false positive, report it to the user —
+never rephrase or obfuscate the command to get past the pattern.
 
 **Escalation — `SECRET REQUEST`.** When an agent needs a secret it cannot obtain safely (not in the
 environment, or a deny rule blocked it), it does NOT guess and does NOT work around the block — it

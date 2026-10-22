@@ -54,8 +54,8 @@ class Refused(Exception):
     pass
 
 
-class Failed(Exception):
-    pass
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sdd_wave_fs import Failed, collisions, remove, unsafe_items, write_blob  # noqa: E402
 
 
 def git(cwd: Path, *args: str, env=None, check: bool = True, data: Optional[bytes] = None) -> str:
@@ -134,49 +134,17 @@ def new_ref(repo: Path, ref: str, commit: str) -> None:
 
 
 def owned(wave: dict, task: str, path: str) -> bool:
+    """Any owned path also covers everything under it, with or without a trailing slash."""
     fold = wave.get("casefold", False)
     p = path.casefold() if fold else path
     for o in wave["own"][task]:
-        o = o.casefold() if fold else o
-        if p == o.rstrip("/") or (o.endswith("/") and p.startswith(o)):
+        o = (o.casefold() if fold else o).rstrip("/")
+        if p == o or p.startswith(o + "/"):
             return True
     return False
 
 
-def write_blob(repo: Path, commit: str, mode: str, path: str) -> None:
-    target = repo / path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    data = subprocess.run(["git", "-C", str(repo), "cat-file", "blob", f"{commit}:{path}"],
-                          capture_output=True, check=True).stdout
-    if target.is_symlink() or target.exists():
-        target.unlink()
-    if mode == "120000" and os.name != "nt":
-        os.symlink(data.decode("utf-8", errors="surrogateescape"), target)
-        return
-    target.write_bytes(data)  # Windows without symlinks: link text, as git does
-    if mode == "100755":
-        target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-
-def remove(repo: Path, path: str) -> None:
-    target = repo / path
-    if target.is_symlink() or target.is_file():
-        target.unlink()
-
-
-def collisions(repo: Path, items: List[tuple]) -> List[str]:
-    bad = []
-    for status, _, path in items:
-        if status == "A":
-            target = repo / path
-            if target.exists() or target.is_symlink():
-                bad.append(f"{path} (already on disk)")
-            parent = target.parent
-            while parent != repo:
-                if parent.exists() and not parent.is_dir():
-                    bad.append(f"{path} (under the file {parent.relative_to(repo).as_posix()})")
-                parent = parent.parent
-    return bad
+SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 # --- commands ---------------------------------------------------------------------------------
@@ -192,6 +160,8 @@ def cmd_start(repo: Path, a) -> str:
     tasks = a.tasks.split(",")
     if len(tasks) != 2 or tasks[0] == tasks[1]:
         raise Refused("a wave has exactly two different tasks")
+    if not all(SAFE_ID.match(x) for x in [a.feature, *tasks]):
+        raise Refused("feature and task ids must match [A-Za-z0-9][A-Za-z0-9._-]*")
     own: Dict[str, List[str]] = {t: [] for t in tasks}
     for spec in a.own:
         task, _, paths = spec.partition("=")
@@ -202,7 +172,7 @@ def cmd_start(repo: Path, a) -> str:
     wave = {"feature": a.feature, "tasks": tasks, "attempt": a.attempt, "own": own,
             "casefold": casefold, "base": git(repo, "rev-parse", "HEAD").strip(),
             "frozen": {}, "phase": "started", "snapshots": []}
-    for path in own[tasks[0]]:  # either side may be a directory prefix of the other
+    for path in own[tasks[0]]:  # either side may be a prefix of the other
         if owned(wave, tasks[1], path) or any(owned({**wave, "own": {"x": [path]}}, "x", q)
                                               for q in own[tasks[1]]):
             raise Refused(f"ownership overlaps on {path}")
@@ -223,6 +193,8 @@ def cmd_check(repo: Path, wave: dict, task: str) -> List[str]:
     for status, mode, path in changes(repo, wave["base"], tree_of(wt)):
         if mode == "160000":
             bad.append(f"{path}: submodule change (never wave-safe)")
+        elif mode == "120000":
+            bad.append(f"{path}: symlink (never wave-safe)")
         elif owned(wave, other, path):
             bad.append(f"{path}: owned by task {other}")
         elif not owned(wave, task, path):
@@ -272,7 +244,7 @@ def cmd_land(repo: Path, wave: dict) -> str:
         raise Failed("stale: the main checkout moved or has tracked changes outside .specs/")
     cand = candidate(repo, wave)
     items = changes(repo, wave["base"], cand)
-    bad = collisions(repo, items)
+    bad = unsafe_items(items) + collisions(repo, items)
     if bad:
         raise Failed("collision with files on disk:\n" + "\n".join(bad))
     wave["preLandUntracked"] = untracked(repo)
@@ -286,11 +258,30 @@ def cmd_land(repo: Path, wave: dict) -> str:
     return f"candidate {cand}"
 
 
+def owned_tree(repo: Path, wave: dict) -> str:
+    """The base tree with only the wave's OWNED paths taken from disk. User files outside the two
+    tasks' ownership are never hashed, so they never land in a long-lived ref."""
+    pathspecs = [o.rstrip("/") for t in wave["tasks"] for o in wave["own"][t]]
+    in_base = set(filter(None, git(repo, "ls-tree", "-r", "--name-only", "-z", wave["base"])
+                         .split("\0")))
+    present = [p for p in pathspecs if (repo / p).exists() or (repo / p).is_symlink()
+               or p in in_base or any(b.startswith(p + "/") for b in in_base)]
+    tmp = tempfile.mkdtemp(prefix="sdd-wave-own-")
+    try:
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / "index"), GIT_LITERAL_PATHSPECS="1")
+        git(repo, "read-tree", wave["base"], env=env)
+        if present:
+            git(repo, "add", "-A", "--", *present, env=env)
+        return git(repo, "write-tree", env=env).strip()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def cmd_snapshot(repo: Path, wave: dict) -> str:
     if wave["phase"] not in ("landed", "landing"):
         raise Refused("nothing is landed")
-    commit = git(repo, "commit-tree", tree_of(repo), "-p", wave["base"], "-m",
-                 "sdd-wave landed snapshot").strip()
+    commit = git(repo, "commit-tree", owned_tree(repo, wave), "-p", wave["base"], "-m",
+                 "sdd-wave landed snapshot (owned paths only)").strip()
     ref = f"{prefix(wave)}/landed-{len(wave['snapshots']) + 1}"
     new_ref(repo, ref, commit)
     wave["snapshots"].append(ref)
@@ -313,7 +304,7 @@ def cmd_unland(repo: Path, wave: dict) -> str:
             write_blob(repo, wave["base"], base_modes[path], path)
         else:
             remove(repo, path)
-    left = {p for _, _, p in changes(repo, wave["base"], tree_of(repo))} - keep
+    left = {p for _, _, p in changes(repo, wave["base"], owned_tree(repo, wave))} - keep
     if left:
         raise Failed("unland left changes behind:\n" + "\n".join(sorted(left)))
     wave["phase"] = "started"
@@ -332,9 +323,12 @@ def cmd_adopt(repo: Path, wave: dict, task: str, patch_out: Optional[str]) -> st
     if not ref:
         raise Refused(f"task {task} has no frozen work")
     if patch_out:
-        Path(patch_out).write_text(git(repo, "diff", "--binary", wave["base"], ref, "--", *SPEC),
-                                   encoding="utf-8", errors="surrogateescape")
+        patch = subprocess.run(["git", "-C", str(repo), "diff", "--binary", wave["base"], ref,
+                                "--", *SPEC], capture_output=True, check=True).stdout
+        Path(patch_out).write_bytes(patch)  # bytes: no newline translation on Windows
     items = changes(repo, wave["base"], ref)
+    if unsafe_items(items):
+        raise Failed("not adopted:\n" + "\n".join(unsafe_items(items)))
     moved = {p for _, _, p in changes(repo, wave["base"], tree_of(repo))}  # HEAD or disk
     bad = sorted({p for _, _, p in items if p in moved} |
                  {c for c in collisions(repo, items) if c.split(" ")[0] not in moved})
@@ -416,20 +410,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         if a.cmd == "start":
             print(cmd_start(repo, a))
         elif a.cmd == "prune":
+            if not SAFE_ID.match(a.feature):
+                raise Refused("feature id must match [A-Za-z0-9][A-Za-z0-9._-]*")
             print(cmd_prune(repo, f"refs/sdd-wave/{a.feature}/"))
         elif a.cmd == "discard":
-            print(cmd_discard(repo, load(repo) if state_path(repo).exists() else None, a.drop_refs))
+            current = load(repo) if state_path(repo).exists() else None
+            if current and current["phase"] in ("landed", "landing"):
+                raise Refused("the wave is landed; unland first (discard would lose the record)")
+            print(cmd_discard(repo, current, a.drop_refs))
         else:
             wave = load(repo)
             if a.cmd == "status":
                 print(json.dumps(wave, indent=1, sort_keys=True))
             elif a.cmd == "extend":
-                other = [t for t in wave["tasks"] if t != a.task]
                 if a.task not in wave["tasks"]:
                     raise Refused(f"task {a.task} is not in the wave")
+                other = [t for t in wave["tasks"] if t != a.task][0]
                 for path in [x.strip() for x in a.paths.split(",") if x.strip()]:
-                    if owned(wave, other[0], path):
-                        raise Refused(f"{path} is owned by task {other[0]}; serialize instead")
+                    probe = {**wave, "own": {"x": [path]}}
+                    if owned(wave, other, path) or any(owned(probe, "x", q)
+                                                       for q in wave["own"][other]):
+                        raise Refused(f"{path} overlaps task {other}'s ownership; serialize instead")
                     wave["own"][a.task].append(path)
                 save(repo, wave)
             elif a.cmd in ("check", "verify"):

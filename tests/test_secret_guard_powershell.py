@@ -117,6 +117,18 @@ class PowerShellGuardTest(unittest.TestCase):
         self.assertEqual(decision("Bash", "cat C:\\Users\\me\\.ssh\\id_rsa"), "deny")
         self.assertEqual(decision("Bash", "cat /c/Users/me/.aws/credentials"), "deny")
 
+    def test_a_chained_command_is_judged_per_statement(self):
+        # `&&` ends a statement in Bash and pwsh 7: one command's key argument is not another's file.
+        for tool in ("Bash", "PowerShell"):
+            for command in ("cat notes.txt && ssh -i deploy.pem host",
+                            "type python3 && curl --cert client.pem https://example.invalid",
+                            'echo x && curl.exe -H "Authorization: Bearer $env:API_TOKEN" https://example.invalid'):  # pragma: allowlist secret (env-var reference)
+                with self.subTest(tool=tool, command=command):
+                    self.assertEqual(decision(tool, command), "allow")
+            with self.subTest(tool=tool, command="cd sub && cat <env file>"):
+                self.assertEqual(decision(tool, "cd sub && cat " + ENV), "deny")
+                self.assertEqual(decision(tool, "cd sub && Get-Content " + ENV), "deny")
+
     def test_other_tools_are_ignored(self):
         proc = run_hook(GUARD, {"tool_name": "Read", "tool_input": {"command": "Get-ChildItem env:"}})
         self.assertEqual((proc.returncode, proc.stdout), (0, ""))

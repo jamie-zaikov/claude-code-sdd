@@ -113,6 +113,16 @@ class FindingsTest(unittest.TestCase):
         self.run_tool("invalid", "--id", a, "--by", "user decision D-4")
         self.assertEqual(self.round(b), (0, "CONTINUE"))
 
+    def test_stop_is_final_for_the_attempt(self):
+        """{A} FIRST -> {A,B} STOP -> close B -> {A} must stay STOP: no cycle back to CONTINUE."""
+        a, b = self.add("A"), self.add("B")
+        self.round(a)
+        self.assertEqual(self.round(a, b)[0], 1)
+        self.run_tool("close", "--id", b, "--by", "7/validator")
+        code, out = self.round(a)
+        self.assertEqual(code, 1)
+        self.assertIn("already stopped", out)
+
     def test_rounds_are_per_task_and_attempt(self):
         a = self.add("A")
         self.round(a, attempt="1")

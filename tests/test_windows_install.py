@@ -143,6 +143,27 @@ class FreshInstallTest(Base):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("NOT PROTECTED", proc.stdout)
 
+    def test_verify_cli_fails_when_a_deny_rule_is_missing(self):
+        self.assertOk(self.sb.install())
+        s = self.sb.settings()
+        s["permissions"]["deny"].remove("Read(~/.ssh/**)")
+        self.sb.write_settings(s)
+        proc = self.sb.run("install.py", "--verify")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("NOT PROTECTED", proc.stdout)
+        self.assertIn("Read(~/.ssh/**)", proc.stdout + proc.stderr)
+
+    def test_hooks_switched_off_is_never_reported_protected(self):
+        for key in ("disableAllHooks", "allowManagedHooksOnly"):
+            with self.subTest(key=key):
+                self.sb.write_settings({key: True})
+                proc = self.sb.install()
+                self.assertNotEqual(proc.returncode, 0, proc.stdout)
+                self.assertIn("NOT PROTECTED", proc.stdout)
+                self.assertNotIn("ENABLED and verified", proc.stdout)
+                self.assertNotEqual(self.sb.run("install.py", "--verify").returncode, 0)
+                self.sb.settings_path.unlink()
+
     def test_no_hooks_means_no_settings(self):
         self.assertOk(self.sb.install("--no-hooks"))
         self.assertFalse(self.sb.settings_path.exists())
@@ -214,6 +235,13 @@ class MergeTest(Base):
         self.assertNotIn("Setup Complete", proc.stdout)
         self.assertEqual(self.sb.settings_path.read_text(encoding="utf-8"), '{"model": "opus",')
         self.assertFalse((self.sb.dest / "settings.json.bak").exists())
+
+    def test_settings_with_a_bom_are_merged(self):
+        path = self.sb.settings_path
+        self.sb.dest.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\xef\xbb\xbf" + json.dumps({"theme": "dark"}).encode())
+        self.assertOk(self.sb.install())
+        self.assertEqual(self.sb.settings()["theme"], "dark")
 
     def test_wrong_shape_settings_fail_unchanged(self):
         text = self.sb.write_settings({"hooks": []})

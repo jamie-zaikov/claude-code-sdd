@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("sdd_wave", ROOT / "tools" / "sdd-wave.py")
 wave = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wave)
+from sdd_wave_fs import safe_target as _st  # noqa: E402  (the module sdd-wave.py imports)
+wave.safe_target = _st
 
 
 class WaveCase(unittest.TestCase):
@@ -239,6 +241,95 @@ class ConflictTest(WaveCase):
         with self.assertRaises(wave.Failed):
             wave.candidate(self.repo, state)
         self.assertEqual((self.repo / "shared.py").read_text(), "s = 1\n")
+
+
+class SecurityGuardTest(WaveCase):
+    def test_symlink_in_a_task_is_never_wave_safe(self):
+        outside = Path(self._tmp.name) / "outside"
+        outside.mkdir()
+        (outside / "victim.txt").write_text("precious\n")
+        wts = self.start()
+        (wts["1"] / "a").mkdir(exist_ok=True)
+        os.symlink(str(outside), wts["1"] / "a" / "link")
+        self.assertIn("symlink (never wave-safe)", self.run_tool("check", "--task", "1")[1])
+        self.assertEqual(self.run_tool("freeze", "--task", "1")[0], 1)
+
+    def test_land_never_writes_through_a_symlinked_parent(self):
+        """Reviewer repro: a link created by one task, a file under it from the other."""
+        outside = Path(self._tmp.name) / "outside"
+        outside.mkdir()
+        (outside / "victim.txt").write_text("precious\n")
+        link = self.repo / "a" / "sub"
+        os.symlink(str(outside), link)  # an untracked link already in the checkout
+        wts = self.start()
+        self.write("a/sub/victim.txt", "attacker\n", wts["1"])
+        self.run_tool("freeze", "--task", "1")
+        self.run_tool("freeze", "--task", "2")
+        code, out = self.run_tool("land")
+        self.assertNotEqual(code, 0, out)
+        self.assertEqual((outside / "victim.txt").read_text(), "precious\n")
+
+    def test_safe_target_refuses_symlinked_parents_and_escapes(self):
+        outside = Path(self._tmp.name) / "outside"
+        outside.mkdir()
+        os.symlink(str(outside), self.repo / "a" / "sub")
+        for bad in ("a/sub/victim.txt", "../escape.txt", "/etc/x", "a/./b", "a//b"):
+            with self.subTest(path=bad), self.assertRaises(wave.Failed):
+                wave.safe_target(self.repo, bad)
+        self.assertEqual(wave.safe_target(self.repo, "a/ok.py"), self.repo / "a" / "ok.py")
+        os.symlink(str(self.repo / "b"), self.repo / "a" / "inner")  # a link that stays inside
+        with self.assertRaises(wave.Failed):
+            wave.safe_target(self.repo, "a/inner/y.py")  # any symlinked parent is refused
+
+    def test_symlink_entries_are_refused_at_land_time(self):
+        self.assertTrue(wave.unsafe_items([("A", "120000", "a/link")]))
+
+    def test_case_colliding_paths_are_refused(self):
+        items = [("A", "100644", "lib/Foo/x.py"), ("A", "100644", "lib/foo/y.py")]
+        self.assertTrue(wave.unsafe_items(items))
+        self.assertFalse(wave.unsafe_items([("A", "100644", "lib/foo/x.py"),
+                                            ("A", "100644", "lib/foo/y.py")]))
+
+    def test_owned_path_without_slash_still_covers_its_children(self):
+        code, _ = self.run_tool("start", "--feature", "f", "--tasks", "1,2", "--attempt", "1",
+                                "--own", "1=lib/foo", "--own", "2=lib/foo/x.py")
+        self.assertEqual(code, 2)
+
+    def test_extend_refuses_a_prefix_of_the_other_tasks_path(self):
+        self.start()
+        self.assertEqual(self.run_tool("extend", "--task", "1", "--paths", "b")[0], 2)
+        self.assertEqual(self.run_tool("extend", "--task", "1", "--paths", "tools")[0], 2)
+
+    def test_unsafe_ids_are_refused(self):
+        self.assertEqual(self.run_tool("prune", "--feature", "*")[0], 2)
+        self.assertEqual(self.run_tool("start", "--feature", "../x", "--tasks", "1,2",
+                                       "--attempt", "1")[0], 2)
+
+
+class UserFileSafetyTest(WaveCase):
+    def test_unland_keeps_user_files_written_after_the_land(self):
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        self.write("USER-NOTES.md", "written after the land\n")
+        self.write("shared.py", "s = 'user edit'\n")  # tracked, outside both tasks' ownership
+        code, out = self.run_tool("unland")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((self.repo / "USER-NOTES.md").read_text(), "written after the land\n")
+        self.assertEqual((self.repo / "shared.py").read_text(), "s = 'user edit'\n")
+        self.assertEqual((self.repo / "a/x.py").read_text(), "x = 1\n", "owned paths restored")
+        refs = self.git("for-each-ref", "--format=%(refname)", "refs/sdd-wave/f/").split()
+        snap = sorted(r for r in refs if "landed-" in r)[-1]
+        self.assertNotIn("USER-NOTES.md", self.git("ls-tree", "-r", "--name-only", snap),
+                         "user files never enter a wave ref")
+
+    def test_discard_refuses_while_landed(self):
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        self.assertEqual(self.run_tool("discard")[0], 2)
+        self.run_tool("unland")
+        self.assertEqual(self.run_tool("discard")[0], 0)
 
 
 class SpecRevTest(unittest.TestCase):
