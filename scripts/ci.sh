@@ -27,6 +27,18 @@ cd "$REPO_ROOT"
 
 say() { printf '%s\n' "$*"; }
 
+# Interpreter policy: python3, then the Windows launcher `py -3`, then python (the same order
+# as sdd-global's scripts/find-python.sh). Git Bash on Windows often has no python3, so when it
+# is missing a `python3` shell function forwards to the first working fallback. Later
+# `command -v python3` checks see the function, and command substitutions inherit it.
+if ! command -v python3 >/dev/null 2>&1; then
+  if command -v py >/dev/null 2>&1 && py -3 -c 'import sys' >/dev/null 2>&1; then
+    python3() { py -3 "$@"; }
+  elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+    python3() { python "$@"; }
+  fi
+fi
+
 # --- 1. Byte-compile the Python scripts ------------------------------------
 say "==> py_compile: hook scripts + shared scanner"
 python3 -m py_compile \
