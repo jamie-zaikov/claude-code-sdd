@@ -42,6 +42,8 @@ DENY_POWERSHELL = [
     "cat ~\\.ssh\\id_rsa",
     "Get-Content C:\\Users\\me\\.aws\\credentials",
     "Get-Content $HOME\\.kube\\config",
+    "Get-Content C:\\Users\\me\\.aws\\config",
+    "type ~\\.ssh\\known_hosts",
     "gc $env:APPDATA\\gcloud\\x.json",
     "Get-Content C:\\Users\\me\\AppData\\Roaming\\gcloud\\credentials.db",
     f"Select-String -Path {ENV} -Pattern KEY",
