@@ -52,7 +52,9 @@ remaining fields are the content **authored upstream** that you publish verbatim
 {
   action:   create-branch | switch-branch | commit | push | open-pr |
             update-pr | comment | label | request-review | park | unpark |
-            overlap-start | overlap-land | overlap-discard,
+            overlap-start | overlap-land | overlap-discard |
+            wave-start | wave-extend | wave-freeze | wave-land | wave-snapshot |
+            wave-unland | wave-verify | wave-adopt | wave-discard | wave-prune,
   feature:  <feature-name>,
   branch:   <branch name, e.g. feature/<feature-name>>,   # deterministic (see below)
   base:     main,                                          # protected base
@@ -100,6 +102,14 @@ When instructed by the orchestrator, perform only these operations:
   <N> --base <base>`, or `... discard --task <N>`. Return start's `<worktree> <base>` line as
   `result:`. Land exit 1 (stale) and exit 2 (refused) are `GITHUB BLOCKED` with the tool's stderr;
   never retry a land by hand-rolled git.
+- **wave-start / wave-extend / wave-freeze / wave-land / wave-snapshot / wave-unland / wave-verify /
+  wave-adopt / wave-discard / wave-prune** — the two-task wave, **locally**, with exactly `python3
+  ~/.claude/tools/sdd-wave.py <subcommand>` and the arguments the orchestrator passes (`start
+  --feature --tasks --attempt --own …`, `extend --task --paths`, `freeze --task`, `land`,
+  `snapshot`, `unland`, `verify --gated-tree`, `adopt --task [--patch-out]`, `discard`, `prune
+  --feature`). Return the tool's stdout as `result:`. Exit 1 (conflict, stale, collision, ownership
+  or verify failure) and exit 2 (refused) are `GITHUB BLOCKED` with its stderr; never repeat a wave
+  step by hand-rolled git.
 - **push** — push the local feature branch to the remote and set upstream. This runs **once**, at
   the publish point (whole-feature-review PASS), never at scaffold and never per task.
 - **open-pr** — open a pull request from the feature branch into `base`, as **ready**

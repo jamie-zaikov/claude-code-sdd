@@ -194,5 +194,17 @@ class OverlapTest(unittest.TestCase):
         self.assertEqual(ov.main(["-C", str(self.repo), "land", "--task", "9", "--base", base]), 2)
 
 
+    def test_land_keeps_staged_specs_work_staged(self):
+        wt, base = self.start()
+        self.write("src/m.py", "m = 1\n", root=wt)
+        self.commit_task_n()
+        self.write(".specs/f/notes.md", "staged by the user\n")
+        self.git("add", ".specs/f/notes.md")
+        ov.land(self.repo, "2", base)
+        staged = subprocess.run(["git", "-C", str(self.repo), "diff", "--cached", "--name-only"],
+                                capture_output=True, text=True).stdout.split()
+        self.assertEqual(staged, [".specs/f/notes.md"], "only the land's own paths are unstaged")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

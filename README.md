@@ -35,6 +35,10 @@ tools/                    # Mechanical checks the agents run (installed to ~/.cl
   sdd-overlap.py          # Level 1 stage overlap: speculative worktree for task N+1 during N's reviews
   sdd-tree-hash.py        # Working-tree identity for suite records (temporary index, .specs/ excluded)
   sdd-findings.py         # One findings index (orchestrator-only writer) + in-attempt repair check
+  sdd-wave.py             # Two-task wave: isolated worktrees, combined candidate, land/unland/adopt
+
+playbooks/                # Procedures the orchestrator reads on demand (installed to ~/.claude/playbooks/)
+  sdd-waves.md            # The two-task wave procedure (opt-in: `Task waves: 2` in tech.md)
 
 hooks/                    # Secret-handling safeguards (installer opt-in — see hooks/README.md)
   secret-guard.py         # PreToolUse (Bash|PowerShell): blocks secret dumps, allows sanctioned use

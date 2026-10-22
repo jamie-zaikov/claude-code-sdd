@@ -106,7 +106,7 @@ work, not to the gates themselves. The orchestrator playbook therefore enforces:
 - design-agent: owns design.md exclusively
 - tasks-agent: owns tasks.md exclusively; for a non-code feature, gives every task a finite `Acceptance:` checklist instead of a testing sub-task
 - spec-consistency-checker: read-only cross-document auditor; fires after tasks confirmed, before implementation; receives no planning context
-- task-executor: implements one task at a time in the shared feature-branch checkout (tasks run sequentially, so each executor inherits prior tasks' committed output)
+- task-executor: implements one task at a time in the shared feature-branch checkout (tasks run sequentially by default, so each executor inherits prior tasks' committed output; with `Task waves: 2` two independent tasks run in isolated worktrees and land as one combined candidate — `playbooks/sdd-waves.md`)
 - task-tester: writes tests for one task, never modifies implementation; **not invoked for a non-code task**
 - task-validator: validates against requirements, read-only, returns pass/fail; on a non-code task runs artifact-conformance mode (the `Acceptance:` checklist + render/lint + a closed coherence rubric)
 - code-reviewer: adversarial correctness/robustness/maintainability review, read-only, returns pass/fail; **per-task code-review is skipped on the non-code track**; at feature review a non-code feature gets one closed-rubric coherence pass

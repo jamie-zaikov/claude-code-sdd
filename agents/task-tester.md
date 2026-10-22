@@ -59,6 +59,16 @@ You write tests for exactly one task. You do not modify implementation code.
 - Name tests clearly: `test_<requirement>_<scenario>` or equivalent for the framework in use.
 - Do NOT modify any application/implementation code. If tests cannot pass due to an implementation issue, report it — do not fix the implementation.
 
+### Wave and suite-only modes
+
+- `wave: true` with a `worktree:` path — write tests only under that worktree and only in paths your
+  task owns (its `Files:` and `Shared:` lines); run them with the worktree first on the import path.
+  Remove non-ignored junk you create (`.pytest_cache`, coverage output). Do **not** run the full
+  suite in a worktree — the batch's one suite run happens on the combined candidate.
+- `mode: suite-only` — write **nothing**. Record `python3 ~/.claude/tools/sdd-tree-hash.py`, run the
+  full suite once, record the hash again, and report the suite record. If the two hashes differ, the
+  run is void: say so.
+
 ### Git — read-only
 
 The checkout may hold another task's work (a wave, a speculation) and the user's own files. Run

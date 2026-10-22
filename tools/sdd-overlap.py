@@ -125,7 +125,11 @@ def land(repo: Path, task: str, base: str) -> None:
     if picked.returncode != 0:
         restore(repo, sorted(in_head), absent)
         raise Stale(f"cherry-pick failed; the tree was restored: {picked.stderr.strip()}")
-    git(repo, "reset", "-q")  # leave M's work as plain working-tree changes, like any executor's
+    # Leave M's work as plain working-tree changes, like any executor's. Unstage ONLY the paths
+    # the pick touched: staged work elsewhere (e.g. under `.specs/`) is not ours to unstage.
+    env = dict(os.environ, GIT_LITERAL_PATHSPECS="1")
+    for start in range(0, len(touched), 200):
+        git(repo, "reset", "-q", "--", *touched[start:start + 200], env=env)
     discard(repo, task)
 
 

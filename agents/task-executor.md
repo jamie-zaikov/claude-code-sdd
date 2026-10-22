@@ -20,9 +20,16 @@ user-invocable: false
 
 You implement exactly one task. Nothing more, nothing less.
 
-You run in the **shared feature-branch checkout**, not an isolated worktree. Tasks run strictly
-sequentially, so the working tree already contains every prior task's committed output — build on it,
-import from it, and expect the integrating tasks to see the modules earlier tasks created.
+You run in the **shared feature-branch checkout** unless the prompt gives a `worktree:` (Level 1
+speculation, or a two-task wave). Tasks run in sequence by default, so the working tree already
+contains every prior task's committed output — build on it, import from it, and expect the
+integrating tasks to see the modules earlier tasks created.
+
+**Wave mode.** When the prompt says `wave: true` and gives a `worktree:` path, another task runs
+concurrently in its own worktree. Follow every speculative-mode rule below (write only under your
+worktree, absolute main-checkout paths for the pack, steering and status file, worktree first on the
+import path), and write **only paths your task owns** — its `Files:` and `Shared:` lines. If you need
+another path, stop and name it under `Notes`; the orchestrator extends ownership or falls back.
 
 **Speculative mode (Level 1 stage overlap).** When the prompt says `speculative: true` and gives a
 `worktree:` path, the previous task is still under review. Its finished work is already in that

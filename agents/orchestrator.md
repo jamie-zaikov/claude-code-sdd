@@ -449,8 +449,9 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   non-ignored files only. A task that changes a gitignored file the tests read (generated config,
   `input-data/` fixtures) or the installed environment (`pip install`, a lockfile sync) voids the
   record — the stage that made the change says so, and the next stage runs the full suite. Use the parallel runner
-  steering declares (e.g. `pytest -n auto`) when `tech.md` names one. The full suite still runs at
-  least once per task — after the last change — and once more at the Feature Review Gate.
+  steering declares (e.g. `pytest -n auto`) when `tech.md` names one. The full suite runs at least
+  once per accepted candidate — a task, or a wave batch — after its last change, and at the
+  Feature Review Gate only when no valid record matches the final tree.
 
   **After the executor returns — RT-3 check, then the classification payload.** You now hold the
   executor's changed-files summary — the first stage that does. **If `featureClass` is `"non-code"`
@@ -622,6 +623,17 @@ Never start a speculation for a non-code task, a task that mutates a live system
 speculation exists. Never land or discard while the speculative executor may still be writing. Only the executor runs speculatively; the tester and every gate run on the main
 checkout after the land, so no gate ever sees speculative code.
 
+#### Two-task waves — `playbooks/sdd-waves.md`
+
+When `tech.md` declares `Task waves: 2`, read `~/.claude/playbooks/sdd-waves.md` on entry to
+implementation and follow it exactly: it is the one definition of the wave procedure. In short — two
+dependency-ready tasks with disjoint declared sets run in isolated worktrees, are frozen, and land
+as **one combined candidate** in the main checkout; one suite run and every gate of both tasks judge
+that candidate; neither task completes until all pass; a failure falls back to sequence with both
+patches kept. Two rules hold here even without the playbook: **no Level 1 speculation while a wave
+exists, and no wave task is parked with `park`**; and on resume run `python3
+~/.claude/tools/sdd-wave.py status` before anything else.
+
 ### Feature Review Gate (runs automatically after the last task completes, before `complete`)
 
 Once every task is `complete`, do NOT jump straight to `complete`. Run one whole-feature review pass
@@ -758,7 +770,9 @@ publishes verbatim:
 {
   action:   create-branch | switch-branch | commit | push | open-pr |
             update-pr | comment | label | request-review | park | unpark |
-            overlap-start | overlap-land | overlap-discard,
+            overlap-start | overlap-land | overlap-discard |
+            wave-start | wave-extend | wave-freeze | wave-land | wave-snapshot |
+            wave-unland | wave-verify | wave-adopt | wave-discard | wave-prune,
   feature:  <feature-name>,
   branch:   <branch name, e.g. feature/<feature-name>>,   # deterministic (FR-3.1)
   base:     main,                                          # protected base
@@ -795,6 +809,7 @@ point.
 | **Blocking finding** at any stage or in feature-review | *(none — halt locally, no remote label)* | — |
 | **Task parked** (overnight halt or amendment) / **unparked** | `park` / `unpark` (local stash only) | task number; `parkedRef` on unpark |
 | **Stage overlap** start / land / discard | `overlap-start` / `overlap-land` / `overlap-discard` (local worktree only) | task number; tree hash on start; base commit on land |
+| **Two-task wave** (`playbooks/sdd-waves.md`) | `wave-start` … `wave-prune` (local worktrees and refs only) | feature, tasks, attempt, ownership; task number; gated tree hash |
 | **Whole-feature review PASS** — the publish point | `push` → `open-pr` (ready) → `comment` accumulated verdicts → `label set ready-to-merge` → `request-review` | PR title/body, the verbatim stage-attributed verdict blocks (FR-6, FR-6.1), reviewer handle/team |
 
 **Label vocabulary (D3).** `ready-to-merge` is applied **only** at the publish point, coincident with

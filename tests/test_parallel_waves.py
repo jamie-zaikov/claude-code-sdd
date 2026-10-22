@@ -170,5 +170,52 @@ class HygieneAndPermissionTest(Base):
         self.has(self.orch, r"commits name explicit paths only, never a user-owned file", "orchestrator")
 
 
+class WavePlaybookTest(Base):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.pb = read("playbooks/sdd-waves.md")
+
+    def test_orchestrator_links_the_playbook_and_keeps_the_two_guards(self):
+        self.has(self.orch, r"read `~/\.claude/playbooks/sdd-waves\.md` on entry to\s+implementation",
+                 "link")
+        self.has(self.orch, r"no Level 1 speculation while a wave\s+exists, and no wave task is parked"
+                 r" with `park`", "guards")
+        self.has(self.orch, r"sdd-wave\.py status` before anything else", "resume")
+
+    def test_opt_in_and_mechanical_eligibility(self):
+        self.has(self.pb, r"`tech\.md` declares `Task waves: 2`\. Absent means off", "opt-in")
+        self.has(self.pb, r"Their declared sets are disjoint", "disjoint")
+        self.has(self.pb, r"Neither task changes the shared environment", "env")
+        self.has(self.pb, r"While a wave exists: no Level 1 speculation starts, and no wave task is"
+                 r" parked with `park`", "playbook guards")
+
+    def test_one_candidate_one_suite_all_gates(self):
+        self.has(self.pb, r"`mode: suite-only`: it writes nothing, runs\s+the full suite once, and"
+                 r" records the tree hash before and after", "suite-only")
+        self.has(self.pb, r"no\s+verdict comes from a worktree", "no isolated PASS")
+
+    def test_commit_is_verified_against_the_gated_tree(self):
+        self.has(self.pb, r"`wave-verify --gated-tree", "verify")
+        self.has(self.pb, r"never mark the tasks complete", "verify halts")
+
+    def test_repairs_are_serial_and_rereview_both_tasks(self):
+        self.has(self.pb, r"one task at a time,\s+never two repair executors at once", "serial")
+        self.has(self.pb, r"all reviewers of\s+both tasks re-run in `mode: delta`", "both re-review")
+        self.has(self.pb, r"Before each repair write, github-agent `wave-snapshot`", "snapshot")
+
+    def test_stop_counts_as_a_failed_attempt_and_falls_back(self):
+        self.has(self.pb, r"the failing task's attempt counts as failed\s+\(`retryCount \+= 1`,"
+                 r" `blockingHistory` kept", "counter")
+        self.has(self.pb, r"The task that passed keeps no verdict: it re-gates in sequence", "re-gate")
+        self.has(self.pb, r"Fallback to sequence — never a promise of success", "fallback")
+
+    def test_agents_know_wave_mode(self):
+        self.has(read("agents/task-executor.md"), r"write only paths your task owns", "executor")
+        self.has(read("agents/task-tester.md"), r"`mode: suite-only` — write nothing", "tester")
+        self.has(read("agents/github-agent.md"), r"wave-start / wave-extend / wave-freeze / wave-land",
+                 "github-agent")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
