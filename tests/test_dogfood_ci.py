@@ -43,6 +43,11 @@ import unittest
 from pathlib import Path
 
 try:
+    from tests import winsupport
+except ImportError:  # run from inside tests/
+    import winsupport
+
+try:
     import yaml  # PyYAML — used for real YAML validity + trigger/name assertions.
 
     HAVE_YAML = True
@@ -201,8 +206,8 @@ class CiShStructureTests(unittest.TestCase):
         self.assertTrue(CI_SH.exists(), f"scripts/ci.sh not created: {CI_SH}")
 
     def test_ci_sh_is_executable(self):
-        mode = os.stat(CI_SH).st_mode
-        self.assertTrue(mode & 0o111, "scripts/ci.sh is not executable (no exec bit set)")
+        self.assertEqual(winsupport.index_mode("scripts/ci.sh"), "100755",
+                         "scripts/ci.sh is not committed executable (mode 100755)")
 
     def test_ci_sh_has_bash_shebang(self):
         first_line = self.text.splitlines()[0] if self.text else ""
@@ -235,7 +240,7 @@ class CiShSyntaxTests(unittest.TestCase):
 
     def test_bash_n_syntax_ok(self):
         result = subprocess.run(
-            ["bash", "-n", str(CI_SH)],
+            [winsupport.BASH or "bash", "-n", str(CI_SH)],
             capture_output=True,
             text=True,
         )
@@ -267,7 +272,7 @@ class CiShRunTests(unittest.TestCase):
         # points its suite step at a small temporary suite, so this test never runs the real
         # suite recursively (this file is part of it).
         env = dict(os.environ, SDD_CI_TEST_DIR=str(test_dir))
-        return subprocess.run(["bash", str(CI_SH)], cwd=str(ROOT), capture_output=True,
+        return subprocess.run([winsupport.BASH or "bash", str(CI_SH)], cwd=str(ROOT), capture_output=True,
                               text=True, env=env)
 
     def write_suite(self, tmp, body):

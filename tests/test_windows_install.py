@@ -18,6 +18,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+try:
+    from tests import winsupport
+except ImportError:  # run from inside tests/
+    import winsupport
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 from sdd_install import settings as sdd_settings  # noqa: E402
 from sdd_install.common import InstallError  # noqa: E402
 
-BASH = shutil.which("bash")
+BASH = winsupport.BASH
 OLD_GUARD = {"type": "command", "command": "python3 ~/.claude/hooks/secret-guard.py"}
 OLD_REDACT = {"type": "command", "command": "python3 ~/.claude/hooks/secret-redact.py"}
 USER_HOOK = {"type": "command", "command": "echo user-hook"}

@@ -36,6 +36,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    from tests import winsupport
+except ImportError:  # run from inside tests/
+    import winsupport
+
 # Resolve everything relative to this test so it survives the worktree layout
 #   <root>/tests/test_sdd_init_ci_templates.py -> <root>/{install.sh,commands/,ci-templates/}
 # and later consolidation onto feat/github-agent.
@@ -56,7 +61,7 @@ EXPECTED_WORKFLOWS = (
 SENTINEL = "# >>> sdd-pre-push (managed) >>>"
 
 GIT = shutil.which("git")
-BASH = shutil.which("bash") or "/bin/bash"
+BASH = winsupport.BASH or "/bin/bash"
 SHELLCHECK = shutil.which("shellcheck")
 
 # What install.sh reads out of SCRIPT_DIR. Copied into each sandbox so the run is faithful.
@@ -65,8 +70,7 @@ COPY_DIRS = ("agents", "commands", "hooks", "ci-templates", "tools", "scripts", 
 COPY_FILES = ("install.sh", "install.py", "CLAUDE.md")
 
 
-def is_executable(path: Path) -> bool:
-    return bool(os.stat(path).st_mode & 0o111)
+is_executable = winsupport.is_executable
 
 
 # ==========================================================================
@@ -297,9 +301,7 @@ class InstallerSandbox:
                 shutil.copytree(src, self.script_dir / name)
 
         # Fake `claude` so `command -v claude` succeeds -> deterministic prompt order.
-        shim = self.fakebin / "claude"
-        shim.write_text("#!/bin/sh\necho 'fake-claude 0.0.0'\n")
-        shim.chmod(0o755)
+        winsupport.fake_claude(self.fakebin)
 
         if git_repo:
             subprocess.run(

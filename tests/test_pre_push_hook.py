@@ -41,6 +41,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    from tests import winsupport
+except ImportError:  # run from inside tests/
+    import winsupport
+
 # Resolve the hook + shared scanner relative to this test so the suite survives both the worktree
 # layout (<root>/tests/... -> <root>/ci-templates/...) and consolidation onto feat/github-agent.
 ROOT = Path(__file__).resolve().parent.parent
@@ -52,7 +57,7 @@ SENTINEL_CLOSE = "# <<< sdd-pre-push (managed) <<<"
 
 ZERO_SHA = "0" * 40
 
-BASH = shutil.which("bash")
+BASH = winsupport.BASH
 SH = shutil.which("sh")
 DASH = shutil.which("dash")
 SHELLCHECK = shutil.which("shellcheck")
@@ -78,8 +83,9 @@ class HookStructureTest(unittest.TestCase):
     def test_hook_file_exists_and_executable(self):
         # FR-19: the hook is a real, installable template file.
         self.assertTrue(HOOK.is_file(), f"hook template missing at {HOOK}")
-        mode = HOOK.stat().st_mode
-        self.assertTrue(mode & 0o111, "hook should be executable (a git hook must be runnable)")
+        rel = HOOK.relative_to(winsupport.ROOT).as_posix()
+        self.assertEqual(winsupport.index_mode(rel), "100755",
+                         "hook should be committed executable (a git hook must be runnable)")
 
     def test_bash_syntax_check(self):
         # 6.4(1): `bash -n` must parse the hook cleanly.

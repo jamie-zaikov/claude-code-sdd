@@ -469,9 +469,11 @@ class RoundThreeTest(WaveCase):
 
     def test_new_directory_unlands_cleanly_and_never_wedges(self):
         """Reviewer H1: the unland leaves an empty owned dir; the next snapshot must not fail."""
-        for icase in ("true", "false"):
+        # Run with the repository's own core.ignorecase: git sets it from the filesystem, and forcing
+        # `false` on a case-insensitive one is a misconfiguration. macOS/Windows cover `true`
+        # (where the reviewer's H1 reproduced), Linux covers `false`.
+        for icase in (self.git("config", "--bool", "core.ignorecase").strip() or "false",):
             with self.subTest(ignorecase=icase):
-                self.git("config", "core.ignorecase", icase)
                 root = self.own_start("a/,newpkg/")
                 self.land_new_package(root)
                 code, out = self.run_tool("unland")
@@ -575,6 +577,7 @@ class RoundFourTest(WaveCase):
         self.assertEqual(code, 0, out)
         self.assertEqual(wave.load(self.repo)["phase"], "started")
 
+    @unittest.skipIf(os.name == "nt", "Windows file names cannot contain a newline")
     def test_newline_in_an_owned_file_name_never_wedges(self):
         wts = self.start()
         self.work_and_freeze(wts)
