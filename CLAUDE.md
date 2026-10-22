@@ -185,6 +185,12 @@ Agents **use** secrets without **reading** them:
 - Never `echo`/`print` a secret, run `env`/`printenv`, use `set -x`, or use authenticated `curl -v`/`-i`.
   When reporting a *found* secret (e.g. security-reviewer), give its type and `path:line`, never the value.
 
+**Denials are never laundered.** A real permission or security denial is never bypassed through
+another agent, the main session, or an equivalent tool. A normal harness approval request follows
+the harness's own escalation path, and an existing authorization stays valid. A missing tool or a
+transient error is not a denial: an authorized actor may perform the operation through the proper
+path when that evades no restriction.
+
 **Escalation — `SECRET REQUEST`.** When an agent needs a secret it cannot obtain safely (not in the
 environment, or a deny rule blocked it), it does NOT guess and does NOT work around the block — it
 halts and returns `SECRET REQUEST: <what it needs and why>`, proposing provisioning (operator

@@ -149,5 +149,26 @@ class FindingsAndRepairTest(Base):
             self.has(text, r"A string\s+a program or instrument reads .{0,120}? is never cosmetic", rel)
 
 
+class HygieneAndPermissionTest(Base):
+    FORBIDDEN = ("stash", "checkout", "reset", "restore", "rm --cached", "add", "commit", "worktree",
+                 "clean")
+
+    def test_executor_and_tester_run_read_only_git(self):
+        for rel in ("agents/task-executor.md", "agents/task-tester.md"):
+            text = read(rel)
+            self.has(text, r"Run\s+read-only git only", rel)
+            for verb in self.FORBIDDEN:
+                self.has(text, r"Never run [^.]*`" + verb + r"`", f"{rel}: {verb}")
+
+    def test_denials_are_never_laundered(self):
+        self.has(self.orch, r"NEVER bypass a real permission or security denial through another actor"
+                 r" or an equivalent tool", "orchestrator")
+        self.has(self.orch, r"a missing tool or a transient error is not a denial", "orchestrator")
+        self.has(read("CLAUDE.md"), r"A real permission or security denial is never bypassed", "CLAUDE.md")
+
+    def test_commits_name_explicit_paths_only(self):
+        self.has(self.orch, r"commits name explicit paths only, never a user-owned file", "orchestrator")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

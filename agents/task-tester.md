@@ -59,6 +59,14 @@ You write tests for exactly one task. You do not modify implementation code.
 - Name tests clearly: `test_<requirement>_<scenario>` or equivalent for the framework in use.
 - Do NOT modify any application/implementation code. If tests cannot pass due to an implementation issue, report it — do not fix the implementation.
 
+### Git — read-only
+
+The checkout may hold another task's work (a wave, a speculation) and the user's own files. Run
+**read-only git only**: `status`, `diff`, `log`, `show`, `ls-files`, `rev-parse`, `grep`. Never run
+`stash`, `checkout`, `switch`, `reset`, `restore`, `rm --cached`, `add`, `commit`, `worktree`,
+`clean`, `merge`, `rebase`, or `cherry-pick` — commits and every other git mutation belong to
+github-agent. If you need one, say so in your summary.
+
 ### Running Tests
 
 - Run the tests you wrote to verify they pass. Iterate with targeted runs (by path or `-k`).
