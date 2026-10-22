@@ -181,15 +181,18 @@ class HookBehaviorTest(unittest.TestCase):
 
     def _run_hook(self, repo, stdin_lines):
         """Invoke the hook exactly as git would: argv = <remote-name> <remote-url>, refs on stdin."""
-        stdin = "".join(line + "\n" for line in stdin_lines)
+        # Bytes, LF only, exactly as git feeds a hook: text mode would turn "\n" into "\r\n" on
+        # Windows and the hook would read a SHA with a trailing CR.
+        stdin = "".join(line + "\n" for line in stdin_lines).encode("utf-8")
         proc = subprocess.run(
             [SH, str(HOOK), "origin", "https://example.invalid/repo.git"],
             cwd=str(repo),
             input=stdin,
             capture_output=True,
-            text=True,
         )
-        return proc
+        return subprocess.CompletedProcess(proc.args, proc.returncode,
+                                           proc.stdout.decode("utf-8", "replace"),
+                                           proc.stderr.decode("utf-8", "replace"))
 
     # --- FR-17.1: detected secret blocks and names the check --------------
     def test_detected_secret_blocks_normal_update(self):
