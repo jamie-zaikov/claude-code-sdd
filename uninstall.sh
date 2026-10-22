@@ -1,48 +1,18 @@
 #!/usr/bin/env bash
+# SDD Global Uninstaller — POSIX / Git Bash shim. All logic lives in uninstall.py; this shim only
+# finds Python >= 3.9 (scripts/find-python.sh) and runs it with the same arguments.
 set -euo pipefail
 
-CLAUDE_HOME="${HOME}/.claude"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY=""      # set by sdd_find_python
+PY_ARGS=""
+# shellcheck disable=SC1091  # sourced helper; lint it directly (shellcheck scripts/find-python.sh)
+. "${SCRIPT_DIR}/scripts/find-python.sh"
 
-echo ""
-echo "SDD Global Uninstaller"
-echo "======================"
-echo ""
-echo "This will remove SDD agents, commands, and CLAUDE.md from ${CLAUDE_HOME}/"
-echo ""
-echo "  Agents to remove:"
-for agent in orchestrator requirements-agent design-agent tasks-agent spec-consistency-checker task-executor task-tester task-validator code-reviewer security-reviewer github-agent vault-reader vault-writer; do
-  [ -f "${CLAUDE_HOME}/agents/${agent}.md" ] && echo "    • ${agent}.md"
-done
-echo ""
-echo "  Commands to remove:"
-for cmd in sdd-init sdd-feature sdd-status sdd-resume sdd-overnight; do
-  [ -f "${CLAUDE_HOME}/commands/${cmd}.md" ] && echo "    • ${cmd}.md"
-done
-echo ""
+if ! sdd_find_python; then
+  echo "[err]   Python 3.9 or later was not found (tried: python3, py -3, python)." >&2
+  exit 1
+fi
 
-read -rp "Continue? (y/N) " reply
-[[ "$reply" =~ ^[Yy]$ ]] || exit 0
-
-# Remove agents
-for agent in orchestrator requirements-agent design-agent tasks-agent spec-consistency-checker task-executor task-tester task-validator code-reviewer security-reviewer github-agent vault-reader vault-writer; do
-  rm -f "${CLAUDE_HOME}/agents/${agent}.md"
-done
-
-# Remove commands
-for cmd in sdd-init sdd-feature sdd-status sdd-resume sdd-overnight; do
-  rm -f "${CLAUDE_HOME}/commands/${cmd}.md"
-done
-
-# Remove agent tools
-rm -f "${CLAUDE_HOME}/tools/sdd-module-size.py"
-rm -f "${CLAUDE_HOME}/tools/sdd-status.py"
-rm -f "${CLAUDE_HOME}/tools/sdd-park.py"
-rm -f "${CLAUDE_HOME}/tools/sdd-context-pack.py"
-rm -f "${CLAUDE_HOME}/tools/sdd-overlap.py"
-
-echo ""
-echo "Removed SDD agents and commands."
-echo ""
-echo "CLAUDE.md was NOT removed — review ~/.claude/CLAUDE.md manually"
-echo "and remove the SDD instructions if you no longer need them."
-echo ""
+# shellcheck disable=SC2086  # PY_ARGS is empty or the single flag -3
+exec "$PY" $PY_ARGS "${SCRIPT_DIR}/uninstall.py" "$@"

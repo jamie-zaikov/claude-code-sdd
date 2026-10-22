@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PostToolUse hook (matcher: Bash) — backstop that redacts secret-shaped strings
+PostToolUse hook (matcher: Bash|PowerShell) — backstop that redacts secret-shaped strings
 from a command's output BEFORE the model ingests it, via `updatedToolOutput`.
 
 This is defense-in-depth: the deny rules and secret-guard block the obvious
@@ -72,7 +72,7 @@ def main() -> int:
         data = json.load(sys.stdin)
     except Exception:
         return 0
-    if data.get("tool_name") != "Bash":
+    if data.get("tool_name") not in ("Bash", "PowerShell"):
         return 0
     resp = data.get("tool_response", data.get("tool_output"))
     text = extract_output(resp)

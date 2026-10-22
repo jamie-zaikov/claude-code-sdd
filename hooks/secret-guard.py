@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""
-PreToolUse hook (matcher: Bash) — blocks commands that would DUMP a secret into
-context, while allowing sanctioned USE of secrets.
+r"""
+PreToolUse hook (matcher: Bash|PowerShell) — blocks commands that would DUMP a
+secret into context, while allowing sanctioned USE of secrets. Both shell tools are
+checked with the union of the Bash and PowerShell rules (a Bash command can start
+`pwsh -c ...` and vice versa). Paths match with `/` or `\` separators and drive
+letters (`C:\Users\me\.aws\credentials`).
 
 Blocks:
   - Full-environment dumps:            `printenv`, bare `env`, `env | ...`
@@ -11,10 +14,20 @@ Blocks:
   - GitHub-token dump vectors:          `gh auth token`, `echo "$GH_TOKEN"`,
       `printf '%s' "$GITHUB_TOKEN"` (sanctioned `gh` use is left untouched)
 
+  - PowerShell dump vectors: Get-Content/gc/cat/type/Select-String on a secret
+      store; env-drive reads (`Get-ChildItem env:`, `gci env:`, `dir env:`,
+      `ls env:`); printing a secret-shaped `$env:NAME` (bare, echo, Write-Output,
+      Write-Host, ...); `[Environment]::GetEnvironmentVariable(s)`;
+      `Set-PSDebug -Trace 1|2`.
+
 Allows (does NOT block):
   - Using a secret via a binary that reads it itself: `ssh -i key.pem`,
     `curl --cert key.pem`, `openssl ... key.pem` — the value never enters context.
-  - Referencing a secret by env-var name: `curl -H "Authorization: Bearer $TOKEN"`.
+  - Referencing a secret by env-var name: `curl -H "Authorization: Bearer $TOKEN"`,
+    and in PowerShell `curl.exe -H "Authorization: Bearer $env:TOKEN"`.
+
+Limits: a regex guard stops the common dump vectors, not every exfiltration (e.g. a
+script file that prints a variable, or an obfuscated command, is not detected).
 
 On block: exits 0 with a deny decision + a reason that points the agent at the
 "use, don't read" pattern and the SECRET REQUEST escalation.
@@ -23,21 +36,25 @@ import json
 import re
 import sys
 
+# The harness's shell tools: Bash (Git Bash on Windows) and the built-in PowerShell tool.
+SHELL_TOOLS = ("Bash", "PowerShell")
+
 DUMP_TOOLS = r"(?:cat|bat|less|more|head|tail|nl|tac|grep|egrep|fgrep|rg|ag|xxd|od|hexdump|strings|base64|awk|sed|cut|tr)"
 
 # Path fragments that identify a known secret store.
 SECRET_PATH = re.compile(
     r"""(?xi)
-    (?:^|[\s='"/])                 # boundary
+    (?:^|[\s='"/\\:%])             # boundary (`\`, `C:`, `$env:X`, `%X%` for Windows)
     (?:
         \.env(?:\.[\w.-]+)?\b      # .env, .env.local, .env.production
       | id_rsa\b | id_ed25519\b
-      | /credentials\b | (?<![\w.])credentials\b
+      | [/\\]credentials\b | (?<![\w.])credentials\b
       | [\w.-]*\.pem\b | [\w.-]*\.key\b | [\w.-]*\.p12\b | [\w.-]*\.pfx\b
       | service-account[\w.-]*\.json\b
       | [\w.-]*\.tfvars\b
       | kubeconfig\b
-      | \.aws/ | \.ssh/ | \.kube/ | \.config/gcloud/
+      | \.aws[/\\] | \.ssh[/\\] | \.kube[/\\] | \.config[/\\]gcloud[/\\]
+      | AppData%?[/\\](?:Roaming[/\\])?gcloud[/\\]   # %APPDATA%\gcloud, AppData\Roaming\gcloud
       | \.netrc\b
     )
     """,
@@ -98,6 +115,51 @@ def _gcloud_token_leak(command: str) -> bool:
         return True
     return bool(GCLOUD_TOKEN_PRINT.search(GCLOUD_TOKEN_SUBST.sub("", command)))
 
+# --- PowerShell vectors (PowerShell is case-insensitive, so these are (?i)) ------------------
+# A PowerShell statement ends at `;`, `|`, or a newline.
+_PS_SEG = r"[^;|\n]*"
+# Cmdlets and aliases that print a file's content. `(?<![\w-])` keeps `--type` / `Foo-gc` out.
+PS_DUMP_OF_SECRET = re.compile(
+    r"(?i)(?<![\w-])(?:Get-Content|gc|type|cat|Select-String|sls|Format-Hex|fhx|more|Get-Item|gi)"
+    r"(?![\w-])" + _PS_SEG
+)
+PS_FILE_READ = re.compile(r"(?i)\[(?:System\.)?IO\.File\]::ReadAll(?:Text|Lines|Bytes)\s*\(" + _PS_SEG)
+# The `env:` drive lists names AND values. `(?<![\w$])` keeps `$env:NAME` (a variable) out.
+PS_ENV_DRIVE = re.compile(
+    r"(?i)(?<![\w-])(?:Get-ChildItem|gci|dir|ls|Get-Item|gi|Get-Content|gc|cat|type)(?![\w-])"
+    r"[^;|\n]*?(?<![\w$])env:"
+)
+PS_ENV_API = re.compile(r"(?i)\[(?:System\.)?Environment\]::GetEnvironmentVariables?\b")
+PS_TRACE = re.compile(r"(?i)\bSet-PSDebug\b[^;|\n]*-Trace\s*:?\s*[12]\b")
+# A secret-shaped environment variable name in `$env:NAME` or `${env:NAME}` form.
+_PS_SECRET_VAR = (
+    r"\$\{?env:\w*(?:token|secret|passw(?:or)?d|pwd|api_?key|access_?key|private_?key"
+    r"|credential|auth)\w*\}?"
+)
+# Printing it: a print cmdlet/alias in the same statement ...
+PS_SECRET_PRINT = re.compile(
+    r"(?i)(?<![\w-])(?:echo|write|Write-Output|Write-Host|Write-Information|Write-Verbose"
+    r"|Write-Debug|Write-Warning|Write-Error|Out-Host|Out-String|Out-Default)(?![\w-])"
+    + _PS_SEG + _PS_SECRET_VAR
+)
+# ... or the bare expression as a whole statement (PowerShell prints an unconsumed value).
+PS_SECRET_BARE = re.compile(
+    r"(?i)(?:^|[;\n{(])\s*[\"']?" + _PS_SECRET_VAR + r"[\"']?\s*(?:$|[;\n|})])"
+)
+
+
+def _powershell_blocked(command: str) -> bool:
+    if PS_ENV_DRIVE.search(command) or PS_ENV_API.search(command) or PS_TRACE.search(command):
+        return True
+    if PS_SECRET_PRINT.search(command) or PS_SECRET_BARE.search(command):
+        return True
+    for pat in (PS_DUMP_OF_SECRET, PS_FILE_READ):
+        for m in pat.finditer(command):
+            if SECRET_PATH.search(m.group(0)):
+                return True
+    return False
+
+
 DENY_REASON = (
     "Blocked: this command would print a secret into the transcript. "
     "Do not read secret material into context. Instead USE it without reading it: "
@@ -121,7 +183,8 @@ def is_blocked(command: str) -> bool:
     for m in DUMP_OF_SECRET.finditer(command):
         if SECRET_PATH.search(m.group(0)):
             return True
-    return False
+    # PowerShell vectors apply to both tools (`pwsh -c "gci env:"` can run from Bash).
+    return _powershell_blocked(command)
 
 
 def main() -> int:
@@ -129,7 +192,7 @@ def main() -> int:
         data = json.load(sys.stdin)
     except Exception:
         return 0  # can't parse — do not interfere
-    if data.get("tool_name") != "Bash":
+    if data.get("tool_name") not in SHELL_TOOLS:
         return 0
     command = (data.get("tool_input") or {}).get("command", "")
     if not isinstance(command, str) or not command:
