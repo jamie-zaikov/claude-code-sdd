@@ -80,7 +80,7 @@ jobs:
                    ("PowerShell", "Get-ChildItem env:", True), ("PowerShell", "Write-Output $env:GH_TOKEN", True),
                    ("PowerShell", "type C:\\Users\\me\\.aws\\credentials", True),
                    ("Bash", "ls -la", False), ("PowerShell", "Get-ChildItem .", False),
-                   ("PowerShell", 'curl.exe -H "Authorization: Bearer $env:API_TOKEN" https://x.invalid', False)]
+                   ("PowerShell", 'curl.exe -H "Authorization: Bearer $env:API_TOKEN" https://x.invalid', False)]  # pragma: allowlist secret (env-var reference, no value)
           bad = []
           for tool, cmd, deny in cases:
               p = run(guard, {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": {"command": cmd}})

@@ -117,7 +117,7 @@ class FreshInstallTest(Base):
         (_, redact), = managed(s, "PostToolUse")
         cases = [("Bash", "cat " + ENV_FILE, True), ("PowerShell", "Get-Content " + ENV_FILE, True),
                  ("PowerShell", "gci env:", True), ("Bash", "ls", False),
-                 ("PowerShell", 'curl.exe -H "Authorization: Bearer $env:API_TOKEN" https://x.invalid', False)]
+                 ("PowerShell", 'curl.exe -H "Authorization: Bearer $env:API_TOKEN" https://x.invalid', False)]  # pragma: allowlist secret (env-var reference)
         for tool, command, deny in cases:
             with self.subTest(tool=tool, command=command):
                 proc = run_registered(guard, {"hook_event_name": "PreToolUse", "tool_name": tool,

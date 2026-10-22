@@ -67,11 +67,11 @@ DENY_POWERSHELL = [
 ]
 
 ALLOW_POWERSHELL = [
-    'curl.exe -H "Authorization: Bearer $env:API_TOKEN" https://example.invalid',
+    'curl.exe -H "Authorization: Bearer $env:API_TOKEN" https://example.invalid',  # pragma: allowlist secret (env-var reference)
     "ssh -i C:\\keys\\id_ed25519 deploy@host",
     "Write-Host $env:PATH",
     "$env:GH_TOKEN.Length",
-    '$env:API_TOKEN = "placeholder"',
+    '$env:API_TOKEN = "placeholder"',  # pragma: allowlist secret (placeholder)
     "echo done; curl.exe -H \"X-Key: $env:API_KEY\" https://example.invalid",
     "Set-PSDebug -Trace 0",
     "Get-ChildItem .",
