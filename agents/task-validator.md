@@ -70,6 +70,12 @@ For each requirement cited in the task's **Requirements** field:
 - [ ] Does the code follow conventions in `.specs/steering/tech.md`?
 - [ ] Are there any obvious bugs, incomplete implementations, or TODO comments left behind?
 
+**Presentation is not a finding.** Do not report a wording, emphasis, glyph-case, or formatting
+difference in human-facing prose that leaves meaning and obligations unchanged — drop it. A string
+a program or instrument reads (a config value, a unit in a protocol or method file, a schema field,
+parsed CLI output) is never cosmetic, and neither is a human-facing safety instruction,
+requirement, or unit whose meaning changes.
+
 ## Artifact-Conformance Mode
 
 A non-code feature ships no application code, so there is nothing to unit-test — but the deliverable

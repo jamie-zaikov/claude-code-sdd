@@ -107,6 +107,12 @@ otherwise (a feature planned before the rule). Never soften or skip it. If `pyth
 missing, or it exits 2, the check did not run: report that at the same severity — High when
 enforced, Medium otherwise.
 
+**Presentation is not a finding.** Do not report a wording, emphasis, glyph-case, or formatting
+difference in human-facing prose that leaves meaning and obligations unchanged — drop it. A string
+a program or instrument reads (a config value, a unit in a protocol or method file, a schema field,
+parsed CLI output) is never cosmetic, and neither is a human-facing safety instruction,
+requirement, or unit whose meaning changes.
+
 ### Integration (feature mode especially)
 - Contract drift between tasks — one task changed a signature/shape another still assumes.
 - Seams where two tasks' code meets and neither owns the boundary.

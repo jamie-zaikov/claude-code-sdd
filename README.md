@@ -34,6 +34,7 @@ tools/                    # Mechanical checks the agents run (installed to ~/.cl
   sdd-context-pack.py     # One task's cited spec text + a NOT FOUND list, instead of the whole folder
   sdd-overlap.py          # Level 1 stage overlap: speculative worktree for task N+1 during N's reviews
   sdd-tree-hash.py        # Working-tree identity for suite records (temporary index, .specs/ excluded)
+  sdd-findings.py         # One findings index (orchestrator-only writer) + in-attempt repair check
 
 hooks/                    # Secret-handling safeguards (installed manually — see hooks/README.md)
   secret-guard.py         # PreToolUse: blocks secret dumps, allows sanctioned use

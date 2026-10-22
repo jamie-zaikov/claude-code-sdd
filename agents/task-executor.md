@@ -52,6 +52,12 @@ expected, not a failure.
    - Design references
    - Expected files to create/modify
    - (If this is a retry) The previous failure report from the validator
+   - (If any) the findings and notes routed to this task (`sdd-findings.py list --routed-to <N>`):
+     address each one inside the task's scope and say under `Notes` which ones you closed
+   - (`mode: repair`) the blocking findings of an in-attempt repair: make **only** the localized
+     correction each one names — no other change, no test edits, no scope growth. If a finding
+     cannot be fixed that way, stop and say so under `Notes`; the orchestrator takes the normal
+     retry path
 
 ## Implementation Rules
 

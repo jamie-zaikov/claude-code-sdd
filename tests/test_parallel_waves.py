@@ -109,5 +109,45 @@ class OutcomeEnvelopeTest(Base):
         self.has(self.executor, r"It is evidence, not a passed task: every gate still runs", "executor")
 
 
+class FindingsAndRepairTest(Base):
+    def test_one_findings_home_and_one_writer(self):
+        self.has(self.orch, r"Every finding \(blocking or deferred\) and every\s+cross-task note goes"
+                 r" into `spec-memory/findings\.jsonl`", "one home")
+        self.has(self.orch, r"You are its only writer", "one writer")
+        self.has(self.orch, r"no finding text, no per-task finding lists, no ad-hoc note keys", "state file")
+        self.lacks(self.orch, r"taskStatus\[N\]\.deferredFindings", "old per-task home")
+
+    def test_routed_finding_stays_open_until_verified(self):
+        self.has(self.orch, r"A routed finding stays\s+open until task M's validator or a reviewer"
+                 r" verifies it is closed", "route")
+        self.has(self.orch, r"Routing is never resolution", "route")
+
+    def test_repair_is_bounded_by_strict_shrink_and_never_resets_retry(self):
+        self.has(self.orch, r"bounded by a strict shrink of a\s+stable blocking set", "bound")
+        self.has(self.orch, r"A blocker leaves the set only by being fixed, or by an independent"
+                 r" decision that it was invalid", "exit rule")
+        self.has(self.orch, r"Repairs never reset `retryCount` and never erase\s+earlier failure"
+                 r" evidence", "no reset")
+        self.has(self.orch, r"deferral, a severity cut, a weakened acceptance, or an\s+edited test"
+                 r" never empties the set", "no laundering")
+
+    def test_repair_reruns_invalidated_evidence(self):
+        self.has(self.orch, r"Re-run the failed stage and every stage whose evidence the correction"
+                 r" invalidated", "rerun")
+
+    def test_executor_repair_mode_is_narrow(self):
+        ex = read("agents/task-executor.md")
+        self.has(ex, r"`mode: repair`\) the blocking findings of an in-attempt repair: make only the"
+                 r" localized\s+correction each one names — no other change, no test edits, no scope"
+                 r" growth", "executor")
+
+    def test_presentation_rule_with_machine_read_boundary(self):
+        for rel in ("CLAUDE.md", "agents/task-validator.md", "agents/code-reviewer.md",
+                    "agents/spec-consistency-checker.md"):
+            text = read(rel)
+            self.has(text, r"Presentation is not a finding", rel)
+            self.has(text, r"A string\s+a program or instrument reads .{0,120}? is never cosmetic", rel)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

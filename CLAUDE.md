@@ -68,7 +68,10 @@ holes a requirement-anchored check misses by construction.
 work, not to the gates themselves. The orchestrator playbook therefore enforces:
 
 - **Only Critical/High block.** Medium and Low findings never open a fix round; they are recorded as
-  `deferredFindings` and re-checked at the Feature Review Gate.
+  deferred findings in one findings index (`spec-memory/findings.jsonl`, written only by the
+  orchestrator through `~/.claude/tools/sdd-findings.py`), routed forward when a later task owns the
+  fix site, and re-checked at the Feature Review Gate. A localized blocker is repaired inside the
+  same attempt while its stable blocking set strictly shrinks; otherwise the normal retry runs.
 - **One full suite run per tree.** The tester runs the full suite once after its final change and
   records a suite record keyed by tree hash; later stages reuse it while the tree is unchanged.
 - **Retry by convergence.** A third attempt runs without asking only when the blocking findings
@@ -231,6 +234,11 @@ When all implementation tasks for a feature are complete, ask the user:
 - Requirements use EARS syntax (FR-N, NFR-N).
 - Every task references at least one requirement.
 - Every requirement traces to at least one design component.
+- **Presentation is not a finding.** A wording, emphasis, glyph-case, or formatting difference in
+  human-facing prose that leaves meaning and obligations unchanged never yields a finding, an
+  amendment, or a test assertion. A string a program or instrument reads (a config value, a unit in
+  a protocol or method file, a schema field, parsed CLI output) is never cosmetic, and neither is a
+  human-facing safety instruction, requirement, or unit whose meaning changes.
 
 ## Communication Style — Simplified Technical English
 

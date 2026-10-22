@@ -75,7 +75,7 @@ class SeverityGateTest(Base):
     def test_only_critical_high_block_in_implementation(self):
         self.has(self.impl, r"only\s+Critical/High\s+block", "severity gate")
         self.has(self.impl, r"Medium and Low findings \*\*never\*\*\s+open a fix round", "severity gate")
-        self.has(self.impl, r"deferredFindings", "severity gate record")
+        self.has(self.impl, r"Record each one as a\s+deferred finding in the findings index", "severity gate record")
 
     def test_critical_rule_forbids_medium_fix_round(self):
         self.has(self.rules, r"NEVER open a fix round for Medium or Low", "critical rule")
@@ -83,7 +83,7 @@ class SeverityGateTest(Base):
     def test_feature_review_receives_deferred_findings(self):
         gate = section(self.orch, "Feature Review Gate (runs automatically after the last task completes, before `complete`)")
         self.assertIsNotNone(gate)
-        self.has(gate, r"accumulated `deferredFindings`", "feature review input")
+        self.has(gate, r"The open and routed findings from the index", "feature review input")
 
     def test_reviewers_keep_blocking_definition(self):
         for name in ("code-reviewer.md", "security-reviewer.md"):

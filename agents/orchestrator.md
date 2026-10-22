@@ -268,7 +268,7 @@ also write `modularity: { enforced: true, limit: <tech.md "Module size limit", d
 decidedAt, waivers: [] }`. From then on the code-reviewer
 treats every `sdd-module-size.py` violation as **High** (blocking). A feature whose state file has
 no `modularity` key was planned before the rule: it is **not** enforced — its violations are Medium
-and land in `deferredFindings` — until the user asks to enforce it (then write the key). Never
+and are recorded as deferred findings in the findings index — until the user asks to enforce it (then write the key). Never
 infer enforcement for such a feature, and never remove the key once written.
 
 **Waivers — the one escape hatch, granted by the user only.** When a task cannot pass without growing
@@ -401,7 +401,7 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
 ## Deferred
 <one line per deferred task: task, the entry or halt it waits on, parkedRef>
 ## Deferred findings
-<count by severity; pointer to taskStatus[N].deferredFindings — the Feature Review Gate re-checks them>
+<`sdd-findings.py counts`; the open and routed findings (`sdd-findings.py list --status open,routed`) — the Feature Review Gate re-checks them>
 ## Incidents
 <stalls, respawns, harness blocks, secret requests; "none" if empty>
 ```
@@ -531,19 +531,61 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
 
   **Severity gate — only Critical/High block.** A task's gate is decided by **blocking** findings
   only: Critical or High from either reviewer, or a validator FAIL. Medium and Low findings **never**
-  open a fix round, never re-run the executor, and never re-run a reviewer. Record them under
-  `taskStatus[N].deferredFindings` (id, severity, `path:line`, one line) and pass the accumulated
-  list to the Feature Review Gate. A reviewer PASS with Mediums is a **PASS** — advance. Fixing
-  Mediums inline doubled the per-task time in past builds and is the over-compliance this rule ends.
+  open a fix round, never re-run the executor, and never re-run a reviewer. Record each one as a
+  **deferred finding** in the findings index (below) and pass the open ones to the Feature Review
+  Gate. A reviewer PASS with Mediums is a **PASS** — advance. Fixing Mediums inline doubled the
+  per-task time in past builds and is the over-compliance this rule ends.
+
+  **Findings index — one home, one writer.** Every finding (blocking or deferred) and every
+  cross-task note goes into `spec-memory/findings.jsonl` through `python3
+  ~/.claude/tools/sdd-findings.py add --feature-dir .specs/features/<feature> --task <N> --stage
+  <stage> --severity <critical|high|medium|low|note> --title <one line> [--file <path>] [--req <id>]
+  [--where <path:line>] [--report <the specialist's summary path>]`. You are its **only writer**;
+  specialists keep their own reports and you point at them. The id is stable across checker
+  invocations and rewording: the identity is `(stage, file path, requirement id or finding title)`,
+  never a line number. `.spec-state.json` keeps only `findings: { path, counts }` (from
+  `sdd-findings.py counts`) — no finding text, no per-task finding lists, no ad-hoc note keys.
+
+  **Route forward instead of a fix round.** When a deferred finding's fix site lies inside a later
+  task M's scope, run `sdd-findings.py route --id <F> --to <M>`; a cross-task note for task M is
+  added with `--severity note` and routed the same way. Before task M's Stage 1, pass
+  `sdd-findings.py list --routed-to <M>` to its executor (and tester). A routed finding stays
+  **open** until task M's validator or a reviewer verifies it is closed — then `close --id <F> --by
+  "<M>/<stage>"`. Routing is never resolution.
 
 - On **pass** — code track: validator PASS *and* **both** reviewers PASS; non-code track: validator
   PASS *and* the security-reviewer PASS (the code-review stage was skipped). Update
   `taskStatus[N].status = "complete"`, record `codeReview` (`"pass"`, or `"skipped"` on the non-code
   track) and `securityReview: "pass"`, update `completed` count, mark the task `[x]` in `tasks.md`.
-  Report to user (surface any non-blocking Medium/Low findings for awareness, recorded under
-  `deferredFindings` — never fixed in this task) and advance.
+  Report to user (surface any non-blocking Medium/Low findings for awareness, recorded as deferred
+  findings in the index — never fixed in this task) and advance.
   - **GitHub (per-task pass, local-first):** invoke **github-agent** `{ action: commit, message, paths: [<task's changed files>] }` — a **local commit only, no push**. The commit message you author **ends with the fixed trailer line** `SDD-Task: <N>` on its own line, so the commit is machine-attributable to its task. When the session gives a commit-attribution line (e.g. `Co-Authored-By: <the session's model>`), you write it into the message yourself, after `SDD-Task:` — **unless a user instruction (CLAUDE.md, memory, or the user's own words) removes or changes it: the user's rule wins over the session's attribution.** github-agent never adds or edits a trailer. Confirm the returned `commit:` SHA — a report without one is a failed commit. **Record the verdict blocks locally** — write the validator's (and, on the code track, the two reviewers') verbatim, stage-attributed verdicts to the feature's `spec-memory/` as the local audit trail. Nothing is pushed and no PR comment is posted: there is no PR yet. The accumulated verdicts are transcribed to the PR once, at the publish point (Feature Review Gate → PASS).
-- On **fail** (validator FAIL other than `RT-2`, or — code track — either reviewer FAIL, or — non-code track — the security-reviewer FAIL): Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). Record the attempt's **blocking count** (Critical + High findings, plus 1 for a validator FAIL) under `taskStatus[N].blockingHistory`. If retryCount < 2, re-run the executor with the combined **blocking** report(s) appended so it fixes everything in one retry. Also increment `escalations` on the feature state — see State File Management.
+- **In-attempt repair (before the fail branch).** A blocking result whose cause is **localized and
+  named** by the failing checker (the site and the defect), whose fix needs no change to
+  acceptance, a `Contract:` interface, or a test written to pin behaviour, and which stays inside
+  the task's subsystem, is repaired **inside the same attempt**, bounded by a strict shrink of a
+  stable blocking set:
+  1. Add every blocking finding to the index (stable ids) and record the set: `sdd-findings.py round
+     --task <N> --attempt <retryCount> --ids <F,...>` → `FIRST`.
+  2. Invoke the **task-executor** with `mode: repair` and exactly those findings (a fresh
+     invocation; its status-file attempt number goes up, `retryCount` does not). It makes the
+     localized correction only.
+  3. Re-run the failed stage and every stage whose evidence the correction invalidated: the suite
+     record no longer matches the tree, so the tester (or the validator) runs the suite once; a
+     validator that passed re-runs in full when the corrected files are in its requirements' scope;
+     reviewers re-run in `mode: delta` over the repair diff.
+  4. `close` each finding the re-run verifies as fixed, add any new blocker, and record the new set
+     with `round`. **`CONTINUE`** (a strict subset, nothing new, every dropped id closed or
+     `invalid`) → repeat from step 2. **`CLEAR`** → the task passes only when every applicable gate
+     passed on the final tree. **`STOP`** (the set did not shrink, a new or reopened blocker, or a
+     blocker left without being closed — deferral, a severity cut, a weakened acceptance, or an
+     edited test never empties the set) → enter the fail branch below with the full blocking report.
+  A blocker leaves the set only by being fixed, or by an independent decision that it was invalid
+  (`sdd-findings.py invalid --by <decision>`). Repairs never reset `retryCount` and never erase
+  earlier failure evidence: the rounds stay in the index and in `blockingHistory`. An unclear cause,
+  a fix that grows the scope, or a test that would have to be weakened is not eligible — go straight
+  to the fail branch. The *Specialist Execution Contract* applies to every repair invocation.
+- On **fail** (validator FAIL other than `RT-2`, or — code track — either reviewer FAIL, or — non-code track — the security-reviewer FAIL), and in-attempt repair is ineligible or returned `STOP`: Update `taskStatus[N].retryCount += 1`, store the failure/findings report (note which stage failed under `taskStatus[N].lastFailure`). Record the attempt's **blocking count** (Critical + High findings, plus 1 for a validator FAIL) under `taskStatus[N].blockingHistory`. If retryCount < 2, re-run the executor with the combined **blocking** report(s) appended so it fixes everything in one retry. Also increment `escalations` on the feature state — see State File Management.
   - **Retry by convergence (attempt 3).** At retryCount == 2, run **one** more attempt without asking the user **only if** the blocking count is strictly lower than the previous attempt's **and** no finding in this attempt is new. A finding's identity is **`(stage, file path, requirement id or the reviewer's finding title)`**; a validator FAIL's identity is `(validator, requirement id)` for each requirement it cites. A finding is new when no earlier attempt in `blockingHistory` holds the same identity — record identities, not just counts. Record `taskStatus[N].convergenceRetry: true`. In every other case — the count did not fall, or a new blocking finding appeared — halt and present the failures to the user.
   - **Hard cap.** At retryCount >= 3, always halt and present the failures and `blockingHistory` to the user. There is no fourth automatic attempt.
   - **No remote label.** There is no PR during the build, so a blocking finding sets **no** `blocked:*` label — it **halts locally** and you present it to the user. Record the failing stage under `taskStatus[N].lastFailure`; that local record replaces the remote `blocked:*` signal the old draft-PR flow used.
@@ -587,8 +629,10 @@ first — the only stage that sees how the tasks compose. Set `phase` to `featur
 **code-reviewer** and **security-reviewer** subagents in `feature` mode, **concurrently**. Pass each:
 - The feature name and directory
 - `modularity: enforced` or `modularity: not-enforced` (as for the per-task reviews)
-- The accumulated `deferredFindings` from every task — the reviewer re-checks each one against the
-  final tree and raises it to blocking only if it still holds and now meets the Critical/High bar
+- The open and routed findings from the index (`sdd-findings.py list --status open,routed`) — the
+  reviewer re-checks each one against the final tree and raises it to blocking only if it still
+  holds and now meets the Critical/High bar; a routed finding whose destination task did not close
+  it is re-checked like an open one
 - `featureClass` (informational — the reviewers resolve their own scope from their own diff)
 - An explicit `mode: feature` instruction and the base branch (default `main`) so they diff `main...HEAD`
 
@@ -829,7 +873,8 @@ Each `taskStatus[N]` entry gains `codeReview` and `securityReview` (`"pass"` / `
 records the whole-feature gate verdict. Update the state file after every phase transition and every
 task completion/failure.
 
-Keys this playbook adds as they arise: `taskStatus[N].deferredFindings`, `blockingHistory` (per
+Keys this playbook adds as they arise: `findings` (top level: `{ path, counts }` — the findings
+index lives in `spec-memory/findings.jsonl`, never in this file), `blockingHistory` (per
 attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,
 `deferredBy`, `retryResetBy`, and `attemptTrees` (per task); `suiteRecord`, `preflight`, `overnightAuthorization`,
 `userApprovalNeeded`, `publishPending`, `modularity`, `invocations`, and `speculation` (top level). `taskStatus[N].status` takes exactly one of
@@ -871,7 +916,7 @@ Once the Feature Classification Gate has run, `.spec-state.json` carries two fur
 - NEVER push the branch or open a PR before the whole-feature review PASSes — the build is local-first, and the remote is touched exactly once, at the publish point.
 - NEVER apply the `ready-to-merge` label anywhere but the publish point at the whole-feature review PASS (FR-10.1). During the build a blocking finding halts locally; there is no PR to label.
 - NEVER advance a phase without explicit user confirmation. Overnight authorization covers implementation only — never self-confirm a planning gate or an amendment on it.
-- NEVER open a fix round for Medium or Low findings — only Critical/High (or a validator FAIL) block a task; record the rest under `deferredFindings` for the Feature Review Gate.
+- NEVER open a fix round for Medium or Low findings — only Critical/High (or a validator FAIL) block a task; record the rest as deferred findings in the findings index (`sdd-findings.py`) for the Feature Review Gate, routed forward when a later task owns the fix site.
 - NEVER call AskUserQuestion while `overnightAuthorization` is set — choose the fail-closed, reversible option, record it under `userApprovalNeeded`, and continue with the next independent task.
 - NEVER run a fourth automatic attempt on a task — attempt 3 runs only on convergence, and the hard cap halts at retryCount 3.
 - NEVER advance to `implementation` without the Feature Classification Gate locking `featureClass`.
