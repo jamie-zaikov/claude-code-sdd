@@ -472,7 +472,10 @@ class RoundThreeTest(WaveCase):
         # Run with the repository's own core.ignorecase: git sets it from the filesystem, and forcing
         # `false` on a case-insensitive one is a misconfiguration. macOS/Windows cover `true`
         # (where the reviewer's H1 reproduced), Linux covers `false`.
-        for icase in (self.git("config", "--bool", "core.ignorecase").strip() or "false",):
+        # Linux git never writes core.ignorecase: `git config` exits 1 there, which means false.
+        icase = subprocess.run(["git", "-C", str(self.repo), "config", "--bool", "core.ignorecase"],
+                               capture_output=True, text=True).stdout.strip() or "false"
+        for icase in (icase,):
             with self.subTest(ignorecase=icase):
                 root = self.own_start("a/,newpkg/")
                 self.land_new_package(root)
