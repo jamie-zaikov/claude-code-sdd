@@ -1,0 +1,16 @@
+# Line endings are fixed per type so a Windows checkout (core.autocrlf=true) cannot break the
+# framework: Git Bash rejects `bash\r` shebangs, tests compare some files byte for byte, and
+# agents/hooks parse these files.
+* text=auto
+
+*.md                text eol=lf
+*.py                text eol=lf
+*.sh                text eol=lf
+*.yml               text eol=lf
+*.json              text eol=lf
+ci-templates/hooks/* text eol=lf
+
+# PowerShell shims: CRLF. Only Windows PowerShell / pwsh read them, both accept either ending,
+# and CRLF is what Windows editors write, so an edit on Windows produces no mixed-ending diff.
+# The files are ASCII-only (Windows PowerShell 5.1 reads BOM-less files as the ANSI code page).
+*.ps1               text eol=crlf
