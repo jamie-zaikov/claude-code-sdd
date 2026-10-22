@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Prose-contract tests for the parallel-waves feature (scope rev 3).
 
-Pins are presentation-tolerant (tests/prose.py, steering lesson 5): each one goes RED when the
-rule's meaning is removed or inverted, and stays GREEN when only bold, wrapping or spacing change.
-Stdlib only. Run:
+Each pin names a rule's KEY WORDS and DIRECTION (`prose.near`: terms in order within a short
+window), plus checks that the inverted form is absent. So a pin goes RED when the rule's meaning is
+removed or inverted, and stays GREEN when the sentence around the key words is reworded, re-wrapped
+or re-emphasized (steering lesson 5). Stdlib only. Run:
     python3 -m unittest tests.test_parallel_waves -v
 """
 
@@ -26,10 +27,15 @@ class Base(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.orch = read("agents/orchestrator.md")
+        cls.executor = read("agents/task-executor.md")
+        cls.tester = read("agents/task-tester.md")
+        cls.tasks = read("agents/tasks-agent.md")
+        cls.claude = read("CLAUDE.md")
+        cls.pb = read("playbooks/sdd-waves.md")
 
-    def has(self, text, pat, label):
-        if not prose.search(text, pat):
-            self.fail(f"{label}: missing /{pat}/")
+    def near(self, text, label, *terms, window=160):
+        if not prose.near(text, *terms, window=window):
+            self.fail(f"{label}: missing {' … '.join(terms)}")
 
     def lacks(self, text, pat, label):
         if prose.search(text, pat):
@@ -38,183 +44,209 @@ class Base(unittest.TestCase):
 
 class HousekeepingTest(Base):
     def test_user_trailer_rule_wins_over_session_attribution(self):
-        self.has(self.orch, r"unless a user instruction \(CLAUDE\.md, memory, or the user's own words\)"
-                 r" removes or changes it: the user's rule wins over the session's attribution",
-                 "trailer precedence")
+        self.near(self.orch, "trailer", r"user instruction", r"user's rule wins", r"session's attribution")
+        self.lacks(self.orch, r"session's attribution wins", "trailer inverted")
 
     def test_review_order_is_concurrent_everywhere(self):
         for rel in ("CLAUDE.md", "README.md", "agents/code-reviewer.md",
                     "agents/security-reviewer.md"):
             text = read(rel)
-            self.lacks(text, r"after (the |task-)validator pass", rel)
-            self.has(text, r"concurrently with (it|the task-validator)|validator and the two reviews"
-                     r" run concurrently", rel)
+            self.lacks(text, r"(after|once) (the |task-)validator pass", rel)
+            self.near(text, rel, r"concurrently", window=10)
 
     def test_steering_lesson_seven_is_local_first(self):
         lessons = read(".specs/steering/process-lessons.md")
-        self.lacks(lessons, r"under a single draft PR", "lesson 7")
-        self.has(lessons, r"opened ready, carrying `ready-to-merge`, only at the whole-feature-review"
-                 r" PASS", "lesson 7")
+        self.lacks(lessons, r"draft PR", "lesson 7")
+        self.near(lessons, "lesson 7", r"opened ready", r"only at the whole-feature-review PASS")
+
+    def test_timing_ledger_has_a_writer_and_a_reader(self):
+        self.near(self.orch, "writer", r"only writer", r"timing ledger")
+        self.near(self.orch, "reader", r"## Timing", r"sdd-status\.py times")
 
 
 class OutcomeEnvelopeTest(Base):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.executor = read("agents/task-executor.md")
-        cls.tasks = read("agents/tasks-agent.md")
-
     def test_paths_and_internal_signatures_are_estimates(self):
-        self.has(self.executor, r"Estimates, not boundaries: the expected file paths, internal module"
-                 r" names, helper names and internal function signatures", "executor")
-        self.has(self.tasks, r"Name file paths, function signatures and component names from the"
-                 r" design as estimates", "tasks-agent")
-        self.lacks(self.tasks, r"more than 5-6 files, split it", "tasks-agent file-count split")
+        self.near(self.executor, "executor", r"Estimates, not boundaries", r"file paths",
+                  r"internal function signatures")
+        self.near(self.tasks, "tasks-agent", r"file paths", r"as estimates")
+        self.lacks(self.tasks, r"more than 5-6 files, split it", "file-count split")
 
-    def test_local_prerequisite_refactor_is_allowed_inside_the_subsystem(self):
-        self.has(self.executor, r"Local prerequisite refactor — allowed\. When the outcome needs it, a"
-                 r" behaviour-preserving refactor inside the subsystem the task touches is part of the"
-                 r" task", "executor")
+    def test_local_prerequisite_refactor_stays_inside_the_subsystem(self):
+        self.near(self.executor, "refactor", r"prerequisite refactor", r"allowed",
+                  r"behaviour-preserving", r"inside the subsystem")
+        self.lacks(self.executor, r"refactor anywhere|outside the subsystem is (allowed|fine)", "scope")
         self.lacks(self.executor, r"missing split task, not yours to improvise", "old god-file stop")
 
-    def test_material_change_stops_the_executor(self):
-        self.has(self.executor, r"MATERIAL CHANGE: <what and why>", "executor")
-        self.has(self.executor, r"Material change — stop and report", "executor")
+    def test_material_change_stops_the_executor_and_has_a_reader(self):
+        self.near(self.executor, "executor", r"Material change", r"stop", r"MATERIAL CHANGE:", window=400)
+        self.near(self.orch, "reader", r"contains a\s+`MATERIAL CHANGE:` note", r"stop this task's pipeline",
+                  r"before Stage 2")
+        self.near(self.orch, "no gate", r"Never test or\s+gate a task the executor stopped")
 
     def test_amendment_split_material_vs_internal(self):
-        self.has(self.orch, r"Material amendment — it changes acceptance [^—]{0,500}? get the user's"
-                 r" confirmation", "material")
-        self.has(self.orch, r"Internal reconciliation — [^—]{0,300}? Route it through its owner agent"
-                 r" [^—]{0,300}? No user gate", "internal")
-        self.has(self.orch, r"Never edit the\s+owner's document yourself", "owner rule kept")
-        self.has(self.orch, r"When in doubt whether a change is material, treat it as material", "fail closed")
+        self.near(self.orch, "material", r"Material amendment", r"acceptance", r"user's confirmation",
+                  window=500)
+        self.near(self.orch, "internal", r"Internal reconciliation", r"owner agent", r"No user gate",
+                  window=400)
+        self.near(self.orch, "owner rule", r"Never edit the\s+owner's document yourself")
+        self.near(self.orch, "fail closed", r"(When in doubt|If (you are )?unsure)", r"treat it as material")
+        self.lacks(self.orch, r"treat it as internal", "fail closed inverted")
 
     def test_permitted_choice_is_decided_without_asking(self):
-        self.has(self.orch, r"A choice the confirmed text already permits is a decision, not an"
-                 r" amendment: decide it, record it in `spec-memory/decisions\.md`, and do not ask the"
-                 r" user — attended or overnight", "decision")
+        self.near(self.orch, "decision", r"already permits is a decision", r"do not ask the\s+user",
+                  r"attended or overnight")
 
     def test_probe_tiers_and_authority(self):
-        self.has(self.orch, r"Discovery — read-only", "tier 1")
-        self.has(self.orch, r"Isolated prototype — [^—]{0,400}? prototype authority the user grants once", "tier 2")
-        self.has(self.orch, r"never a source of live-system authority", "tier 2 limit")
-        self.has(self.orch, r"Live mutation — [^—]{0,200}? Authorized only at the project level", "tier 3")
-        self.has(self.orch, r"Scrub a capture before it is written anywhere", "scrub first")
-        self.has(self.orch, r"keep\s+the sanitized evidence", "keep sanitized evidence")
-        self.has(self.orch, r"Never delete user input", "user input kept")
+        self.near(self.orch, "tier 1", r"Discovery", r"read-only", r"Always permitted")
+        self.near(self.orch, "tier 2", r"Isolated prototype", r"prototype authority", r"grants once",
+                  window=400)
+        self.near(self.orch, "tier 2 limit", r"never a source of live-system authority")
+        self.near(self.orch, "tier 3", r"Live mutation", r"only at the project level",
+                  r"never by a prototype authority", window=300)
+        self.near(self.orch, "scrub", r"Scrub a capture", r"before", r"written")
+        self.near(self.orch, "keep evidence", r"keep\s+the sanitized evidence")
+        self.near(self.orch, "user input", r"Never delete user input")
 
-    def test_retained_prototype_never_backdates_a_pass(self):
-        self.has(self.orch, r"A prototype is never recorded as a passed\s+task, and no confirmation or"
-                 r" verdict is ever back-dated", "no backdated pass")
-        self.has(self.executor, r"It is evidence, not a passed task: every gate still runs", "executor")
+    def test_prototype_has_a_grant_a_builder_and_no_backdated_pass(self):
+        self.near(self.orch, "grant", r"ask the user once", r"isolated\s+prototypes")
+        self.near(self.orch, "builder", r"outside the checkout", r"task-executor", r"`mode: prototype`",
+                  window=400)
+        self.near(self.executor, "executor", r"`mode: prototype`", r"outside the checkout")
+        self.near(self.orch, "no backdate", r"never recorded as a passed\s+task", r"back-dated")
+        self.near(self.executor, "evidence", r"evidence, not a passed task", r"every gate still runs")
+        self.near(self.orch, "state key", r"`prototypeAuthority`")
 
 
 class FindingsAndRepairTest(Base):
     def test_one_findings_home_and_one_writer(self):
-        self.has(self.orch, r"Every finding \(blocking or deferred\) and every\s+cross-task note goes"
-                 r" into `spec-memory/findings\.jsonl`", "one home")
-        self.has(self.orch, r"You are its only writer", "one writer")
-        self.has(self.orch, r"no finding text, no per-task finding lists, no ad-hoc note keys", "state file")
+        self.near(self.orch, "home", r"Every finding", r"`spec-memory/findings\.jsonl`")
+        self.near(self.orch, "writer", r"(only|sole) writer|alone write")
+        self.near(self.orch, "state file", r"no finding text", r"no ad-hoc note keys")
         self.lacks(self.orch, r"taskStatus\[N\]\.deferredFindings", "old per-task home")
 
-    def test_routed_finding_stays_open_until_verified(self):
-        self.has(self.orch, r"A routed finding stays\s+open until task M's validator or a reviewer"
-                 r" verifies it is closed", "route")
-        self.has(self.orch, r"Routing is never resolution", "route")
+    def test_ids_stay_stable_by_passing_them_back(self):
+        self.near(self.orch, "ids", r"ids are\s+kept stable by passing them back", r"closed \| open")
 
-    def test_repair_is_bounded_by_strict_shrink_and_never_resets_retry(self):
-        self.has(self.orch, r"bounded by a strict shrink of a\s+stable blocking set", "bound")
-        self.has(self.orch, r"A blocker leaves the set only by being fixed, or by an independent"
-                 r" decision that it was invalid", "exit rule")
-        self.has(self.orch, r"Repairs never reset `retryCount` and never erase\s+earlier failure"
-                 r" evidence", "no reset")
-        self.has(self.orch, r"deferral, a severity cut, a weakened acceptance, or an\s+edited test"
-                 r" never empties the set", "no laundering")
+    def test_routed_finding_reaches_its_closers_and_stays_open(self):
+        self.near(self.orch, "closers", r"routed-to <M>", r"validator and\s+both reviewers")
+        self.near(self.orch, "open", r"routed finding stays", r"open until", r"verifies it is closed")
+        self.near(self.orch, "never resolution", r"Routing is never resolution")
 
-    def test_repair_reruns_invalidated_evidence(self):
-        self.has(self.orch, r"Re-run the failed stage and every stage whose evidence the correction"
-                 r" invalidated", "rerun")
+    def test_repair_eligibility_and_bound(self):
+        self.near(self.orch, "eligibility", r"localized and\s+named", r"no change to\s+acceptance",
+                  r"test written to pin behaviour")
+        self.near(self.orch, "ineligible", r"test that would have to be weakened is not eligible")
+        self.near(self.orch, "bound", r"strict shrink", r"stable blocking set")
+        self.near(self.orch, "continue", r"`CONTINUE`", r"strict subset")
+        self.lacks(self.orch, r"equal or smaller", "weakened shrink")
+        self.near(self.orch, "exit", r"blocker leaves the set only by being fixed", r"invalid")
+        self.near(self.orch, "no reset", r"never reset `retryCount`")
+        self.near(self.orch, "no laundering", r"deferral", r"severity cut", r"weakened acceptance",
+                  r"edited test never empties the set")
+
+    def test_repair_uses_its_own_delta_trees(self):
+        self.near(self.orch, "trees", r"repairTrees\[<r>\]\.before", r"repairTrees\[<r>\]\.after")
+        self.near(self.orch, "delta", r"`mode: delta`", r"previousTree: repairTrees")
+        self.near(self.orch, "exception", r"never selects delta mode", r"except an\s+in-attempt repair")
 
     def test_executor_repair_mode_is_narrow(self):
-        ex = read("agents/task-executor.md")
-        self.has(ex, r"`mode: repair`\) the blocking findings of an in-attempt repair: make only the"
-                 r" localized\s+correction each one names — no other change, no test edits, no scope"
-                 r" growth", "executor")
+        self.near(self.executor, "repair", r"`mode: repair`", r"only", r"localized", r"no test edits",
+                  r"no scope\s+growth")
 
     def test_presentation_rule_with_machine_read_boundary(self):
         for rel in ("CLAUDE.md", "agents/task-validator.md", "agents/code-reviewer.md",
                     "agents/spec-consistency-checker.md"):
             text = read(rel)
-            self.has(text, r"Presentation is not a finding", rel)
-            self.has(text, r"A string\s+a program or instrument reads .{0,120}? is never cosmetic", rel)
+            self.near(text, rel, r"Presentation is not a finding")
+            self.near(text, rel, r"program or instrument reads", r"never cosmetic")
+            self.lacks(text, r"instrument reads[^.]{0,120}may be cosmetic", rel)
+
+
+class TestSignalTest(Base):
+    def test_test_file_size_warns_and_never_blocks(self):
+        self.near(self.claude, "CLAUDE.md", r"test file", r"warning only", r"never blocks")
+        self.lacks(self.claude, r"test file[^.]{0,60}\b(is High|blocks the task)", "CLAUDE.md inverted")
+
+    def test_one_suite_run_per_accepted_candidate(self):
+        self.near(self.orch, "D7", r"once per accepted candidate", r"wave batch")
+        self.lacks(self.orch, r"at\s+least once per task", "old per-task wording")
+        self.near(self.orch, "feature review reuse", r"equals the suite record's", r"do not run the suite again",
+                  window=300)
 
 
 class HygieneAndPermissionTest(Base):
-    FORBIDDEN = ("stash", "checkout", "reset", "restore", "rm --cached", "add", "commit", "worktree",
-                 "clean")
+    FORBIDDEN = ("stash", "checkout", "switch", "reset", "restore", "rm --cached", "add", "commit",
+                 "worktree", "clean", "merge", "rebase", "cherry-pick")
 
     def test_executor_and_tester_run_read_only_git(self):
-        for rel in ("agents/task-executor.md", "agents/task-tester.md"):
-            text = read(rel)
-            self.has(text, r"Run\s+read-only git only", rel)
+        for rel, text in (("executor", self.executor), ("tester", self.tester)):
+            self.near(text, rel, r"read-only git only")
             for verb in self.FORBIDDEN:
-                self.has(text, r"Never run [^.]*`" + verb + r"`", f"{rel}: {verb}")
+                self.near(text, f"{rel}: {verb}", r"Never run", r"`" + verb + r"`", window=300)
 
     def test_denials_are_never_laundered(self):
-        self.has(self.orch, r"NEVER bypass a real permission or security denial through another actor"
-                 r" or an equivalent tool", "orchestrator")
-        self.has(self.orch, r"a missing tool or a transient error is not a denial", "orchestrator")
-        self.has(read("CLAUDE.md"), r"A real permission or security denial is never bypassed", "CLAUDE.md")
+        self.near(self.orch, "orchestrator", r"NEVER bypass", r"denial", r"another actor")
+        self.near(self.orch, "hook block", r"hook block", r"is\s+a security denial")
+        self.near(self.claude, "CLAUDE.md", r"denial is never bypassed")
+        self.near(self.claude, "CLAUDE.md hook", r"hook block", r"is\s+a security denial",
+                  r"never rephrase")
 
     def test_commits_name_explicit_paths_only(self):
-        self.has(self.orch, r"commits name explicit paths only, never a user-owned file", "orchestrator")
+        self.near(self.orch, "orchestrator", r"explicit paths only", r"never a user-owned file")
 
 
 class WavePlaybookTest(Base):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.pb = read("playbooks/sdd-waves.md")
-
     def test_orchestrator_links_the_playbook_and_keeps_the_two_guards(self):
-        self.has(self.orch, r"read `~/\.claude/playbooks/sdd-waves\.md` on entry to\s+implementation",
-                 "link")
-        self.has(self.orch, r"no Level 1 speculation while a wave\s+exists, and no wave task is parked"
-                 r" with `park`", "guards")
-        self.has(self.orch, r"sdd-wave\.py status` before anything else", "resume")
+        self.near(self.orch, "link", r"playbooks/sdd-waves\.md", r"on entry to\s+implementation")
+        self.near(self.orch, "guards", r"no Level 1 speculation while a wave", r"no wave task is parked")
+        self.near(self.orch, "resume", r"sdd-wave\.py status", r"before anything else")
+        self.near(self.orch, "state key", r"`wave`")
 
     def test_opt_in_and_mechanical_eligibility(self):
-        self.has(self.pb, r"`tech\.md` declares `Task waves: 2`\. Absent means off", "opt-in")
-        self.has(self.pb, r"Their declared sets are disjoint", "disjoint")
-        self.has(self.pb, r"Neither task changes the shared environment", "env")
-        self.has(self.pb, r"While a wave exists: no Level 1 speculation starts, and no wave task is"
-                 r" parked with `park`", "playbook guards")
+        self.near(self.pb, "opt-in", r"`Task waves: 2`", r"Absent means off")
+        self.near(self.pb, "code track", r"Code track", r"neither task mutates a live system")
+        self.near(self.pb, "independent", r"dependency-ready", r"neither\s+depends on the other")
+        self.lacks(self.pb, r"either may depend", "dependency inverted")
+        self.near(self.pb, "disjoint", r"declared sets are disjoint")
+        self.near(self.pb, "env", r"Neither task changes the shared environment")
+        self.near(self.pb, "clean", r"main checkout is clean", r"no Level 1 speculation exists")
+        self.near(self.pb, "playbook guards", r"While a wave exists", r"no Level 1 speculation starts",
+                  r"no wave task is\s+parked")
 
-    def test_one_candidate_one_suite_all_gates(self):
-        self.has(self.pb, r"`mode: suite-only`: it writes nothing, runs\s+the full suite once, and"
-                 r" records the tree hash before and after", "suite-only")
-        self.has(self.pb, r"no\s+verdict comes from a worktree", "no isolated PASS")
+    def test_per_task_preparation_is_kept(self):
+        self.near(self.pb, "prep", r"context pack", r"routed findings", r"`prototype:`",
+                  r"MATERIAL CHANGE", window=300)
+        self.near(self.pb, "attempt", r"own `retryCount`", r"wave attempt `k` only names refs",
+                  window=300)
+
+    def test_freeze_before_land_and_one_candidate(self):
+        self.near(self.pb, "freeze", r"Freeze", r"no writer\s+may still run")
+        self.near(self.pb, "suite-only", r"`mode: suite-only`", r"writes nothing", r"full suite once",
+                  r"before and after")
+        self.near(self.pb, "no isolated pass", r"no\s+verdict comes from a worktree")
 
     def test_commit_is_verified_against_the_gated_tree(self):
-        self.has(self.pb, r"`wave-verify --gated-tree", "verify")
-        self.has(self.pb, r"never mark the tasks complete", "verify halts")
+        self.near(self.pb, "verify", r"`wave-verify --gated-tree", r"never mark the tasks complete",
+                  window=300)
 
     def test_repairs_are_serial_and_rereview_both_tasks(self):
-        self.has(self.pb, r"one task at a time,\s+never two repair executors at once", "serial")
-        self.has(self.pb, r"all reviewers of\s+both tasks re-run in `mode: delta`", "both re-review")
-        self.has(self.pb, r"Before each repair write, github-agent `wave-snapshot`", "snapshot")
+        self.near(self.pb, "serial", r"one task at a time", r"never two repair executors at once")
+        self.lacks(self.pb, r"two repair executors may run", "serial inverted")
+        self.near(self.pb, "both", r"all reviewers of\s+both tasks", r"`mode: delta`")
+        self.near(self.pb, "snapshot", r"Before each repair write", r"`wave-snapshot`")
 
     def test_stop_counts_as_a_failed_attempt_and_falls_back(self):
-        self.has(self.pb, r"the failing task's attempt counts as failed\s+\(`retryCount \+= 1`,"
-                 r" `blockingHistory` kept", "counter")
-        self.has(self.pb, r"The task that passed keeps no verdict: it re-gates in sequence", "re-gate")
-        self.has(self.pb, r"Fallback to sequence — never a promise of success", "fallback")
+        self.near(self.pb, "counter", r"attempt counts as failed", r"retryCount \+= 1",
+                  r"blockingHistory` kept")
+        self.near(self.pb, "re-gate", r"task that passed keeps no verdict", r"re-gates in sequence")
+        self.near(self.pb, "fallback", r"Fallback to sequence", r"never a promise of success")
+        self.near(self.pb, "user files", r"untracked before\s+the land are never touched")
 
     def test_agents_know_wave_mode(self):
-        self.has(read("agents/task-executor.md"), r"write only paths your task owns", "executor")
-        self.has(read("agents/task-tester.md"), r"`mode: suite-only` — write nothing", "tester")
-        self.has(read("agents/github-agent.md"), r"wave-start / wave-extend / wave-freeze / wave-land",
-                 "github-agent")
+        self.near(self.executor, "executor", r"write only paths your task owns")
+        self.near(self.tester, "tester", r"`mode: suite-only`", r"write nothing")
+        self.near(read("agents/github-agent.md"), "github-agent", r"wave-start", r"wave-land",
+                  r"wave-adopt")
 
 
 if __name__ == "__main__":

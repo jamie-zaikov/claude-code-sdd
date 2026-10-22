@@ -133,6 +133,13 @@ try and solve inside the approved outcome; the gates judge what is delivered.
    **prototype authority** the user grants **once** for the feature (or in project steering), with
    its boundary: record `prototypeAuthority: { grantedAt, grantedBy: "user", boundary, quote }`.
    No per-attempt approval. Never inferred, and never a source of live-system authority.
+   **Grant:** when discovery shows a prototype would settle an open question, ask the user once:
+   "May agents build isolated prototypes for <feature> within <boundary>?" — a yes is recorded as
+   above. **Build:** export the base into two temporary directories outside the checkout
+   (`git archive HEAD | tar -x -C <dir>`; read-only git), a pristine one and a working one. Invoke
+   the **task-executor** with `mode: prototype`, the question, and the working directory: it writes
+   only there, and saves `diff -ruN <pristine> <working>` as the patch below. The orchestrator writes
+   no code.
 3. **Live mutation** — anything that changes a VM, cloud resource, instrument, or shared resource.
    Authorized only at the project level (steering or the user's explicit word for that action),
    never by a global rule, never by a prototype authority, and never during preflight.
@@ -144,7 +151,8 @@ the sanitized evidence a later step needs under `spec-memory/probes/`. Never del
 
 **Retained prototypes.** A prototype that proves useful is kept as a patch,
 `spec-memory/prototypes/<slug>.patch`, with a short evidence note (question, result, base commit).
-After the required confirmations, pass it to the task-executor as `prototype: <path>`; the executor
+After the confirmations that cover the task it serves — the tasks gate and the classification gate —
+pass it to that task's executor as `prototype: <path>`; the executor
 may adopt it, and every gate runs on the delivered result. A prototype is never recorded as a passed
 task, and no confirmation or verdict is ever back-dated to cover it.
 
@@ -403,7 +411,9 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
 ## Deferred findings
 <`sdd-findings.py counts`; the open and routed findings (`sdd-findings.py list --status open,routed`) — the Feature Review Gate re-checks them>
 ## Incidents
-<stalls, respawns, harness blocks, secret requests; "none" if empty>
+<stalls, respawns, harness blocks, secret requests, wave fallbacks with their reason; "none" if empty>
+## Timing
+<`sdd-status.py times` output: elapsed wall time per invocation (waits and pauses included)>
 ```
 
 - Read `tasks.md` and the `taskStatus` map from `.spec-state.json`.
@@ -452,6 +462,12 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   steering declares (e.g. `pytest -n auto`) when `tech.md` names one. The full suite runs at least
   once per accepted candidate — a task, or a wave batch — after its last change, and at the
   Feature Review Gate only when no valid record matches the final tree.
+
+  **After the executor returns — `MATERIAL CHANGE` first.** If the executor's summary contains a
+  `MATERIAL CHANGE:` note, stop this task's pipeline before Stage 2: the task is unfinished by
+  design. Route the change as a **material amendment** (*Amendments*, above) through its owner agent
+  and the user; overnight, record it under `userApprovalNeeded` and park the task. Never test or
+  gate a task the executor stopped.
 
   **After the executor returns — RT-3 check, then the classification payload.** You now hold the
   executor's changed-files summary — the first stage that does. **If `featureClass` is `"non-code"`
@@ -504,7 +520,8 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   fix only, new and untracked files included — confirms each prior finding is closed, and still runs
   its mechanical checks over the task's full file list. Otherwise (no earlier tree recorded) use
   `mode: task`. **When `currentTree` equals `previousTree`** the retry changed nothing: do not launch
-  the reviewers — every prior blocking finding stays open, and the attempt fails with them. A respawn or a re-invocation is never a retry and never selects delta mode. The
+  the reviewers — every prior blocking finding stays open, and the attempt fails with them. A respawn or a re-invocation is never a retry and never selects delta mode — except an
+  in-attempt repair round, which uses its own `repairTrees` (below). The
   validator always runs in full on a retry.
 
   **Acceptance probe.** When `tech.md` declares an `## Acceptance Probe` (a user-written command,
@@ -542,16 +559,19 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   ~/.claude/tools/sdd-findings.py add --feature-dir .specs/features/<feature> --task <N> --stage
   <stage> --severity <critical|high|medium|low|note> --title <one line> [--file <path>] [--req <id>]
   [--where <path:line>] [--report <the specialist's summary path>]`. You are its **only writer**;
-  specialists keep their own reports and you point at them. The id is stable across checker
-  invocations and rewording: the identity is `(stage, file path, requirement id or finding title)`,
-  never a line number. `.spec-state.json` keeps only `findings: { path, counts }` (from
+  specialists keep their own reports and you point at them. The identity is `(stage, file path,
+  requirement id or finding title)`, never a line number. Titles drift between runs, so **ids are
+  kept stable by passing them back**: every re-run (repair, delta re-review, retry) gets the open
+  findings with their ids and reports each as `<id>: closed | open`; only a finding it cannot map to
+  a passed id is added as new. A validator finding carries its requirement id (`--req`). `.spec-state.json` keeps only `findings: { path, counts }` (from
   `sdd-findings.py counts`) — no finding text, no per-task finding lists, no ad-hoc note keys.
 
   **Route forward instead of a fix round.** When a deferred finding's fix site lies inside a later
   task M's scope, run `sdd-findings.py route --id <F> --to <M>`; a cross-task note for task M is
   added with `--severity note` and routed the same way. Before task M's Stage 1, pass
-  `sdd-findings.py list --routed-to <M>` to its executor (and tester). A routed finding stays
-  **open** until task M's validator or a reviewer verifies it is closed — then `close --id <F> --by
+  `sdd-findings.py list --routed-to <M>` to its executor and tester, **and to its validator and
+  both reviewers**, which report each routed id as `closed | open`. A routed finding stays **open**
+  until task M's validator or a reviewer verifies it is closed — then `close --id <F> --by
   "<M>/<stage>"`. Routing is never resolution.
 
 - On **pass** — code track: validator PASS *and* **both** reviewers PASS; non-code track: validator
@@ -568,13 +588,16 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   stable blocking set:
   1. Add every blocking finding to the index (stable ids) and record the set: `sdd-findings.py round
      --task <N> --attempt <retryCount> --ids <F,...>` → `FIRST`.
-  2. Invoke the **task-executor** with `mode: repair` and exactly those findings (a fresh
-     invocation; its status-file attempt number goes up, `retryCount` does not). It makes the
-     localized correction only.
+  2. Record the tree before the repair (`sdd-tree-hash.py`) as `taskStatus[N].repairTrees[<r>].before`.
+     Invoke the **task-executor** with `mode: repair` and exactly those findings with their ids (a
+     fresh invocation; its status-file attempt number goes up, `retryCount` does not). It makes the
+     localized correction only. Record the tree after it as `repairTrees[<r>].after`.
   3. Re-run the failed stage and every stage whose evidence the correction invalidated: the suite
-     record no longer matches the tree, so the tester (or the validator) runs the suite once; a
+     record no longer matches the tree, so the tester runs the suite once (`mode: suite-only`); a
      validator that passed re-runs in full when the corrected files are in its requirements' scope;
-     reviewers re-run in `mode: delta` over the repair diff.
+     reviewers re-run in `mode: delta` with `previousTree: repairTrees[<r>].before` and
+     `currentTree: repairTrees[<r>].after` — a repair round is the one re-invocation that selects
+     delta mode.
   4. `close` each finding the re-run verifies as fixed, add any new blocker, and record the new set
      with `round`. **`CONTINUE`** (a strict subset, nothing new, every dropped id closed or
      `invalid`) → repeat from step 2. **`CLEAR`** → the task passes only when every applicable gate
@@ -638,7 +661,11 @@ exists, and no wave task is parked with `park`**; and on resume run `python3
 
 Once every task is `complete`, do NOT jump straight to `complete`. Run one whole-feature review pass
 first — the only stage that sees how the tasks compose. Set `phase` to `feature-review` and invoke the
-**code-reviewer** and **security-reviewer** subagents in `feature` mode, **concurrently**. Pass each:
+**code-reviewer** and **security-reviewer** subagents in `feature` mode, **concurrently**. First
+settle the suite: compute `sdd-tree-hash.py` for the final tree; when it equals the suite record's
+`treeHash` and no stage declared a changed gitignored input or environment since, the record is the
+feature's suite result — **do not run the suite again**. Otherwise launch the task-tester with
+`mode: suite-only` once and use its record. Pass each reviewer:
 - The feature name and directory
 - `modularity: enforced` or `modularity: not-enforced` (as for the per-task reviews)
 - The open and routed findings from the index (`sdd-findings.py list --status open,routed`) — the
@@ -889,7 +916,9 @@ records the whole-feature gate verdict. Update the state file after every phase 
 task completion/failure.
 
 Keys this playbook adds as they arise: `findings` (top level: `{ path, counts }` — the findings
-index lives in `spec-memory/findings.jsonl`, never in this file), `blockingHistory` (per
+index lives in `spec-memory/findings.jsonl`, never in this file), `prototypeAuthority` and `wave`
+(top level: `{ tasks, base, attempt }` while a wave exists), `repairTrees` (per task),
+`blockingHistory` (per
 attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,
 `deferredBy`, `retryResetBy`, and `attemptTrees` (per task); `suiteRecord`, `preflight`, `overnightAuthorization`,
 `userApprovalNeeded`, `publishPending`, `modularity`, `invocations`, and `speculation` (top level). `taskStatus[N].status` takes exactly one of

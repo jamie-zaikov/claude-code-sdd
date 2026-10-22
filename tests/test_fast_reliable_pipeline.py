@@ -235,7 +235,7 @@ class OvernightCommandTest(Base):
         self.assertIsNotNone(tpl, "playbook lost the overnight summary template")
         heads = re.findall(r"^## (.+)$", tpl.group(1), re.MULTILINE)
         self.assertEqual(heads, ["Result", "Feature review", "Needs you", "Tasks", "Deferred",
-                                "Deferred findings", "Incidents"])
+                                "Deferred findings", "Incidents", "Timing"])
 
     def test_claude_md_and_readme_list_the_command(self):
         self.has(read("CLAUDE.md"), r"`/sdd-overnight <feature-name>`", "CLAUDE.md key commands")

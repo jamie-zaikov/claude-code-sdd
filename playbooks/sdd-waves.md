@@ -36,6 +36,12 @@ the two. Record `wave: { tasks, base, attempt }` in the state file. On resume, r
 
 ## 3. Execute and test in isolation
 
+0. **Per-task preparation, as in the sequential pipeline:** for each task build its context pack,
+   list its routed findings (`sdd-findings.py list --routed-to <N>`), pass its `prototype:` patch if
+   one exists, and record the launch in the timing ledger. After each executor returns, apply the
+   `MATERIAL CHANGE` check and the RT-3 / classification payload step before its tester runs. Each
+   task keeps its own `retryCount`, `attemptTrees` and in-attempt repair rounds
+   (`sdd-findings.py round --attempt <that task's retryCount>`); the wave attempt `k` only names refs.
 1. Launch both **task-executors** in one message with `worktree: <path>` and `wave: true`. Each
    writes only under its own worktree; targeted tests run with the worktree first on the import
    path (`PYTHONPATH=<worktree>`), or are skipped and said so.
@@ -93,7 +99,7 @@ the two. Record `wave: { tasks, base, attempt }` in the state file. On resume, r
    checkout and the executor adapts it; on exit 1 the executor gets the patch file as reference.
    The confirmed task list already authorizes adopting the task's own frozen work. Then B the same,
    on top of A. Every gate runs on what is delivered.
-4. github-agent `wave-discard` (refs kept). Record the reason in the evidence record and the
-   timing ledger. A sequential run can still expose the real incompatibility as a normal failure.
+4. github-agent `wave-discard` (refs kept). Record the reason in the evidence record and under
+   *Incidents* in the progress report (and the overnight summary). A sequential run can still expose the real incompatibility as a normal failure.
 
 At feature completion github-agent `wave-prune --feature <f>` drops the feature's wave refs.

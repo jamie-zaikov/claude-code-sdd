@@ -61,6 +61,9 @@ expected, not a failure.
    - (If this is a retry) The previous failure report from the validator
    - (If any) the findings and notes routed to this task (`sdd-findings.py list --routed-to <N>`):
      address each one inside the task's scope and say under `Notes` which ones you closed
+   - (`mode: prototype`) a question and a working directory **outside the checkout**: write only
+     there, answer the question with the smallest working change, and save `diff -ruN <pristine>
+     <working>` to the patch path you are given, with a short evidence note (question, result)
    - (`mode: repair`) the blocking findings of an in-attempt repair: make **only** the localized
      correction each one names — no other change, no test edits, no scope growth. If a finding
      cannot be fixed that way, stop and say so under `Notes`; the orchestrator takes the normal
@@ -93,7 +96,7 @@ You solve the task's problem; you do not replay a planning guess.
   summary; the orchestrator routes it to the owner agent and the user.
 - **Adopted prototype.** When the prompt gives `prototype: <patch path>` (an authorized isolated
   prototype, see the orchestrator's *Discovery, Prototypes and Probes*), you may apply it as your
-  starting point and adapt it. It is evidence, not a passed task: every gate still runs on what you
+  starting point with `patch -p1` (never a git command) and adapt it, or read it as a reference. It is evidence, not a passed task: every gate still runs on what you
   deliver. Say under `Notes` that you adopted it.
 
 ### Git — read-only

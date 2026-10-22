@@ -82,9 +82,9 @@ appended to your inputs. You may list several needs in one request.
 
 3. **No god files:** No task may grow a non-test source file past the module size limit in `tech.md` (default 500 lines), or grow a file that is already over it. When the design's extraction step applies, or a task's `Files:` names an over-limit file it must extend, insert a **split task first**: it moves the named responsibility into a new module with no behaviour change (tests stay green), and the later tasks put their new code in the new module. The code-reviewer checks this mechanically.
 
-3b. **Shared files have one writer:** When two tasks would both write the same shared fixture, lockfile, generated file, or an external pin and every fixture that embeds it, give that write to one task, list it on that task's `Shared:` line, and make the other task depend on it. A pin bump lists every fixture that embeds the pin.
-
 3a. **Requirement coverage:** Every requirement must be addressed by at least one task. Every task must reference at least one requirement. No orphan tasks, no orphan requirements.
+
+3b. **Shared files have one writer:** When two tasks would both write the same shared fixture, lockfile, generated file, or an external pin and every fixture that embeds it, give that write to one task, list it on that task's `Shared:` line, and make the other task depend on it. A pin bump lists every fixture that embeds the pin.
 
 4. **Testing sub-task:** Every task must include a testing sub-task as its last sub-item. This is what the Task Tester agent will execute. *(Non-code feature: replace this with an `Acceptance:` block — see `## Non-Code Features`. A non-code task has no testing sub-task.)*
 

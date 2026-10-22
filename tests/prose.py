@@ -34,3 +34,11 @@ def norm_pattern(pat):
 def search(text, pat, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL):
     pat = norm_pattern(pat)
     return re.search(pat, norm_lines(text), flags) or re.search(pat, norm(text), flags)
+
+
+def near(text, *terms, window=160):
+    """True when every term (a regex) appears in order, each within `window` characters of the
+    previous one, in the normalized text. Pins the KEY WORDS and DIRECTION of a rule (who, never,
+    must, what) while tolerating rewording around them."""
+    gap = r".{0,%d}?" % window
+    return search(text, gap.join(f"(?:{t})" for t in terms)) is not None
