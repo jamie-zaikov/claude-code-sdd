@@ -506,21 +506,92 @@ class RoundThreeTest(WaveCase):
         self.run_tool("land")
         self.assertEqual(self.run_tool("strays"), (0, "ok\n"))
 
-    def test_unland_reports_a_refused_path_and_still_finishes(self):
+    def test_owned_path_swapped_for_a_symlink_is_restored_not_followed(self):
         wts = self.start()
         self.work_and_freeze(wts)
         self.run_tool("land")
         outside = Path(self._tmp.name) / "outside"
         outside.mkdir()
-        os.rename(self.repo / "a", self.repo / "a_moved")  # the user swaps the dir for a link
+        os.rename(self.repo / "a", self.repo / "a_moved")  # the user swaps the owned dir for a link
         os.symlink(str(outside), self.repo / "a")
-        self.write("x.py", "x\n", outside)
+        self.assertEqual(self.run_tool("unland")[0], 0)
+        self.assertEqual(wave.load(self.repo)["phase"], "started", "never wedged")
+        self.assertEqual(list(outside.iterdir()), [], "nothing written through")
+        self.assertEqual((self.repo / "a/x.py").read_text(), "x = 1\n", "owned path back at base")
+        self.assertTrue((self.repo / "a_moved").is_dir(), "the user's moved dir is untouched")
+
+    def test_unland_reports_a_refused_path_and_still_finishes(self):
+        """A parent that NEITHER task owns becomes a symlink: the owned path under it is skipped."""
+        root = self.own_start("a/sub/", "b/")
+        self.write("a/sub/z.py", "z = 1\n", root / "task-1")
+        self.write("b/y.py", "y = 2\n", root / "task-2")
+        for task in ("1", "2"):
+            self.run_tool("freeze", "--task", task)
+        self.assertEqual(self.run_tool("land")[0], 0)
+        outside = Path(self._tmp.name) / "outside"
+        outside.mkdir()
+        os.rename(self.repo / "a", self.repo / "a_moved")
+        os.symlink(str(outside), self.repo / "a")
         code, out = self.run_tool("unland")
         self.assertEqual(code, 0, out)
         self.assertIn("skipped (refused, never written)", out)
         self.assertEqual(wave.load(self.repo)["phase"], "started", "never wedged")
-        self.assertEqual(sorted(p.name for p in outside.iterdir()), ["x.py"], "nothing written through")
-        self.assertEqual((outside / "x.py").read_text(), "x\n", "never written through")
+        self.assertEqual(list(outside.iterdir()), [], "nothing written through")
+
+
+class RoundFourTest(WaveCase):
+    def test_clean_filter_on_an_untouched_owned_file_is_never_rewritten(self):
+        """Reviewer H1: hashing without filters made an untouched filtered file look modified."""
+        self.git("config", "filter.upper.clean", "tr a-z A-Z")
+        self.git("config", "filter.upper.smudge", "cat")
+        self.write(".gitattributes", "a/f.txt filter=upper\n")
+        self.write("a/f.txt", "abc\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "filtered file")
+        self.base = self.git("rev-parse", "HEAD").strip()
+        self.write("a/f.txt", "abc\n")  # on disk the smudged form, as a checkout leaves it
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        self.assertEqual(self.run_tool("unland")[0], 0)
+        self.assertEqual((self.repo / "a/f.txt").read_text(), "abc\n", "user file rewritten")
+
+    def test_submodule_under_an_owned_dir_never_wedges(self):
+        sub = Path(self._tmp.name) / "subrepo"
+        sub.mkdir()
+        run = lambda *a: subprocess.run(["git", "-C", str(sub), *a], check=True, capture_output=True)
+        run("init", "-q")
+        run("-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "s")
+        commit = subprocess.run(["git", "-C", str(sub), "rev-parse", "HEAD"], capture_output=True,
+                                text=True, check=True).stdout.strip()
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{commit},a/mod")
+        self.git("commit", "-qm", "gitlink")
+        (self.repo / "a" / "mod").mkdir()  # an unpopulated submodule: an empty directory
+        self.base = self.git("rev-parse", "HEAD").strip()
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        code, out = self.run_tool("unland")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(wave.load(self.repo)["phase"], "started")
+
+    def test_newline_in_an_owned_file_name_never_wedges(self):
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        self.write("a/odd\nname.py", "o = 1\n")
+        self.assertEqual(self.run_tool("snapshot")[0], 0)
+        self.assertEqual(self.run_tool("unland")[0], 0)
+        self.assertFalse((self.repo / "a/odd\nname.py").exists())
+
+    def test_a_staged_new_owned_file_is_still_unlanded(self):
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        self.write("a/staged.py", "s = 1\n")
+        self.git("add", "a/staged.py")  # a repair that staged it
+        self.assertEqual(self.run_tool("unland")[0], 0)
+        self.assertFalse((self.repo / "a/staged.py").exists())
 
 
 class SpecRevTest(unittest.TestCase):

@@ -254,40 +254,39 @@ def cmd_land(repo: Path, wave: dict) -> str:
 
 def owned_tree(repo: Path, wave: dict) -> str:
     """The base tree with only the wave's OWNED paths taken from disk. User files outside the two
-    tasks' ownership are never hashed, so they never land in a long-lived ref. Built entry by entry
-    from lists that may be empty (ls-tree, ls-files -o) — never from a pathspec that git can refuse
-    (an empty or wholly ignored owned directory must not wedge a snapshot or an unland)."""
+    tasks' ownership are never hashed, so they never land in a long-lived ref. Git does every hash
+    (`update-index` applies clean/LFS/eol filters and keeps base modes when core.fileMode or
+    core.symlinks is off); paths go through `-z` stdin, never a pathspec git could refuse, so an
+    empty or ignored owned directory cannot wedge a snapshot or an unland. Submodule entries in
+    the base are kept as they are."""
     owns = lambda path: any(owned(wave, t, path) for t in wave["tasks"])  # noqa: E731
-    paths = {b for b in git(repo, "ls-tree", "-r", "--name-only", "-z", wave["base"]).split("\0")
-             if b and owns(b)}
-    magic = ":(literal,icase)" if wave.get("casefold") else ":(literal)"
-    specs = [magic + o.rstrip("/") for t in wave["tasks"] for o in wave["own"][t]]
-    paths |= {u for u in git(repo, "ls-files", "-o", "--exclude-standard", "-z", "--", *specs)
-              .split("\0") if u and owns(u)}
-    lines = []
-    for path in sorted(paths):
-        try:
-            target = safe_target(repo, path)
-        except Failed:
-            target = None  # beyond a symlink: git sees no file there
-        if target is None or not (target.exists() or target.is_symlink()) or target.is_dir():
-            lines.append(f"0 {ZERO}\t{path}")
-            continue
-        if target.is_symlink():
-            data, mode = os.readlink(target).encode("utf-8", "surrogateescape"), "120000"
-        else:
-            data = target.read_bytes()
-            mode = "100755" if os.access(target, os.X_OK) and os.name != "nt" else "100644"
-        blob = subprocess.run(["git", "-C", str(repo), "hash-object", "-w", "--stdin"], input=data,
-                              capture_output=True, check=True).stdout.decode().strip()
-        lines.append(f"{mode} {blob}\t{path}")
+    gitlinks, paths = set(), set()
+    for line in git(repo, "ls-tree", "-r", "-z", wave["base"]).split("\0"):
+        if line:
+            meta, path = line.split("\t", 1)
+            if owns(path):
+                (gitlinks if meta.split()[0] == "160000" else paths).add(path)
     tmp = tempfile.mkdtemp(prefix="sdd-wave-own-")
     try:
         env = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / "index"))
         git(repo, "read-tree", wave["base"], env=env)
-        if lines:
-            git(repo, "update-index", "--index-info", env=env,
-                data=("\n".join(lines) + "\n").encode("utf-8", "surrogateescape"))
+        magic = ":(literal,icase)" if wave.get("casefold") else ":(literal)"
+        specs = [magic + o.rstrip("/") for t in wave["tasks"] for o in wave["own"][t]]
+        paths |= {u for u in git(repo, "ls-files", "-o", "--exclude-standard", "-z", "--", *specs,
+                                 env=env).split("\0") if u and owns(u) and u not in gitlinks}
+        drop, keep = [], []
+        for path in sorted(paths):
+            try:
+                target = safe_target(repo, path)
+            except Failed:
+                target = None  # beyond a symlink: git sees no file there
+            gone = target is None or not (target.exists() or target.is_symlink()) or \
+                (target.is_dir() and not target.is_symlink())
+            (drop if gone else keep).append(path)
+        for flags, batch in (("--force-remove", drop), ("--add", keep)):
+            if batch:
+                git(repo, "update-index", "-z", flags, "--stdin", env=env,
+                    data=("\0".join(batch) + "\0").encode("utf-8", "surrogateescape"))
         return git(repo, "write-tree", env=env).strip()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -316,7 +315,8 @@ def cmd_unland(repo: Path, wave: dict) -> str:
             meta, path = line.split("\t", 1)
             base_modes[path] = meta.split()[0]
     skipped: Dict[str, str] = {}
-    for path in sorted(paths - keep):
+    gitlinks = {path for path, mode in base_modes.items() if mode == "160000"}
+    for path in sorted(paths - keep - gitlinks):  # a submodule is never rewritten
         try:
             safe_target(repo, path)
         except Failed as exc:  # never written through: leave it, report it, never count it below
