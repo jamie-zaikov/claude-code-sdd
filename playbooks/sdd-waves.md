@@ -30,7 +30,8 @@ a halt inside a wave goes to the fallback (§6), and the sequential run parks no
 ## 2. Start
 
 github-agent `wave-start` → `sdd-wave.py start --feature <f> --tasks A,B --attempt <k>
---own A=<A's Files ∪ Shared> --own B=<B's>`, where `k` is one more than the larger `retryCount` of
+--own A=<A's Files ∪ Shared> --own B=<B's>` (each entry a plain repo-relative path or directory —
+expand any glob or `{a,b}` group from tasks.md into plain paths or their common directory), where `k` is one more than the larger `retryCount` of
 the two. Record `wave: { tasks, base, attempt }` in the state file. On resume, read
 `sdd-wave.py status` before anything else.
 
@@ -80,8 +81,8 @@ the two. Record `wave: { tasks, base, attempt }` in the state file. On resume, r
 - **A blocking result** → in-attempt repair (playbook *In-attempt repair*), **one task at a time**,
   never two repair executors at once. Before each repair write, github-agent `wave-snapshot`. The
   repair executor writes only paths its task owns; after each repair run `sdd-wave.py strays` — any
-  path it lists is outside both tasks' ownership: report it to the user (never touch it) and fall
-  back (§6). After each repair: the suite runs once more
+  path it lists is outside both tasks' ownership — a repair out of scope, or a file the user or a
+  test run left behind: report it to the user (never touch it) and fall back (§6). After each repair: the suite runs once more
   (`mode: suite-only`), the repaired task's validator re-runs in full, and **all** reviewers of
   both tasks re-run in `mode: delta` over the repair diff (the other task's reviewers judged it as
   seam context). The other task's validator re-runs when the repair touched its requirements' scope

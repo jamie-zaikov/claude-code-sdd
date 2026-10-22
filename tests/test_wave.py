@@ -453,6 +453,76 @@ class RoundTwoTest(WaveCase):
         self.assertFalse((self.repo / "a/repair.py").exists())
 
 
+class RoundThreeTest(WaveCase):
+    def own_start(self, own1, own2="b/"):
+        code, out = self.run_tool("start", "--feature", "f", "--tasks", "1,2", "--attempt", "1",
+                                  "--own", f"1={own1}", "--own", f"2={own2}")
+        self.assertEqual(code, 0, out)
+        return self.repo / ".git" / "sdd-wave"
+
+    def land_new_package(self, root):
+        self.write("newpkg/m.py", "m = 1\n", root / "task-1")
+        self.write("b/y.py", "y = 2\n", root / "task-2")
+        for task in ("1", "2"):
+            self.assertEqual(self.run_tool("freeze", "--task", task)[0], 0)
+        self.assertEqual(self.run_tool("land")[0], 0)
+
+    def test_new_directory_unlands_cleanly_and_never_wedges(self):
+        """Reviewer H1: the unland leaves an empty owned dir; the next snapshot must not fail."""
+        for icase in ("true", "false"):
+            with self.subTest(ignorecase=icase):
+                self.git("config", "core.ignorecase", icase)
+                root = self.own_start("a/,newpkg/")
+                self.land_new_package(root)
+                code, out = self.run_tool("unland")
+                self.assertEqual(code, 0, out)
+                self.assertEqual(wave.load(self.repo)["phase"], "started")
+                self.assertFalse((self.repo / "newpkg/m.py").exists())
+                self.assertEqual(self.run_tool("discard")[0], 0)
+                self.run_tool("prune", "--feature", "f")
+
+    def test_wholly_ignored_owned_dir_never_wedges(self):
+        root = self.own_start("a/,build.local/")
+        self.write("a/x.py", "x = 2\n", root / "task-1")
+        self.write("b/y.py", "y = 2\n", root / "task-2")
+        self.write("build.local/out.txt", "ignored build output\n")
+        for task in ("1", "2"):
+            self.run_tool("freeze", "--task", task)
+        self.run_tool("land")
+        self.assertEqual(self.run_tool("snapshot")[0], 0)
+        self.assertEqual(self.run_tool("unland")[0], 0)
+        self.assertEqual((self.repo / "build.local/out.txt").read_text(), "ignored build output\n")
+
+    def test_bracket_route_paths_are_valid_ownership(self):
+        self.own_start("app/[id]/page.tsx,a/")
+        self.assertTrue(wave.valid_owned("src/(group)/x.ts"))
+        self.assertFalse(wave.valid_owned("a\\b.py"), "backslash is never a POSIX path")
+
+    def test_strays_ignores_pre_land_untracked_files_and_needs_a_land(self):
+        self.write("USER.md", "mine, from before\n")
+        wts = self.start()
+        self.assertEqual(self.run_tool("strays")[0], 2, "not meaningful before the land")
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        self.assertEqual(self.run_tool("strays"), (0, "ok\n"))
+
+    def test_unland_reports_a_refused_path_and_still_finishes(self):
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        outside = Path(self._tmp.name) / "outside"
+        outside.mkdir()
+        os.rename(self.repo / "a", self.repo / "a_moved")  # the user swaps the dir for a link
+        os.symlink(str(outside), self.repo / "a")
+        self.write("x.py", "x\n", outside)
+        code, out = self.run_tool("unland")
+        self.assertEqual(code, 0, out)
+        self.assertIn("skipped (refused, never written)", out)
+        self.assertEqual(wave.load(self.repo)["phase"], "started", "never wedged")
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), ["x.py"], "nothing written through")
+        self.assertEqual((outside / "x.py").read_text(), "x\n", "never written through")
+
+
 class SpecRevTest(unittest.TestCase):
     def test_checkbox_state_never_changes_the_revision(self):
         with tempfile.TemporaryDirectory() as tmp:

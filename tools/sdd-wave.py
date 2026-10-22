@@ -32,12 +32,10 @@ git error. Stdlib only.
 """
 
 import argparse
-import hashlib
 import json
 import os
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -56,8 +54,8 @@ class Refused(Exception):
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sdd_wave_fs import (Failed, collisions, remove, safe_target, unsafe_items,  # noqa: E402
-                         unwritable, valid_owned, write_blob)
+from sdd_wave_fs import (Failed, collisions, owned, remove, safe_target,  # noqa: E402
+                         spec_rev, unsafe_items, unwritable, valid_owned, write_blob)
 
 
 def git(cwd: Path, *args: str, env=None, check: bool = True, data: Optional[bytes] = None) -> str:
@@ -135,15 +133,6 @@ def new_ref(repo: Path, ref: str, commit: str) -> None:
     git(repo, "update-ref", ref, commit, ZERO)  # ZERO old value: refuses to overwrite
 
 
-def owned(wave: dict, task: str, path: str) -> bool:
-    """Any owned path also covers everything under it, with or without a trailing slash."""
-    fold = wave.get("casefold", False)
-    p = path.casefold() if fold else path
-    for o in wave["own"][task]:
-        o = (o.casefold() if fold else o).rstrip("/")
-        if p == o or p.startswith(o + "/"):
-            return True
-    return False
 
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -265,21 +254,40 @@ def cmd_land(repo: Path, wave: dict) -> str:
 
 def owned_tree(repo: Path, wave: dict) -> str:
     """The base tree with only the wave's OWNED paths taken from disk. User files outside the two
-    tasks' ownership are never hashed, so they never land in a long-lived ref."""
-    pathspecs = [o.rstrip("/") for t in wave["tasks"] for o in wave["own"][t]]
-    in_base = set(filter(None, git(repo, "ls-tree", "-r", "--name-only", "-z", wave["base"])
-                         .split("\0")))
-    fold = (lambda x: x.casefold()) if wave.get("casefold") else (lambda x: x)
-    base_f = {fold(b) for b in in_base}
-    present = [p for p in pathspecs if (repo / p).exists() or (repo / p).is_symlink()
-               or fold(p) in base_f or any(b.startswith(fold(p) + "/") for b in base_f)]
+    tasks' ownership are never hashed, so they never land in a long-lived ref. Built entry by entry
+    from lists that may be empty (ls-tree, ls-files -o) — never from a pathspec that git can refuse
+    (an empty or wholly ignored owned directory must not wedge a snapshot or an unland)."""
+    owns = lambda path: any(owned(wave, t, path) for t in wave["tasks"])  # noqa: E731
+    paths = {b for b in git(repo, "ls-tree", "-r", "--name-only", "-z", wave["base"]).split("\0")
+             if b and owns(b)}
+    magic = ":(literal,icase)" if wave.get("casefold") else ":(literal)"
+    specs = [magic + o.rstrip("/") for t in wave["tasks"] for o in wave["own"][t]]
+    paths |= {u for u in git(repo, "ls-files", "-o", "--exclude-standard", "-z", "--", *specs)
+              .split("\0") if u and owns(u)}
+    lines = []
+    for path in sorted(paths):
+        try:
+            target = safe_target(repo, path)
+        except Failed:
+            target = None  # beyond a symlink: git sees no file there
+        if target is None or not (target.exists() or target.is_symlink()) or target.is_dir():
+            lines.append(f"0 {ZERO}\t{path}")
+            continue
+        if target.is_symlink():
+            data, mode = os.readlink(target).encode("utf-8", "surrogateescape"), "120000"
+        else:
+            data = target.read_bytes()
+            mode = "100755" if os.access(target, os.X_OK) and os.name != "nt" else "100644"
+        blob = subprocess.run(["git", "-C", str(repo), "hash-object", "-w", "--stdin"], input=data,
+                              capture_output=True, check=True).stdout.decode().strip()
+        lines.append(f"{mode} {blob}\t{path}")
     tmp = tempfile.mkdtemp(prefix="sdd-wave-own-")
     try:
         env = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / "index"))
         git(repo, "read-tree", wave["base"], env=env)
-        magic = ":(literal,icase)" if wave.get("casefold") else ":(literal)"
-        if present:
-            git(repo, "add", "-A", "--", *[magic + p for p in present], env=env)
+        if lines:
+            git(repo, "update-index", "--index-info", env=env,
+                data=("\n".join(lines) + "\n").encode("utf-8", "surrogateescape"))
         return git(repo, "write-tree", env=env).strip()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -307,29 +315,31 @@ def cmd_unland(repo: Path, wave: dict) -> str:
         if line:
             meta, path = line.split("\t", 1)
             base_modes[path] = meta.split()[0]
-    skipped = []
+    skipped: Dict[str, str] = {}
     for path in sorted(paths - keep):
         try:
             safe_target(repo, path)
-        except Failed as exc:  # never written by the land (it validates first): leave and report
-            skipped.append(str(exc))
+        except Failed as exc:  # never written through: leave it, report it, never count it below
+            skipped[path] = str(exc)
             continue
         if path in base_modes:
             write_blob(repo, wave["base"], base_modes[path], path)
         else:
             remove(repo, path)
-    left = {p for _, _, p in changes(repo, wave["base"], owned_tree(repo, wave))} - keep
+    left = {p for _, _, p in changes(repo, wave["base"], owned_tree(repo, wave))} - keep - set(skipped)
     if left:
         raise Failed("unland left changes behind:\n" + "\n".join(sorted(left)))
     wave["phase"] = "started"
     save(repo, wave)
     return f"unlanded; work kept in {wave['snapshots'][-1]}" + \
-        ("\nskipped (refused, never written):\n" + "\n".join(skipped) if skipped else "")
+        ("\nskipped (refused, never written):\n" + "\n".join(skipped.values()) if skipped else "")
 
 
 def cmd_strays(repo: Path, wave: dict) -> List[str]:
     """Paths changed since the base that NEITHER task owns (and were not untracked before the
-    land): a repair that wrote one broke its scope. Read-only."""
+    land): a repair out of scope, or a file a user or test run left. Read-only; landed only."""
+    if wave["phase"] not in ("landed", "landing"):
+        raise Refused("strays is meaningful only while the wave is landed")
     keep = set(wave.get("preLandUntracked", []))
     return sorted(p for _, _, p in changes(repo, wave["base"], tree_of(repo))
                   if p not in keep and not any(owned(wave, t, p) for t in wave["tasks"]))
@@ -391,14 +401,6 @@ def cmd_prune(repo: Path, ref_prefix: str) -> str:
     return f"dropped {len(refs)} ref(s)"
 
 
-def spec_rev(feature_dir: Path) -> str:
-    """Hash of the confirmed spec text, blind to checkbox state and the state file."""
-    digest = hashlib.sha256()
-    for name in ("requirements.md", "design.md", "tasks.md"):
-        path = feature_dir / name
-        text = path.read_text(encoding="utf-8") if path.is_file() else ""
-        digest.update(name.encode() + b"\0" + re.sub(r"\[[xX]\]", "[ ]", text).encode() + b"\0")
-    return digest.hexdigest()
 
 
 def main(argv: Optional[List[str]] = None) -> int:

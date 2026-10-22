@@ -5,7 +5,9 @@ parent component — checked at write time, so a link an earlier write in the sa
 caught too — and any path that resolves outside the checkout. Stdlib only.
 """
 
+import hashlib
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -86,10 +88,11 @@ def unwritable(repo: Path, items: List[tuple]) -> List[str]:
 
 def valid_owned(path: str) -> bool:
     """An ownership entry is a plain repo-relative POSIX path: no empty, `.`, `..`, leading `./`
-    or `/`, backslash, or glob — so it means the same in `owned()` and as a literal pathspec."""
+    or `/`, backslash, or glob character (`*`, `?`) — so it means the same in `owned()` and as a
+    literal pathspec. Brackets are allowed: `app/[id]/page.tsx` is a real route-framework path."""
     stripped = path.rstrip("/")
     return bool(stripped) and not path.startswith(("/", "./")) and "\\" not in path \
-        and not any(c in path for c in "*?[]:") \
+        and not any(c in path for c in "*?:") \
         and all(part not in ("", ".", "..") for part in stripped.split("/"))
 
 
@@ -108,3 +111,24 @@ def collisions(repo: Path, items: List[tuple]) -> List[str]:
                     bad.append(f"{path} (under the file {parent.relative_to(repo).as_posix()})")
                 parent = parent.parent
     return bad
+
+
+def owned(wave: dict, task: str, path: str) -> bool:
+    """Any owned path also covers everything under it, with or without a trailing slash."""
+    fold = wave.get("casefold", False)
+    p = path.casefold() if fold else path
+    for o in wave["own"][task]:
+        o = (o.casefold() if fold else o).rstrip("/")
+        if p == o or p.startswith(o + "/"):
+            return True
+    return False
+
+
+def spec_rev(feature_dir: Path) -> str:
+    """Hash of the confirmed spec text, blind to checkbox state and the state file."""
+    digest = hashlib.sha256()
+    for name in ("requirements.md", "design.md", "tasks.md"):
+        path = feature_dir / name
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        digest.update(name.encode() + b"\0" + re.sub(r"\[[xX]\]", "[ ]", text).encode() + b"\0")
+    return digest.hexdigest()
