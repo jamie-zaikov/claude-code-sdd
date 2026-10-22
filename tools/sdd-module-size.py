@@ -120,7 +120,7 @@ def changed_files(repo: Path, base: str) -> List[Tuple[str, str]]:
         real = Path(git(repo, "rev-parse", "--git-path", "index").strip())
         real = real if real.is_absolute() else repo / real
         if real.is_file():
-            shutil.copyfile(real, index)
+            shutil.copy2(real, index)  # keep mtime: git's racy-clean check needs it
         env = dict(os.environ, GIT_INDEX_FILE=str(index))
         # Tracked edits and deletions, then only untracked SOURCE files: a large untracked data file
         # is never hashed into .git/objects. Literal pathspecs, so `[` or `*` in a name is a name.

@@ -379,6 +379,45 @@ class TreeHashExecutionTest(Base):
         self.assertEqual(out, "")
 
 
+class TreeHashRacyCleanTest(unittest.TestCase):
+    """A same-size edit in the same second as the index write must still change the hash.
+
+    The tools copy the real index into a temporary one. If the copy gets a new mtime, git treats
+    entries modified in the index's second as clean by stat and never re-hashes them, so the hash
+    reports the OLD content. Every tool that copies the index must keep its mtime (copy2)."""
+
+    TOOLS = ("sdd-tree-hash.py", "sdd-overlap.py", "sdd-module-size.py")
+
+    def test_index_copy_keeps_mtime_in_every_tool(self):
+        for name in self.TOOLS:
+            text = read(f"tools/{name}")
+            self.assertNotIn("shutil.copyfile(real, index)", text, name)
+            self.assertIn("shutil.copy2(real, index)", text, name)
+
+    def test_same_second_same_size_edit_changes_the_hash(self):
+        import os
+        import time
+        tool = ROOT / "tools" / "sdd-tree-hash.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            git = lambda *a: subprocess.run(["git", "-C", tmp, *a], check=True, capture_output=True)
+            git("init", "-q")
+            git("config", "core.trustctime", "false")  # ctime cannot be set; mtime decides
+            f = Path(tmp) / "a.py"
+            index = Path(tmp) / ".git" / "index"
+            stamp = int(time.time()) - 100  # one past second for the file, the entry and the index
+            f.write_text("a = 1\n")
+            os.utime(f, (stamp, stamp))
+            git("add", "a.py")  # the entry records mtime == stamp; the index is written now
+            run = lambda: subprocess.run([sys.executable, str(tool)], cwd=tmp, capture_output=True,
+                                         text=True).stdout.strip()
+            before = run()
+            f.write_text("a = 2\n")  # same size, same mtime: only the content differs
+            os.utime(f, (stamp, stamp))
+            os.utime(index, (stamp, stamp))  # the index was written in the entry's second
+            after = run()
+        self.assertNotEqual(before, after, "a racily-clean edit was hashed as unchanged")
+
+
 class RoundTwoProseTest(Base):
     def test_github_agent_parks_only_through_the_tool(self):
         gh = read("agents/github-agent.md")

@@ -38,7 +38,7 @@ def tree_hash(cwd: Path) -> str:
         index = Path(tmp) / "index"
         real = Path(git(cwd, "rev-parse", "--path-format=absolute", "--git-path", "index").strip())
         if real.is_file():
-            shutil.copyfile(real, index)
+            shutil.copy2(real, index)  # keep mtime: git's racy-clean check needs it
         env = dict(os.environ, GIT_INDEX_FILE=str(index))
         git(cwd, "add", "-A", "--", *PATHSPEC, env=env)
         return git(cwd, "write-tree", env=env).strip()
