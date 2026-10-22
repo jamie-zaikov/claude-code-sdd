@@ -594,6 +594,48 @@ class RoundFourTest(WaveCase):
         self.assertFalse((self.repo / "a/staged.py").exists())
 
 
+class RoundFiveTest(WaveCase):
+    def test_file_turned_into_a_package_is_restored(self):
+        """Reviewer H1: a repair replaces a/x.py with a/x.py/in.py; unland must not wedge."""
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        (self.repo / "a/x.py").unlink()
+        self.write("a/x.py/in.py", "pkg = 1\n")
+        code, out = self.run_tool("unland")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((self.repo / "a/x.py").read_text(), "x = 1\n")
+        self.assertEqual(wave.load(self.repo)["phase"], "started")
+
+    def test_directory_turned_into_a_file_is_restored(self):
+        self.write("a/d/f.py", "f = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "dir")
+        self.base = self.git("rev-parse", "HEAD").strip()
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        (self.repo / "a/d/f.py").unlink()
+        (self.repo / "a/d").rmdir()
+        self.write("a/d", "now a file\n")
+        code, out = self.run_tool("unland")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((self.repo / "a/d/f.py").read_text(), "f = 1\n")
+
+    def test_package_holding_a_user_file_is_skipped_not_wedged(self):
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        (self.repo / "a/x.py").unlink()
+        self.write("a/x.py/in.py", "pkg = 1\n")
+        self.write("a/x.py/notes.local", "an ignored user file\n")
+        code, out = self.run_tool("unland")
+        self.assertEqual(code, 0, out)
+        self.assertIn("skipped", out)
+        self.assertEqual((self.repo / "a/x.py/notes.local").read_text(), "an ignored user file\n")
+        self.assertEqual(wave.load(self.repo)["phase"], "started")
+
+
 class SpecRevTest(unittest.TestCase):
     def test_checkbox_state_never_changes_the_revision(self):
         with tempfile.TemporaryDirectory() as tmp:

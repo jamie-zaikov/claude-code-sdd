@@ -316,16 +316,21 @@ def cmd_unland(repo: Path, wave: dict) -> str:
             base_modes[path] = meta.split()[0]
     skipped: Dict[str, str] = {}
     gitlinks = {path for path, mode in base_modes.items() if mode == "160000"}
-    for path in sorted(paths - keep - gitlinks):  # a submodule is never rewritten
+    todo = paths - keep - gitlinks  # a submodule is never rewritten
+    # Removals before writes: a file a repair turned into a directory (or the reverse) is emptied
+    # before the base blob goes back.
+    order = sorted(p for p in todo if p not in base_modes) + sorted(p for p in todo if p in base_modes)
+    for path in order:
         try:
-            safe_target(repo, path)
-        except Failed as exc:  # never written through: leave it, report it, never count it below
-            skipped[path] = str(exc)
-            continue
-        if path in base_modes:
+            target = safe_target(repo, path)
+            if path not in base_modes:
+                remove(repo, path)
+                continue
+            if target.is_dir() and not target.is_symlink():
+                os.rmdir(target)  # refuses when user or ignored files are still inside
             write_blob(repo, wave["base"], base_modes[path], path)
-        else:
-            remove(repo, path)
+        except (Failed, OSError) as exc:  # left as it is, reported, never counted below
+            skipped[path] = f"{path}: {exc}"
     left = {p for _, _, p in changes(repo, wave["base"], owned_tree(repo, wave))} - keep - set(skipped)
     if left:
         raise Failed("unland left changes behind:\n" + "\n".join(sorted(left)))
