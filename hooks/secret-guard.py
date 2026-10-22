@@ -44,7 +44,7 @@ DUMP_TOOLS = r"(?:cat|bat|less|more|head|tail|nl|tac|grep|egrep|fgrep|rg|ag|xxd|
 # Path fragments that identify a known secret store.
 SECRET_PATH = re.compile(
     r"""(?xi)
-    (?:^|[\s='"/\\:])              # boundary (`\` and `C:` for Windows paths)
+    (?:^|[\s='"/\\:%])             # boundary (`\`, `C:`, `$env:X`, `%X%` for Windows)
     (?:
         \.env(?:\.[\w.-]+)?\b      # .env, .env.local, .env.production
       | id_rsa\b | id_ed25519\b
@@ -54,7 +54,7 @@ SECRET_PATH = re.compile(
       | [\w.-]*\.tfvars\b
       | kubeconfig\b
       | \.aws[/\\] | \.ssh[/\\] | \.kube[/\\] | \.config[/\\]gcloud[/\\]
-      | AppData[/\\]Roaming[/\\]gcloud[/\\]
+      | AppData%?[/\\](?:Roaming[/\\])?gcloud[/\\]   # %APPDATA%\gcloud, AppData\Roaming\gcloud
       | \.netrc\b
     )
     """,
