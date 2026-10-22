@@ -29,6 +29,9 @@
 <!-- Optional overrides for the orchestrator. -->
 <!-- - Specialist grace: 1200 s           (heartbeat staleness window; vault-reader default 2400 s) -->
 <!-- - Stage overlap: on                  (set `off` to disable Level 1 overlap) -->
+<!-- - Task waves: 2                     (opt-in: run two independent tasks concurrently in
+                                            isolated worktrees with one combined gate; absent = off) -->
+<!-- - Wave-isolated tests: no           (`yes` when tests use no shared database/port/device/cache) -->
 
 ## Testing
 <!-- Framework, conventions, directory structure, how to run tests -->
