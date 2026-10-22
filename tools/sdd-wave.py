@@ -8,6 +8,7 @@
     land                                      (combined candidate -> main checkout, uncommitted)
     snapshot                                  (record the landed checkout before a repair writes)
     unland                                    (main checkout back to base; nothing else touched)
+    strays                                    (read-only: changed paths neither task owns)
     verify   --gated-tree T                   (after the commits: HEAD holds what the gates judged)
     adopt    --task A [--patch-out FILE]      (fallback: apply A's frozen work onto the checkout)
     discard  [--drop-refs]   |   prune --feature F   |   status   |   spec-rev --feature-dir D
@@ -55,7 +56,8 @@ class Refused(Exception):
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sdd_wave_fs import Failed, collisions, remove, unsafe_items, write_blob  # noqa: E402
+from sdd_wave_fs import (Failed, collisions, remove, safe_target, unsafe_items,  # noqa: E402
+                         unwritable, valid_owned, write_blob)
 
 
 def git(cwd: Path, *args: str, env=None, check: bool = True, data: Optional[bytes] = None) -> str:
@@ -168,6 +170,9 @@ def cmd_start(repo: Path, a) -> str:
         if task not in own:
             raise Refused(f"--own names {task}, not a wave task")
         own[task] += [p.strip() for p in paths.split(",") if p.strip()]
+    bad = [p for t in own for p in own[t] if not valid_owned(p)]
+    if bad:
+        raise Refused("invalid ownership entries (plain repo-relative paths only): " + ", ".join(bad))
     casefold = git(repo, "config", "--bool", "core.ignorecase", check=False).strip() == "true"
     wave = {"feature": a.feature, "tasks": tasks, "attempt": a.attempt, "own": own,
             "casefold": casefold, "base": git(repo, "rev-parse", "HEAD").strip(),
@@ -244,9 +249,9 @@ def cmd_land(repo: Path, wave: dict) -> str:
         raise Failed("stale: the main checkout moved or has tracked changes outside .specs/")
     cand = candidate(repo, wave)
     items = changes(repo, wave["base"], cand)
-    bad = unsafe_items(items) + collisions(repo, items)
+    bad = unsafe_items(items) + collisions(repo, items) + unwritable(repo, items)
     if bad:
-        raise Failed("collision with files on disk:\n" + "\n".join(bad))
+        raise Failed("not landed (nothing written):\n" + "\n".join(bad))
     wave["preLandUntracked"] = untracked(repo)
     wave["candidate"] = cand
     wave["phase"] = "landing"
@@ -264,14 +269,17 @@ def owned_tree(repo: Path, wave: dict) -> str:
     pathspecs = [o.rstrip("/") for t in wave["tasks"] for o in wave["own"][t]]
     in_base = set(filter(None, git(repo, "ls-tree", "-r", "--name-only", "-z", wave["base"])
                          .split("\0")))
+    fold = (lambda x: x.casefold()) if wave.get("casefold") else (lambda x: x)
+    base_f = {fold(b) for b in in_base}
     present = [p for p in pathspecs if (repo / p).exists() or (repo / p).is_symlink()
-               or p in in_base or any(b.startswith(p + "/") for b in in_base)]
+               or fold(p) in base_f or any(b.startswith(fold(p) + "/") for b in base_f)]
     tmp = tempfile.mkdtemp(prefix="sdd-wave-own-")
     try:
-        env = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / "index"), GIT_LITERAL_PATHSPECS="1")
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / "index"))
         git(repo, "read-tree", wave["base"], env=env)
+        magic = ":(literal,icase)" if wave.get("casefold") else ":(literal)"
         if present:
-            git(repo, "add", "-A", "--", *present, env=env)
+            git(repo, "add", "-A", "--", *[magic + p for p in present], env=env)
         return git(repo, "write-tree", env=env).strip()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -299,7 +307,13 @@ def cmd_unland(repo: Path, wave: dict) -> str:
         if line:
             meta, path = line.split("\t", 1)
             base_modes[path] = meta.split()[0]
+    skipped = []
     for path in sorted(paths - keep):
+        try:
+            safe_target(repo, path)
+        except Failed as exc:  # never written by the land (it validates first): leave and report
+            skipped.append(str(exc))
+            continue
         if path in base_modes:
             write_blob(repo, wave["base"], base_modes[path], path)
         else:
@@ -309,7 +323,16 @@ def cmd_unland(repo: Path, wave: dict) -> str:
         raise Failed("unland left changes behind:\n" + "\n".join(sorted(left)))
     wave["phase"] = "started"
     save(repo, wave)
-    return f"unlanded; work kept in {wave['snapshots'][-1]}"
+    return f"unlanded; work kept in {wave['snapshots'][-1]}" + \
+        ("\nskipped (refused, never written):\n" + "\n".join(skipped) if skipped else "")
+
+
+def cmd_strays(repo: Path, wave: dict) -> List[str]:
+    """Paths changed since the base that NEITHER task owns (and were not untracked before the
+    land): a repair that wrote one broke its scope. Read-only."""
+    keep = set(wave.get("preLandUntracked", []))
+    return sorted(p for _, _, p in changes(repo, wave["base"], tree_of(repo))
+                  if p not in keep and not any(owned(wave, t, p) for t in wave["tasks"]))
 
 
 def cmd_verify(repo: Path, wave: dict, gated: str) -> List[str]:
@@ -327,8 +350,8 @@ def cmd_adopt(repo: Path, wave: dict, task: str, patch_out: Optional[str]) -> st
                                 "--", *SPEC], capture_output=True, check=True).stdout
         Path(patch_out).write_bytes(patch)  # bytes: no newline translation on Windows
     items = changes(repo, wave["base"], ref)
-    if unsafe_items(items):
-        raise Failed("not adopted:\n" + "\n".join(unsafe_items(items)))
+    if unsafe_items(items) or unwritable(repo, items):
+        raise Failed("not adopted:\n" + "\n".join(unsafe_items(items) + unwritable(repo, items)))
     moved = {p for _, _, p in changes(repo, wave["base"], tree_of(repo))}  # HEAD or disk
     bad = sorted({p for _, _, p in items if p in moved} |
                  {c for c in collisions(repo, items) if c.split(" ")[0] not in moved})
@@ -392,7 +415,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     s.add_argument("--paths", required=True)
     for name in ("check", "freeze"):
         sub.add_parser(name).add_argument("--task", required=True)
-    for name in ("land", "snapshot", "unland", "status"):
+    for name in ("land", "snapshot", "unland", "status", "strays"):
         sub.add_parser(name)
     sub.add_parser("verify").add_argument("--gated-tree", required=True)
     s = sub.add_parser("adopt")
@@ -431,11 +454,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                     if owned(wave, other, path) or any(owned(probe, "x", q)
                                                        for q in wave["own"][other]):
                         raise Refused(f"{path} overlaps task {other}'s ownership; serialize instead")
+                    if not valid_owned(path):
+                        raise Refused(f"invalid ownership entry {path!r}")
                     wave["own"][a.task].append(path)
                 save(repo, wave)
-            elif a.cmd in ("check", "verify"):
+            elif a.cmd in ("check", "verify", "strays"):
                 bad = cmd_check(repo, wave, a.task) if a.cmd == "check" else \
-                    cmd_verify(repo, wave, a.gated_tree)
+                    cmd_verify(repo, wave, a.gated_tree) if a.cmd == "verify" else \
+                    cmd_strays(repo, wave)
                 print("\n".join(bad) if bad else "ok")
                 return 1 if bad else 0
             elif a.cmd == "freeze":

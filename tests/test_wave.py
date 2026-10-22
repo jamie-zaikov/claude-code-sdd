@@ -6,6 +6,7 @@ import importlib.util
 import io
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,8 +15,6 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("sdd_wave", ROOT / "tools" / "sdd-wave.py")
 wave = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wave)
-from sdd_wave_fs import safe_target as _st  # noqa: E402  (the module sdd-wave.py imports)
-wave.safe_target = _st
 
 
 class WaveCase(unittest.TestCase):
@@ -330,6 +329,128 @@ class UserFileSafetyTest(WaveCase):
         self.assertEqual(self.run_tool("discard")[0], 2)
         self.run_tool("unland")
         self.assertEqual(self.run_tool("discard")[0], 0)
+
+
+class RoundTwoTest(WaveCase):
+    def mktree_commit(self, files):
+        """A commit on base whose tree adds `files` (path -> (mode, content)) with no disk writes."""
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(self._tmp.name) / "idx"))
+        subprocess.run(["git", "-C", str(self.repo), "read-tree", self.base], env=env, check=True)
+        for path, (mode, content) in files.items():
+            blob = subprocess.run(["git", "-C", str(self.repo), "hash-object", "-w", "--stdin"],
+                                  input=content.encode(), capture_output=True, check=True).stdout.decode().strip()
+            subprocess.run(["git", "-C", str(self.repo), "update-index", "--add", "--cacheinfo",
+                            f"{mode},{blob},{path}"], env=env, check=True)
+        tree = subprocess.run(["git", "-C", str(self.repo), "write-tree"], env=env,
+                              capture_output=True, check=True, text=True).stdout.strip()
+        os.remove(Path(self._tmp.name) / "idx")
+        return self.git("commit-tree", tree, "-p", self.base, "-m", "x").strip()
+
+    def crafted_wave(self, a_files, b_files):
+        self.start()
+        state = wave.load(self.repo)
+        for task, files in (("1", a_files), ("2", b_files)):
+            ref = f"refs/t/{task}"
+            self.git("update-ref", ref, self.mktree_commit(files))
+            state["frozen"][task] = ref
+        wave.save(self.repo, state)
+
+    def test_refused_write_lands_nothing_and_never_wedges(self):
+        """Reviewer H1: the victim does not exist yet, so collisions() alone misses it."""
+        outside = Path(self._tmp.name) / "outside"
+        outside.mkdir()
+        os.symlink(str(outside), self.repo / "a" / "sub")
+        self.crafted_wave({"a/aa.py": ("100644", "x\n"), "a/sub/new.txt": ("100644", "y\n")},
+                          {"b/bb.py": ("100644", "z\n")})
+        code, out = self.run_tool("land")
+        self.assertEqual(code, 1, out)
+        self.assertIn("nothing written", out)
+        self.assertFalse((self.repo / "a/aa.py").exists(), "no partial land")
+        self.assertFalse((outside / "new.txt").exists())
+        self.assertEqual(wave.load(self.repo)["phase"], "started")
+        self.assertEqual(self.run_tool("discard")[0], 0, "never wedged")
+
+    def test_case_colliding_candidate_is_refused_at_land(self):
+        self.crafted_wave({"Lib/a.py": ("100644", "a\n")}, {"lib/b.py": ("100644", "b\n")})
+        code, out = self.run_tool("land")
+        self.assertEqual(code, 1, out)
+        self.assertIn("case-collides", out)
+
+    def test_symlink_in_frozen_work_is_refused_at_adopt(self):
+        self.crafted_wave({"a/link": ("120000", "/etc")}, {"b/bb.py": ("100644", "z\n")})
+        self.assertEqual(self.run_tool("adopt", "--task", "1")[0], 1)
+        self.assertFalse((self.repo / "a/link").is_symlink())
+
+    def test_discard_refuses_while_landing(self):
+        self.start()
+        state = wave.load(self.repo)
+        state["phase"] = "landing"
+        wave.save(self.repo, state)
+        self.assertEqual(self.run_tool("discard")[0], 2)
+
+    def test_ownership_entries_must_be_plain_paths(self):
+        for bad in (".", "..", "./a", "/abs", "a/../b", "a/*", ""):
+            with self.subTest(entry=bad):
+                code, _ = self.run_tool("start", "--feature", "f", "--tasks", "1,2", "--attempt", "1",
+                                        "--own", f"1=a/,{bad}" if bad else "1=a/,", "--own", "2=b/")
+                if bad:
+                    self.assertEqual(code, 2)
+                self.run_tool("discard")
+        self.start()
+        self.assertEqual(self.run_tool("extend", "--task", "1", "--paths", ".")[0], 2)
+
+    def test_owned_prefix_has_a_slash_boundary(self):
+        state = {"own": {"1": ["a"]}, "casefold": False}
+        self.assertTrue(wave.owned(state, "1", "a/x.py"))
+        self.assertFalse(wave.owned(state, "1", "ab.py"))
+
+    def test_owned_path_missing_everywhere_does_not_break_snapshot(self):
+        code, _ = self.run_tool("start", "--feature", "f", "--tasks", "1,2", "--attempt", "1",
+                                "--own", "1=a/,docs/new.md", "--own", "2=b/,tools/run.sh")
+        self.assertEqual(code, 0)
+        root = self.repo / ".git" / "sdd-wave"
+        self.write("a/x.py", "x = 2\n", root / "task-1")
+        self.write("b/y.py", "y = 2\n", root / "task-2")
+        self.run_tool("freeze", "--task", "1")
+        self.run_tool("freeze", "--task", "2")
+        self.assertEqual(self.run_tool("land")[0], 0)
+        self.assertEqual(self.run_tool("snapshot")[0], 0)
+        self.assertEqual(self.run_tool("unland")[0], 0)
+
+    def test_pre_land_untracked_file_inside_ownership_survives_unland(self):
+        self.write("a/notes.txt", "user file under an owned dir\n")
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        self.assertEqual(self.run_tool("unland")[0], 0)
+        self.assertEqual((self.repo / "a/notes.txt").read_text(), "user file under an owned dir\n")
+
+    def test_strays_lists_changes_outside_ownership(self):
+        wts = self.start()
+        self.work_and_freeze(wts)
+        self.run_tool("land")
+        self.assertEqual(self.run_tool("strays"), (0, "ok\n"))
+        self.write("shared.py", "s = 'repair went out of scope'\n")
+        code, out = self.run_tool("strays")
+        self.assertEqual(code, 1)
+        self.assertIn("shared.py", out)
+
+    @unittest.skipUnless(sys.platform == "darwin" or os.name == "nt", "needs a case-insensitive FS")
+    def test_case_differing_ownership_on_a_casefold_repo(self):
+        if self.git("config", "--bool", "core.ignorecase").strip() != "true":
+            self.skipTest("repository is case-sensitive")
+        code, _ = self.run_tool("start", "--feature", "f", "--tasks", "1,2", "--attempt", "1",
+                                "--own", "1=A/", "--own", "2=b/")
+        self.assertEqual(code, 0)
+        root = self.repo / ".git" / "sdd-wave"
+        self.write("a/x.py", "x = 2\n", root / "task-1")
+        self.write("b/y.py", "y = 2\n", root / "task-2")
+        self.run_tool("freeze", "--task", "1")
+        self.run_tool("freeze", "--task", "2")
+        self.run_tool("land")
+        self.write("a/repair.py", "r = 1\n")  # a repair file under the owned dir
+        self.assertEqual(self.run_tool("unland")[0], 0)
+        self.assertFalse((self.repo / "a/repair.py").exists())
 
 
 class SpecRevTest(unittest.TestCase):

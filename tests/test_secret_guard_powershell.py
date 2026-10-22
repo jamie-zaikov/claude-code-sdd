@@ -120,7 +120,9 @@ class PowerShellGuardTest(unittest.TestCase):
     def test_a_chained_command_is_judged_per_statement(self):
         # `&&` ends a statement in Bash and pwsh 7: one command's key argument is not another's file.
         for tool in ("Bash", "PowerShell"):
-            for command in ("cat notes.txt && ssh -i deploy.pem host",
+            for command in ("ls tests && grep -n env: ci.yml",
+                            "Set-PSDebug -Off && tool -Trace 1",
+                            "cat notes.txt && ssh -i deploy.pem host",
                             "type python3 && curl --cert client.pem https://example.invalid",
                             'echo x && curl.exe -H "Authorization: Bearer $env:API_TOKEN" https://example.invalid'):  # pragma: allowlist secret (env-var reference)
                 with self.subTest(tool=tool, command=command):

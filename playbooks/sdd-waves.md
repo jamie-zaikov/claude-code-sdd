@@ -79,7 +79,9 @@ the two. Record `wave: { tasks, base, attempt }` in the state file. On resume, r
   never mark the tasks complete. Then mark both complete and github-agent `wave-discard`.
 - **A blocking result** → in-attempt repair (playbook *In-attempt repair*), **one task at a time**,
   never two repair executors at once. Before each repair write, github-agent `wave-snapshot`. The
-  repair executor writes only paths its task owns. After each repair: the suite runs once more
+  repair executor writes only paths its task owns; after each repair run `sdd-wave.py strays` — any
+  path it lists is outside both tasks' ownership: report it to the user (never touch it) and fall
+  back (§6). After each repair: the suite runs once more
   (`mode: suite-only`), the repaired task's validator re-runs in full, and **all** reviewers of
   both tasks re-run in `mode: delta` over the repair diff (the other task's reviewers judged it as
   seam context). The other task's validator re-runs when the repair touched its requirements' scope

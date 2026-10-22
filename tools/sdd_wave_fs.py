@@ -72,6 +72,27 @@ def remove(repo: Path, path: str) -> None:
         target.unlink()
 
 
+def unwritable(repo: Path, items: List[tuple]) -> List[str]:
+    """Every path `safe_target` would refuse — checked for ALL items before the first write, so a
+    land or adopt either writes everything or nothing."""
+    bad = []
+    for _, _, path in items:
+        try:
+            safe_target(repo, path)
+        except Failed as exc:
+            bad.append(str(exc))
+    return bad
+
+
+def valid_owned(path: str) -> bool:
+    """An ownership entry is a plain repo-relative POSIX path: no empty, `.`, `..`, leading `./`
+    or `/`, backslash, or glob — so it means the same in `owned()` and as a literal pathspec."""
+    stripped = path.rstrip("/")
+    return bool(stripped) and not path.startswith(("/", "./")) and "\\" not in path \
+        and not any(c in path for c in "*?[]:") \
+        and all(part not in ("", ".", "..") for part in stripped.split("/"))
+
+
 def collisions(repo: Path, items: List[tuple]) -> List[str]:
     bad = []
     for status, _, path in items:
@@ -81,7 +102,9 @@ def collisions(repo: Path, items: List[tuple]) -> List[str]:
                 bad.append(f"{path} (already on disk)")
             parent = target.parent
             while parent != repo:
-                if parent.exists() and not parent.is_dir():
+                if parent.is_symlink():
+                    bad.append(f"{path} (under the symlink {parent.relative_to(repo).as_posix()})")
+                elif parent.exists() and not parent.is_dir():
                     bad.append(f"{path} (under the file {parent.relative_to(repo).as_posix()})")
                 parent = parent.parent
     return bad

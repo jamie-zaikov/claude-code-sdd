@@ -82,6 +82,9 @@ class OutcomeEnvelopeTest(Base):
         self.near(self.orch, "reader", r"contains a\s+`MATERIAL CHANGE:` note", r"stop this task's pipeline",
                   r"before Stage 2")
         self.near(self.orch, "no gate", r"Never test or\s+gate a task the executor stopped")
+        self.near(self.orch, "overnight", r"MATERIAL CHANGE", r"overnight, record it under `userApprovalNeeded`",
+                  r"park the task", window=400)
+        self.lacks(self.orch, r"MATERIAL CHANGE[^.]{0,200}continue the pipeline", "material inverted")
 
     def test_amendment_split_material_vs_internal(self):
         self.near(self.orch, "material", r"Material amendment", r"acceptance", r"user's confirmation",
@@ -101,6 +104,7 @@ class OutcomeEnvelopeTest(Base):
         self.near(self.orch, "tier 2", r"Isolated prototype", r"prototype authority", r"grants once",
                   window=400)
         self.near(self.orch, "tier 2 limit", r"never a source of live-system authority")
+        self.near(self.orch, "no per-attempt", r"No per-attempt approval")
         self.near(self.orch, "tier 3", r"Live mutation", r"only at the project level",
                   r"never by a prototype authority", window=300)
         self.near(self.orch, "scrub", r"Scrub a capture", r"before", r"written")
@@ -115,6 +119,10 @@ class OutcomeEnvelopeTest(Base):
         self.near(self.orch, "no backdate", r"never recorded as a passed\s+task", r"back-dated")
         self.near(self.executor, "evidence", r"evidence, not a passed task", r"every gate still runs")
         self.near(self.orch, "state key", r"`prototypeAuthority`")
+        self.near(self.orch, "which executor", r"pass it to that task's executor")
+        self.near(self.orch, "confirmation", r"the tasks gate and the classification gate")
+        self.near(self.executor, "apply", r"`patch -p1`", r"never a git command")
+        self.lacks(self.executor, r"git apply", "executor applies with git")
 
 
 class FindingsAndRepairTest(Base):
@@ -126,6 +134,12 @@ class FindingsAndRepairTest(Base):
 
     def test_ids_stay_stable_by_passing_them_back(self):
         self.near(self.orch, "ids", r"ids are\s+kept stable by passing them back", r"closed \| open")
+        self.near(self.orch, "new only", r"only a finding it cannot map to\s+a passed id is added as new")
+        self.lacks(self.orch, r"every finding is added as new", "id rule inverted")
+        for rel in ("agents/task-validator.md", "agents/code-reviewer.md", "agents/security-reviewer.md"):
+            text = read(rel)
+            self.near(text, rel, r"`<id>: closed`", r"`<id>: open`")
+            self.near(text, rel, r"never re-report a listed finding under a new title")
 
     def test_routed_finding_reaches_its_closers_and_stays_open(self):
         self.near(self.orch, "closers", r"routed-to <M>", r"validator and\s+both reviewers")
@@ -170,8 +184,11 @@ class TestSignalTest(Base):
     def test_one_suite_run_per_accepted_candidate(self):
         self.near(self.orch, "D7", r"once per accepted candidate", r"wave batch")
         self.lacks(self.orch, r"at\s+least once per task", "old per-task wording")
-        self.near(self.orch, "feature review reuse", r"equals the suite record's", r"do not run the suite again",
+        self.near(self.orch, "feature review reuse", r"equals the suite record's",
+                  r"no stage declared a changed gitignored input or environment", r"do not run the suite again",
                   window=300)
+        self.near(self.orch, "feature review run", r"launch the task-tester with\s+`mode: suite-only` once")
+        self.lacks(self.orch, r"every task's tester", "feature review rerun")
 
 
 class HygieneAndPermissionTest(Base):
@@ -234,6 +251,7 @@ class WavePlaybookTest(Base):
         self.lacks(self.pb, r"two repair executors may run", "serial inverted")
         self.near(self.pb, "both", r"all reviewers of\s+both tasks", r"`mode: delta`")
         self.near(self.pb, "snapshot", r"Before each repair write", r"`wave-snapshot`")
+        self.near(self.pb, "owned only", r"repair executor writes only paths its task owns", r"strays")
 
     def test_stop_counts_as_a_failed_attempt_and_falls_back(self):
         self.near(self.pb, "counter", r"attempt counts as failed", r"retryCount \+= 1",

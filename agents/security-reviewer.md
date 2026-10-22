@@ -129,6 +129,13 @@ needed vault fact → `VAULT REQUEST: <need>`. The severity model below is uncha
 
 **Blocking = any Critical or High finding.** Medium and Low are reported but do not block.
 
+## Finding Ids (re-runs and routed findings)
+
+When your prompt lists findings with ids (`F-<task>-<n>`) — prior blocking findings on a re-run or
+repair, or findings routed to this task — report each one on its own line as `<id>: closed` or
+`<id>: open`, with the evidence for `closed`. Report a new finding only when it does not map to a
+listed id; never re-report a listed finding under a new title.
+
 ## Verdict
 
 ### On PASS (no Critical or High findings)

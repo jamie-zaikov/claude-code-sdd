@@ -130,6 +130,13 @@ Your verdict adds a `### Mode: artifact-conformance` line and names, per cited r
 artifact that satisfies it and the `Acceptance:` items checked. Emit these additions **only** in
 this mode, so the code-path verdict format is unchanged.
 
+## Finding Ids (re-runs and routed findings)
+
+When your prompt lists findings with ids (`F-<task>-<n>`) — prior blocking findings on a re-run or
+repair, or findings routed to this task — report each one on its own line as `<id>: closed` or
+`<id>: open`, with the evidence for `closed`. Report a new finding only when it does not map to a
+listed id; never re-report a listed finding under a new title.
+
 ## Verdict
 
 ### On PASS
