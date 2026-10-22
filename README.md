@@ -93,8 +93,9 @@ cd sdd-global
 
 The installer will:
 
-1. Copy all 13 agents to `<claude home>/agents/`, the slash commands to `commands/` and the agent
-   tools to `tools/`
+1. Copy all 13 agents to `<claude home>/agents/`, the slash commands to `commands/`, the
+   playbooks (`playbooks/*.md`, when the checkout has them) to `playbooks/`, and the agent tools to
+   `tools/`
 2. Install the global CLAUDE.md
    - If you already have one, it offers to overwrite, append, or skip
 3. Offer the secret-handling safeguards: `permissions.deny` rules plus the guard/redact hooks in

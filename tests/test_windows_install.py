@@ -59,8 +59,8 @@ class Sandbox:
     def install(self, *args, root=ROOT):
         return self.run("install.py", "--yes", "--no-pre-push", *args, root=root)
 
-    def uninstall(self, *args):
-        return self.run("uninstall.py", "--yes", *args)
+    def uninstall(self, *args, root=ROOT):
+        return self.run("uninstall.py", "--yes", *args, root=root)
 
     def write_settings(self, data):
         self.dest.mkdir(parents=True, exist_ok=True)
@@ -288,6 +288,35 @@ class UninstallTest(Base):
         self.assertFalse((self.sb.dest / "agents" / "orchestrator.md").exists())
         self.assertEqual(managed(self.sb.settings(), "PreToolUse"), [])
         self.assertIn("deny rule(s)", proc.stdout)
+
+
+
+class PlaybooksTest(Base):
+    def repo_copy(self):
+        repo = self.sb.base / "repo copy"
+        shutil.copytree(ROOT, repo, ignore=shutil.ignore_patterns(".git", "__pycache__", ".specs"))
+        return repo
+
+    def test_playbooks_are_installed_and_uninstalled_like_agents(self):
+        repo = self.repo_copy()
+        (repo / "playbooks").mkdir(exist_ok=True)
+        (repo / "playbooks" / "sdd-test-playbook.md").write_text("# test playbook\n", encoding="utf-8")
+        self.assertOk(self.sb.install("--no-hooks", root=repo))
+        installed = self.sb.dest / "playbooks" / "sdd-test-playbook.md"
+        self.assertEqual(installed.read_text(encoding="utf-8"), "# test playbook\n")
+        user_file = self.sb.dest / "playbooks" / "my-notes.md"
+        user_file.write_text("mine\n", encoding="utf-8")
+        self.assertOk(self.sb.uninstall(root=repo))
+        self.assertFalse(installed.exists())
+        self.assertTrue(user_file.exists())
+
+    def test_missing_playbooks_folder_is_skipped(self):
+        repo = self.repo_copy()
+        shutil.rmtree(repo / "playbooks", ignore_errors=True)
+        proc = self.sb.install("--no-hooks", root=repo)
+        self.assertOk(proc)
+        self.assertFalse((self.sb.dest / "playbooks").exists())
+        self.assertIn("No playbooks/ folder", proc.stdout)
 
 
 @unittest.skipUnless(BASH, "bash not on PATH")

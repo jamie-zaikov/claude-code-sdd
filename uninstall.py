@@ -30,6 +30,7 @@ from sdd_install.common import (  # noqa: E402
 SOURCES = (
     ("agents", "agents", "*.md"),
     ("commands", "commands", "*.md"),
+    ("playbooks", "playbooks", "*.md"),
     ("tools", "tools", "*.py"),
     ("hooks", "hooks", "secret-*.py"),
 )
@@ -124,7 +125,7 @@ def main(argv=None) -> int:
         else:
             kept.append(f"{path.relative_to(home).as_posix()} (changed since install)")
     for sub in ("ci-templates/workflows", "ci-templates/hooks", "ci-templates/scripts",
-                "ci-templates", "hooks", "tools", "commands", "agents"):
+                "ci-templates", "hooks", "tools", "playbooks", "commands", "agents"):
         d = home / sub
         try:
             if d.is_dir() and not any(d.iterdir()):

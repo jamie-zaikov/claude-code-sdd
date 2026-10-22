@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """SDD Global Installer for Claude Code (stdlib only, Python >= 3.9).
 
-Installs agents, commands, tools and CLAUDE.md into the Claude config directory, and optionally
-the secret-handling safeguards (settings.json deny rules + guard/redact hooks) and the SDD CI
+Installs agents, commands, playbooks, tools and CLAUDE.md into the Claude config directory, and
+optionally the secret-handling safeguards (settings.json deny rules + guard/redact hooks) and the SDD CI
 pre-push hook. `install.sh` (POSIX / Git Bash) and `install.ps1` (PowerShell) are thin shims
 that find a Python interpreter and run this file with the same arguments.
 
@@ -90,6 +90,10 @@ class Installer:
     def install_dir(self, label: str, src_dir: Path, pattern: str, dest_dir: Path,
                     executable: bool = False) -> None:
         info(f"Installing {label}...")
+        if not src_dir.is_dir():
+            info(f"No {src_dir.name}/ folder in this checkout - skipped.")
+            line()
+            return
         count = 0
         for src in sorted(src_dir.glob(pattern)):
             if not src.is_file():
@@ -322,6 +326,7 @@ class Installer:
             self.install_dir("agents", ROOT / "agents", "*.md", self.home / "agents")
             self.install_dir("commands", ROOT / "commands", "*.md", self.home / "commands")
             self.install_dir("agent tools", ROOT / "tools", "*.py", self.home / "tools", executable=True)
+            self.install_dir("playbooks", ROOT / "playbooks", "*.md", self.home / "playbooks")
             self.install_claude_md()
             self.install_secret_handling()
             self.install_pre_push()
