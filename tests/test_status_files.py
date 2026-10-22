@@ -284,8 +284,33 @@ class OrchestratorContractTest(unittest.TestCase):
         self.assertIn("the harness's task list (`TaskOutput`)", self.contract)
 
     def test_install_and_uninstall_cover_the_tool(self):
-        self.assertIn('for tool_file in "${SCRIPT_DIR}/tools/"*.py; do', read("install.sh"))
-        self.assertIn('rm -f "${CLAUDE_HOME}/tools/sdd-status.py"', read("uninstall.sh"))
+        # Behaviour, not spelling: install ships the tool and uninstall removes it.
+        installed, left = _install_uninstall_roundtrip(("sdd-status.py",))["sdd-status.py"]
+        self.assertTrue(installed, "install.py did not install sdd-status.py")
+        self.assertFalse(left, "uninstall.py did not remove sdd-status.py")
+
+
+def _install_uninstall_roundtrip(tools):
+    """Install into a temp destination, then uninstall; return {tool: (after_install, after_uninstall)}."""
+    import subprocess
+    import sys
+    import tempfile
+
+    out = {}
+    with tempfile.TemporaryDirectory(prefix="sdd install ") as d:
+        dest = Path(d) / "claude home"
+        common = ["--claude-home", str(dest)]
+        inst = subprocess.run([sys.executable, str(ROOT / "install.py"), "--yes", "--no-hooks",
+                               "--no-pre-push"] + common, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True)
+        assert inst.returncode == 0, inst.stdout + inst.stderr
+        present = {t: (dest / "tools" / t).is_file() for t in tools}
+        un = subprocess.run([sys.executable, str(ROOT / "uninstall.py"), "--yes"] + common,
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        assert un.returncode == 0, un.stdout + un.stderr
+        for t in tools:
+            out[t] = (present[t], (dest / "tools" / t).exists())
+    return out
 
 
 if __name__ == "__main__":

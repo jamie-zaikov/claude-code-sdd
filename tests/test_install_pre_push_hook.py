@@ -54,8 +54,9 @@ BASH = shutil.which("bash") or "/bin/bash"
 SHELLCHECK = shutil.which("shellcheck")
 
 # What install.sh reads out of SCRIPT_DIR. Copied into each sandbox so the run is faithful.
-COPY_DIRS = ("agents", "commands", "hooks", "ci-templates")
-COPY_FILES = ("install.sh", "CLAUDE.md")
+# install.sh is a shim: it sources scripts/find-python.sh and runs install.py (+ sdd_install/).
+COPY_DIRS = ("agents", "commands", "hooks", "ci-templates", "tools", "scripts", "sdd_install")
+COPY_FILES = ("install.sh", "install.py", "CLAUDE.md")
 
 
 def is_executable(path: Path) -> bool:
@@ -117,6 +118,9 @@ class InstallerSandbox:
     def run(self, answers: str) -> subprocess.CompletedProcess:
         env = os.environ.copy()
         env["HOME"] = str(self.home)
+        # The real destination override: never fall back to the user's real config dir
+        # (on Windows ~ is USERPROFILE, not HOME).
+        env["CLAUDE_CONFIG_DIR"] = str(self.home / ".claude")
         env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
         env["PATH"] = str(self.fakebin) + os.pathsep + env.get("PATH", "")
         if not self.git_repo:

@@ -326,9 +326,16 @@ class NoGodFilesTest(Base):
         self.has(self.impl, r"`modularity: enforced` or `modularity: not-enforced`", "payload")
 
     def test_install_ships_the_tool(self):
-        inst = read("install.sh")
-        self.has(inst, r'for tool_file in "\$\{SCRIPT_DIR\}/tools/"\*\.py; do', "install loop")
-        self.has(inst, r'"\$\{CLAUDE_HOME\}/tools/\$\{name\}"', "install target")
+        # Behaviour, not spelling: a real install into a temp destination ships every tool.
+        import sys
+        with tempfile.TemporaryDirectory(prefix="sdd install ") as d:
+            dest = Path(d) / "claude home"
+            r = subprocess.run([sys.executable, str(ROOT / "install.py"), "--yes", "--no-hooks",
+                                "--no-pre-push", "--claude-home", str(dest)],
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            for tool in sorted((ROOT / "tools").glob("*.py")):
+                self.assertTrue((dest / "tools" / tool.name).is_file(), f"{tool.name} not installed")
 
 
 class TreeHashExecutionTest(Base):
