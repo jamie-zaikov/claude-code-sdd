@@ -43,8 +43,8 @@ For each requirement cited in the task's **Requirements** field:
 ### 2. Test Coverage
 - [ ] Does at least one test exist for this requirement?
 - [ ] Do the tests verify the actual behaviour described in the requirement (not just that the code runs)?
-- [ ] Do all tests pass? Use the tester's **suite record**: compute the tree hash with a temporary index
-  (`d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- ":/" ":(top,exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]` — never stage into the real index);
+- [ ] Do all tests pass? Use the tester's **suite record**: compute the tree hash with
+  `python3 ~/.claude/tools/sdd-tree-hash.py` (a temporary index — never stage into the real index);
   when it equals the record's tree hash, the record is the answer — do not run the full suite again.
   Run the suite yourself only when the hash differs, the hash is empty, the command exits non-zero,
   or a summary says the task changed a gitignored file or the environment — and say so in your report.

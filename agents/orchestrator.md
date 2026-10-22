@@ -383,8 +383,8 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
 
   **Suite record (one full run per tree).** Pass every stage the feature's **suite record** — the
   last full-suite result as `{ treeHash, result, counts, durationSeconds }`, where `treeHash` is
-  the hash of the working tree computed through a **temporary index**, so the real index is never
-  touched: `d=$(mktemp -d) && { cp "$(git rev-parse --git-path index)" "$d/index" 2>/dev/null || :; } && GIT_INDEX_FILE="$d/index" git add -A -- ":/" ":(top,exclude).specs" && GIT_INDEX_FILE="$d/index" git write-tree; rc=$?; rm -rf "$d"; [ "$rc" -eq 0 ]`.
+  hash of the working tree printed by `python3 ~/.claude/tools/sdd-tree-hash.py` — computed through
+  a **temporary index**, so the real index is never touched.
   The tester produces it (Stage 2) after its final change; the executor uses targeted tests while it
   works. A stage **reuses** the record when its own `treeHash` equals the record's, and runs the full
   suite itself only when the tree has changed since the record was written. `.specs/` is excluded,
@@ -437,7 +437,7 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   fail branch, do not increment `retryCount`, and re-run Stages 2–5 under the code path.
 
   **Attempt trees.** Before launching Stages 3–5, compute the working tree's hash with the suite
-  record's temporary-index command and record it as `taskStatus[N].attemptTrees[<retryCount>]`. It
+  record's tree-hash tool and record it as `taskStatus[N].attemptTrees[<retryCount>]`. It
   is the exact tree the gates judged, kept per attempt (the suite record itself is overwritten).
 
   **Delta re-review on a retry.** When `retryCount >= 1` **and** `attemptTrees[retryCount - 1]`

@@ -11,6 +11,11 @@ import re
 import unittest
 from pathlib import Path
 
+try:
+    from tests import prose
+except ImportError:  # run from inside tests/
+    import prose
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -26,11 +31,11 @@ class Base(unittest.TestCase):
         cls.impl = cls.orch[start:cls.orch.index("### Feature Review Gate", start)]
 
     def has(self, text, pat, label):
-        if not re.search(pat, text, re.IGNORECASE | re.MULTILINE | re.DOTALL):
+        if not prose.search(text, pat):
             self.fail(f"{label}: missing /{pat}/")
 
     def lacks(self, text, pat, label):
-        if re.search(pat, text, re.IGNORECASE | re.MULTILINE | re.DOTALL):
+        if prose.search(text, pat):
             self.fail(f"{label}: forbidden /{pat}/ present")
 
 

@@ -11,7 +11,8 @@
 ## Modularity
 <!-- The "no god files" rule. Every agent reads this; the code-reviewer enforces it mechanically
      with ~/.claude/tools/sdd-module-size.py. A source file may not end over the limit AND grow.
-     Existing god files may only hold or shrink; new code goes into a new module. -->
+     Existing god files may only hold or shrink; new code goes into a new module. Test files over
+     the limit are reported as a warning and never block. -->
 - Module size limit: 500 lines
 <!-- Optional: globs the check skips (generated code, vendored code). Docs and data are never checked. -->
 <!-- - Module size exempt: generated/**, vendor/** -->

@@ -37,6 +37,7 @@ import filecmp
 import os
 import shutil
 import stat
+import tempfile
 import subprocess
 import unittest
 from pathlib import Path
@@ -261,23 +262,45 @@ class CiShSyntaxTests(unittest.TestCase):
 class CiShRunTests(unittest.TestCase):
     """scripts/ci.sh exits 0 when run on the current clean tree (FR-15)."""
 
+    def run_ci(self, test_dir):
+        # ci.sh resolves REPO_ROOT from its own location and cd's there itself. SDD_CI_TEST_DIR
+        # points its suite step at a small temporary suite, so this test never runs the real
+        # suite recursively (this file is part of it).
+        env = dict(os.environ, SDD_CI_TEST_DIR=str(test_dir))
+        return subprocess.run(["bash", str(CI_SH)], cwd=str(ROOT), capture_output=True,
+                              text=True, env=env)
+
+    def write_suite(self, tmp, body):
+        (Path(tmp) / "test_probe.py").write_text(
+            "import unittest\n\nclass T(unittest.TestCase):\n    def test_it(self):\n"
+            f"        {body}\n")
+
     def test_ci_sh_exits_zero_on_clean_tree(self):
-        # ci.sh resolves REPO_ROOT from its own location and cd's there itself, so the caller's
-        # cwd does not matter; run from the repo root anyway for clarity. It performs no network
-        # or gh calls and writes nothing outside the tree.
-        result = subprocess.run(
-            ["bash", str(CI_SH)],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_suite(tmp, "self.assertTrue(True)")
+            result = self.run_ci(tmp)
         self.assertEqual(
-            result.returncode,
-            0,
+            result.returncode, 0,
             f"scripts/ci.sh did not exit 0 on the clean tree:\n"
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
         )
+        self.assertIn("Ran 1 test", result.stdout)
 
+    def test_ci_sh_fails_when_a_test_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_suite(tmp, "self.fail('boom')")
+            result = self.run_ci(tmp)
+        self.assertNotEqual(result.returncode, 0, "a failing test must fail ci.sh")
+
+    def test_ci_sh_fails_when_no_test_is_collected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.run_ci(tmp)
+        self.assertNotEqual(result.returncode, 0, "zero collected tests must fail ci.sh")
+
+    def test_ci_sh_runs_the_real_test_directory_by_default(self):
+        text = CI_SH.read_text(encoding="utf-8")
+        self.assertRegex(text, r'SDD_CI_TEST_DIR:-tests\}')
+        self.assertRegex(text, r"python3 -m unittest discover")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

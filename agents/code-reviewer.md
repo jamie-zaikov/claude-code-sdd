@@ -98,8 +98,10 @@ diff reach the same verdict:
   --merge-base` — against the branch point, so work merged to the base later is never blamed here.
 - Add `--waive <path>` for each path in the payload's `modularity.waivers` (user-granted only).
 
-Each line it prints without `WAIVED` is one finding: a source file over the module size limit that
-grew. A `WAIVED` line is a **Medium** finding, recorded with its waiver. Severity comes from the
+Each line it prints without `WAIVED` or `WARNING (test file)` is one finding: a source file over the
+module size limit that grew. A `WAIVED` line is a **Medium** finding, recorded with its waiver. A
+`WARNING (test file)` line is never blocking — at most a **Low** finding; a real correctness or
+maintainability problem in a large test file is reported on its own merits. Severity comes from the
 orchestrator's `modularity` payload: **High** (blocking) when `modularity: enforced`, **Medium**
 otherwise (a feature planned before the rule). Never soften or skip it. If `python3` or the script is
 missing, or it exits 2, the check did not run: report that at the same severity — High when

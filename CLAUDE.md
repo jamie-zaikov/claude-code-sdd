@@ -67,7 +67,7 @@ work, not to the gates themselves. The orchestrator playbook therefore enforces:
 - **No god files.** `tech.md` sets a module size limit (default 500 lines). A source file may not end
   over it and grow — existing god files may only hold or shrink. `~/.claude/tools/sdd-module-size.py`
   is the one definition; the code-reviewer runs it, and on a feature planned under the rule every
-  violation is High.
+  violation is High. A **test file** over the limit is a warning only — it never blocks.
 - **Status files, not polling.** Every specialist except the read-only consistency checker keeps one
   JSON status file (`spec-memory/status/<task>-<agent>-a<n>.json`: state, step, updatedAt,
   summaryPath). The orchestrator acts on completion notices and, on a heartbeat, reads that state

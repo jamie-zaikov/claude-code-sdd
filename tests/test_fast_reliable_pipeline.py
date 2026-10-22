@@ -17,9 +17,15 @@ Run:
 
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+try:
+    from tests import prose
+except ImportError:  # run from inside tests/
+    import prose
 
 ROOT = Path(__file__).resolve().parent.parent
 AGENTS = ROOT / "agents"
@@ -57,11 +63,11 @@ class Base(unittest.TestCase):
         assert cls.rules is not None, "orchestrator.md lost its Critical Rules section"
 
     def has(self, text, pat, label):
-        if not re.search(pat, text, re.IGNORECASE | re.MULTILINE | re.DOTALL):
+        if not prose.search(text, pat):
             self.fail(f"{label}: missing /{pat}/")
 
     def lacks(self, text, pat, label):
-        if re.search(pat, text, re.IGNORECASE | re.MULTILINE | re.DOTALL):
+        if prose.search(text, pat):
             self.fail(f"{label}: forbidden /{pat}/ present")
 
 
@@ -97,7 +103,7 @@ class ConvergenceRetryTest(Base):
 
 
 class SuiteRecordTest(Base):
-    TREE = r"GIT_INDEX_FILE=\"\$d/index\" git write-tree"
+    TREE = r"python3 ~/\.claude/tools/sdd-tree-hash\.py"
 
     def test_orchestrator_defines_suite_record_with_temp_index(self):
         self.has(self.impl, r"Suite record \(one full run per tree\)", "suite record")
@@ -117,19 +123,19 @@ class SuiteRecordTest(Base):
         self.has(validator, r"never stage into the real index", "validator read-only")
 
     def test_no_agent_stages_into_the_real_index(self):
-        """Every `git add` in an agent or command file runs against a temporary index."""
+        """No agent or command file tells an agent to run `git add` against the real index: any
+        `git add` must run with a GIT_INDEX_FILE override on the same command line."""
         files = sorted(AGENTS.glob("*.md")) + sorted((ROOT / "commands").glob("*.md"))
         for path in files:
             for line in path.read_text(encoding="utf-8").splitlines():
                 for m in re.finditer(r"git add\b", line):
-                    if not re.search(r'GIT_INDEX_FILE="\$d/index" $', line[:m.start()]):
+                    if not re.search(r"GIT_INDEX_FILE=\S+\s+(?:\S+=\S+\s+)*$", line[:m.start()]):
                         self.fail(f"{path.name}: `git add` outside a temporary index: {line.strip()[:90]}")
 
     def test_tree_hash_excludes_specs_and_never_matches_empty(self):
-        self.has(self.impl, r'":/" ":\(top,exclude\)\.specs"', "tree hash excludes .specs")
+        self.has(self.impl, r"`?\.specs/`? is excluded", "tree hash excludes .specs")
         self.has(self.impl, r"An empty hash, or a command that exits\s+non-zero, never matches", "empty hash")
-        self.has(self.impl, r"rc=\$\?; rm -rf \"\$d\"; \[ \"\$rc\" -eq 0 \]", "exit status kept")
-        self.has(self.impl, r"\*\*Limit:\*\* the hash covers tracked and untracked,\s+non-ignored files only", "limit stated")
+        self.has(self.impl, r"Limit: the hash covers tracked and untracked,\s+non-ignored files only", "limit stated")
 
     def test_executor_uses_targeted_tests(self):
         executor = read("agents/task-executor.md")
@@ -332,19 +338,19 @@ class NoGodFilesTest(Base):
 
 
 class TreeHashExecutionTest(Base):
-    """Run the playbook's tree-hash one-liner itself, extracted from orchestrator.md, in real repos."""
+    """Run the tree-hash tool the playbook names, in real repos."""
+
+    TOOL = ROOT / "tools" / "sdd-tree-hash.py"
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        m = re.search(r"touched: `(d=\$\(mktemp -d\).*?)`\.", cls.impl, re.DOTALL)
-        assert m, "tree-hash command not found in the playbook"
-        cls.cmd = m.group(1)
-        for name in ("agents/task-tester.md", "agents/task-validator.md"):
-            assert cls.cmd in read(name), f"{name} carries a different tree-hash command"
+        for name in ("agents/orchestrator.md", "agents/task-tester.md", "agents/task-validator.md"):
+            assert "tools/sdd-tree-hash.py" in read(name), f"{name} does not use the tree-hash tool"
 
     def sh(self, cwd):
-        proc = subprocess.run(["bash", "-c", self.cmd], cwd=cwd, capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, str(self.TOOL)], cwd=cwd, capture_output=True,
+                              text=True)
         return proc.returncode, proc.stdout.strip()
 
     def test_behaviour_in_a_real_repo(self):
