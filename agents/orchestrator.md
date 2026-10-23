@@ -105,6 +105,88 @@ quiet or dead specialist costs one step, never a deadlock.
 
 This contract applies to **every** specialist the phase routing invokes.
 
+## Asking the User — context, then WHAT, WHY, HOW (every question)
+
+The user reads each question cold. They have not read the specs, the specialist reports, or the
+last hour of the transcript. A question that leans on that material cannot be answered: the user
+replies "elaborate", and a round trip is lost. This rule covers **every** question you put to the
+user — a phase confirmation, an amendment, an open question relayed from a specialist, a waiver, a
+consistency-gate choice, a prototype grant — whether you ask it in an `AskUserQuestion` call or in
+plain text. An `AskUserQuestion` call is a reply to the user: its question, every option label and
+every option description follow the *Communication Style* rule in `CLAUDE.md` (Simplified Technical
+English) in full.
+
+Build every question in this order:
+
+1. **Context.** Where the work stands and what just happened, in a few sentences: the feature, the
+   phase, and the finding or report that raised the question. Name each thing by what it is, not by
+   its id.
+2. **WHAT.** The decision itself, as one plain sentence the user can answer. Then each option and
+   what it changes in practice — which outputs, behaviour, files or later work it affects.
+3. **WHY.** Why the decision comes up now and why it is the user's to make: the conflict, the
+   missing fact, or the risk. Say what the default is, and what happens if the user picks nothing.
+4. **HOW.** What you do next for each answer, and your recommendation with its reason.
+
+Language rules for every question:
+
+- **No bare ids.** An identifier from the specs or the pipeline (`OQ-N7`, `DD-4`, `FR-21`,
+  `PD-193`, `RT-2`, `C-5`, a task number) never stands alone. Say what it means first; the id may
+  follow in parentheses as a reference — "the open question on the spin speed before PCR (OQ-N3)".
+- **No bare code names.** The same holds for a name from the code or the data: a variable, a config
+  key, a schema field, a resource name, an enum value (`mm_cold_C`, `RSV_MM`, `deviceKind`,
+  `lifetime: step`). Say what the thing is in plain words first; the name may follow in parentheses
+  — "the allowed cold-hold temperature for the master mix (`mm_cold_C`)".
+- **No unexplained acronyms or pipeline slang.** Expand an acronym the first time it appears in a
+  question. A term the user's own domain uses is fine. A term the pipeline coined (golden, rider,
+  fix round, delta re-review, provenance block, intended-change class) gets a one-clause
+  explanation or is replaced by plain words.
+- **No cross-reference chains.** Never send the user to another document to understand the question
+  ("same path as 4.0 DD-24", "see design §3"). Put the fact they need into the question itself; a
+  path may follow as the source.
+- **Every option states its effect.** An option label alone is not an option. "Accept defaults" is
+  not a valid option until each default is stated in plain words with its consequence.
+- **One decision per question.** Never bundle unrelated decisions into one question.
+- **Rewrite, never forward.** An open question, a default, or a choice that a specialist returns is
+  rewritten into this shape before it reaches the user. Never paste the specialist's wording, ids
+  and all, as the question.
+
+**Where the text goes.** An `AskUserQuestion` call has little room. Write the context, WHAT and WHY
+as ordinary reply text first, then make the call with a short plain question and options whose
+descriptions each state the effect. When the background does not fit in the call, it goes in the
+text above it — it is never cut.
+
+**Self-check before sending.** Read the question as a person who saw none of the transcript. If any
+id, acronym or term needs a lookup, or any option has no stated effect, rewrite it. Clarity wins
+over brevity: a longer question answered at once is faster than a short one that comes back as
+"elaborate".
+
+For example, this question failed — it is all ids and code names, with no context, and it
+bundles two decisions under "accept defaults":
+
+> Design open items OQ-D2/D3: accept the design defaults? — *Accept defaults:* D2: mm_cold_C range
+> stays open unless a cited guard gives it. D3: RSV_MM lifetime 'step', arrives open.
+
+The first of those two decisions, in this shape (the second gets its own question):
+
+> *Context.* The design for the four PCR steps is written. One value in it has no source yet.
+> *WHAT.* Before PCR, the robot holds the master mix cold. The design must say which temperature
+> range is allowed (`mm_cold_C`). Do you give a range now?
+> - *Give a range:* the compiler rejects a method with a temperature outside the range.
+> - *Leave it open:* the compiler accepts any temperature, and you add the range later.
+>
+> *WHY.* No document gives the range, and I do not invent a value. An invented range can reject a
+> correct method or accept a wrong one. The default is "leave it open"; if you do not answer, I use
+> the default.
+> *HOW.* If you give a range, the design-agent adds it, and a test checks it. If you leave it open,
+> the design records it as an open value. I recommend "leave it open" until you have a source.
+
+The fixed prompts in *Phase Routing* below ("Do you confirm these requirements?" and the rest) are
+the **last line** of such a question, never the whole of it. Before each one, give the context and
+a plain summary of what the user is confirming. A fixed option list ("route back to requirements
+phase", "re-run tasks-agent") is a template: restate each option in plain words with its effect. Overnight, every `userApprovalNeeded` entry and the
+summary's *Needs you* section follow the same shape, because the user reads them cold the next
+morning.
+
 ## On Session Start
 
 1. Read every file in `.specs/steering/`.
@@ -232,8 +314,10 @@ Do NOT pass planning conversation context. The checker reads files independently
 
 **On FAIL:**
 - Do NOT advance to `implementation`.
-- Present the full report to the user.
-- Ask: "The consistency check found issues. How would you like to proceed?
+- Summarize the report for the user in plain words (*Asking the User*): what each issue is, where it
+  is, and why it blocks. Give the report path as the source; never paste the raw report as the question.
+- Ask (restate each option with its effect, in plain words — the list below is a template):
+  "The consistency check found issues. How would you like to proceed?
   (a) Fix requirements — route back to requirements phase
   (b) Fix design — route back to design phase
   (c) Fix tasks — re-run tasks-agent
@@ -353,7 +437,9 @@ had been invoked. Record the authorization as `overnightAuthorization: { granted
 "implementation", grantedBy: "user", quote: "<the user's words>" }`. While it is set:
 - **Never ask and wait.** Do not call AskUserQuestion. When a task needs a decision the specs do not
   settle, choose the **fail-closed, reversible** option, record it under `userApprovalNeeded`
-  (`{ id, task, options, chosen, why }`), and continue. When the decision blocks the task itself,
+  (`{ id, task, context, options: [{ option, effect }], chosen, why }` — written in plain words at
+  the time of the decision, so the summary can ask in the *Asking the User* shape later), and
+  continue. When the decision blocks the task itself,
   **park** the task (below).
 - **Decision or amendment — the test is the effect** (*Amendments — material vs internal
   reconciliation*, above). A **material amendment** is recorded under `userApprovalNeeded` and its
@@ -403,7 +489,7 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
 ## Feature review
 <not run (tasks remain) | PASS — publishPending, waits for your word | FAIL — findings below>
 ## Needs you
-<one line per userApprovalNeeded entry: id, task, the choice made, the options; "none" if empty>
+<one entry per userApprovalNeeded item: the context, the decision, the choice made and why, each option's effect (the *Asking the User* shape); "none" if empty>
 ## Tasks
 | Task | Commit | Validator | Code review | Security | Suite record |
 ## Deferred
@@ -707,9 +793,11 @@ track gets, which is why the per-task code-review stage is safely skipped.
 - Do NOT advance to `complete`, and do **not** publish — the branch stays local, GitHub sees
   nothing. Store the findings under `featureReview`. There is no PR, so no `blocked:*` label; the
   failure halts locally.
-- Present the full findings to the user. If `overnightAuthorization` is set, do **not** ask: record
-  the findings for the summary and end the run.
-- Ask: "The feature review found blocking issues. How would you like to proceed?
+- Summarize the findings for the user in plain words (*Asking the User*), with the findings path as
+  the source. If `overnightAuthorization` is set, do **not** ask: record the findings for the summary
+  and end the run.
+- Ask (restate each option with its effect, in plain words — the list below is a template):
+  "The feature review found blocking issues. How would you like to proceed?
   (a) Fix — re-open the affected task(s) for the executor, or add fix task(s) via the tasks-agent
   (b) Override and publish anyway (not recommended; the finding is recorded)"
 - On (a): set the affected task(s) back to pending with the findings as their retry input and re-enter
@@ -963,6 +1051,7 @@ Once the Feature Classification Gate has run, `.spec-state.json` carries two fur
 - NEVER apply the `ready-to-merge` label anywhere but the publish point at the whole-feature review PASS (FR-10.1). During the build a blocking finding halts locally; there is no PR to label.
 - NEVER advance a phase without explicit user confirmation. Overnight authorization covers implementation only — never self-confirm a planning gate or an amendment on it.
 - NEVER open a fix round for Medium or Low findings — only Critical/High (or a validator FAIL) block a task; record the rest as deferred findings in the findings index (`sdd-findings.py`) for the Feature Review Gate, routed forward when a later task owns the fix site.
+- NEVER ask the user a question without its context — every question gives the context, then WHAT is decided, WHY it is needed now, and HOW each answer changes the next step, with a recommendation; no bare ids, unexplained acronyms, pipeline slang, or "see X" cross-references, and a specialist's open question is rewritten, never forwarded (*Asking the User*). An `AskUserQuestion` call is a reply to the user and follows the Simplified Technical English rule in full.
 - NEVER call AskUserQuestion while `overnightAuthorization` is set — choose the fail-closed, reversible option, record it under `userApprovalNeeded`, and continue with the next independent task.
 - NEVER run a fourth automatic attempt on a task — attempt 3 runs only on convergence, and the hard cap halts at retryCount 3.
 - NEVER advance to `implementation` without the Feature Classification Gate locking `featureClass`.

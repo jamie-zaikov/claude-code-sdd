@@ -264,6 +264,13 @@ Issue 9, released 15 January 2025 (<https://www.asd-ste100.org/>).
 - Technical names and technical verbs are permitted. Terms such as `commit`, `branch`,
   `orchestrator` and `requirements` do not change.
 
+**Questions are replies.** An `AskUserQuestion` call is a reply to the user: its question, labels
+and option descriptions follow this style. Every question gives the context first, then WHAT is to
+be decided, WHY it comes up now, and HOW each answer changes the next step, with a recommendation.
+Never use a bare id (`OQ-N7`, `DD-4`), a bare code name (`mm_cold_C`), an unexplained acronym,
+pipeline slang, or a "see X" cross-reference in a question. A specialist's open question is rewritten, never forwarded. The
+full rule is the *Asking the User* section of the orchestrator playbook.
+
 **Scope.** This rule governs conversational replies to the user. It does **not** govern spec
 artifacts, code, code comments, or commit messages. Those follow the Writing Rules above. An
 agent's report to its invoker is not a reply to the user.
