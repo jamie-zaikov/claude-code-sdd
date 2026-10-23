@@ -18,7 +18,7 @@ import re
 import unittest
 from pathlib import Path
 
-from tests.prose import near, search
+from tests.prose import near, norm_lines, search
 
 ROOT = Path(__file__).resolve().parent.parent
 ORCH = (ROOT / "agents" / "orchestrator.md").read_text(encoding="utf-8")
@@ -33,7 +33,8 @@ def section(text, heading):
 
 def step(sec, name):
     """The text of one numbered step ("3. WHY. ..."), up to the next step or blank line."""
-    m = re.search(rf"^\s*\d\.\s+\**{name}\.(.*?)(?=^\s*\d\.\s|\n\s*\n)", sec, re.MULTILINE | re.DOTALL)
+    text = norm_lines(sec)
+    m = re.search(rf"^\s*\d\.\s+{name}\.?(.*?)(?=^\s*\d\.\s|\n\s*\n)", text, re.MULTILINE | re.DOTALL)
     assert m, f"step {name} not found"
     return m.group(1)
 
@@ -50,12 +51,15 @@ class AskingTheUserSectionTest(unittest.TestCase):
         cls.sec = section(ORCH, "Asking the User")
 
     def test_covers_every_question_and_both_channels(self):
-        self.assertTrue(near(self.sec, r"\bevery\b", r"question"))
+        self.assertTrue(near(self.sec, r"rule covers", r"every", r"question"))
+        for site in (r"phase confirmation", r"amendment", r"open question relayed from a specialist",
+                     r"waiver", r"consistency-gate choice", r"prototype grant"):
+            self.assertTrue(near(self.sec, r"rule covers", site, window=300), site)
         self.assertTrue(near(self.sec, r"AskUserQuestion", r"plain text|in text", window=200))
 
     def test_order_is_context_what_why_how(self):
         self.assertTrue(
-            search(self.sec, r"^1\. Context\..*^2\. WHAT\..*^3\. WHY\..*^4\. HOW\."),
+            search(self.sec, r"^\s*1\. Context\.?.*^\s*2\. WHAT\.?.*^\s*3\. WHY\.?.*^\s*4\. HOW\.?"),
             "the four steps must be numbered Context, WHAT, WHY, HOW in that order",
         )
 
@@ -64,10 +68,12 @@ class AskingTheUserSectionTest(unittest.TestCase):
 
     def test_why_states_the_default(self):
         self.assertTrue(near(step(self.sec, "WHY"), r"\bdefault\b"))
+        self.assertTrue(near(step(self.sec, "WHY"), r"what happens if the user picks nothing"))
 
     def test_ask_user_question_is_a_reply_under_ste(self):
         self.assertTrue(near(self.sec, r"AskUserQuestion. call is a reply to the user"))
-        self.assertTrue(near(self.sec, r"option description", r"Simplified Technical English"))
+        self.assertTrue(near(self.sec, r"option description", r"Simplified Technical English",
+                             r"in full", window=60))
 
     def test_no_bare_ids(self):
         self.assertTrue(near(self.sec, r"No bare ids", r"never stands alone"))
@@ -77,6 +83,20 @@ class AskingTheUserSectionTest(unittest.TestCase):
         self.assertTrue(near(self.sec, r"acronym", r"first time"))
         self.assertTrue(near(self.sec, r"pipeline", r"explanation|plain words", window=200))
         self.assertTrue(near(self.sec, r"Never send the user to another document"))
+
+    def test_no_bare_code_names(self):
+        self.assertTrue(near(self.sec, r"No bare code names", r"variable", r"config key",
+                             r"schema field", r"resource name", r"enum value"))
+        self.assertTrue(near(self.sec, r"plain words first", r"name may follow"))
+
+    def test_one_decision_per_question(self):
+        self.assertTrue(near(self.sec, r"One decision per question", r"Never bundle"))
+
+    def test_self_check_reads_cold(self):
+        self.assertTrue(near(self.sec, r"Read the question as a person who saw none of the transcript", r"rewrite it"))
+
+    def test_example_asks_one_decision(self):
+        self.assertTrue(near(self.sec, r"second gets its own question"))
 
     def test_every_option_states_its_effect(self):
         self.assertTrue(near(self.sec, r"Every option states its effect"))
@@ -107,6 +127,20 @@ class AskingTheUserWiringTest(unittest.TestCase):
                              r"WHAT", r"WHY", r"HOW", r"recommendation"))
         self.assertTrue(near(rules, r"specialist", r"rewritten, never forwarded"))
 
+    def test_fixed_option_lists_are_templates(self):
+        self.assertTrue(near(ORCH, r"fixed option list", r"template", r"with its effect"))
+
+    def test_gate_reports_are_summarized_not_pasted(self):
+        self.assertEqual(len(re.findall(r"Present the full (report|findings)", ORCH)), 0)
+        self.assertTrue(near(ORCH, r"Summarize the report for the user in plain words",
+                             r"never paste the raw report"))
+        self.assertTrue(near(ORCH, r"Summarize the findings for the user in plain words",
+                             r"findings path"))
+
+    def test_overnight_record_keeps_context_and_effects(self):
+        self.assertTrue(search(ORCH, r"userApprovalNeeded.{0,10}\(`\{ id, task, context, "
+                                     r"options: \[\{ option, effect \}\], chosen, why \}`"))
+
     def test_overnight_needs_you_uses_the_shape(self):
         self.assertTrue(near(ORCH, r"^## Needs you", r"userApprovalNeeded", r"context",
                              r"Asking the User"))
@@ -115,7 +149,7 @@ class AskingTheUserWiringTest(unittest.TestCase):
         style = section(CLAUDE, "Communication Style")
         self.assertTrue(near(style, r"AskUserQuestion. call is a reply to the user"))
         self.assertTrue(near(style, r"context first", r"WHAT", r"WHY", r"HOW", r"recommendation"))
-        self.assertTrue(near(style, r"Never use a bare id"))
+        self.assertTrue(near(style, r"Never use a bare id", r"bare code name"))
         self.assertTrue(near(style, r"rewritten, never forwarded"))
         self.assertTrue(near(style, r"Asking the User"))
 
