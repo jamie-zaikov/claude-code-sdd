@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import List
 
 OUTSIDE_SPECS = [":/", ":(top,exclude).specs"]
+TECH = ".specs/steering/tech.md"
 INPUTS_LINE = re.compile(r"^\s*[-*]?\s*\**Suite spec inputs\**:\**\s*(.+)$", re.I | re.M)
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 NOTE = re.compile(r"\s*\([^()]*\)\s*$")
@@ -62,7 +63,7 @@ def parse_inputs(text: str) -> List[str]:
 
 def spec_inputs(top: Path) -> List[str]:
     """The `Suite spec inputs:` globs from the working tree's steering."""
-    tech = top / ".specs" / "steering" / "tech.md"
+    tech = top / TECH
     if not tech.is_file():
         return []
     return parse_inputs(tech.read_text(encoding="utf-8", errors="replace"))
@@ -78,8 +79,8 @@ def _real_index(top: Path) -> Path:
 
 def snapshot(cwd: Path) -> str:
     """A tree to CHECK OUT (overlap's speculative base): the working tree outside `.specs/`,
-    `.specs/` as indexed, and the declared spec inputs as they are on disk — so the checkout's
-    identity equals the working tree's identity."""
+    `.specs/` as indexed, and — as they are on disk — the declaration (tech.md) and the spec inputs
+    it declares, so the checkout's identity equals the working tree's identity."""
     top = Path(git(cwd, "rev-parse", "--show-toplevel").strip())
     globs = spec_inputs(top)
     tmp = tempfile.mkdtemp(prefix="sdd-snap-")
@@ -90,15 +91,30 @@ def snapshot(cwd: Path) -> str:
             shutil.copy2(real, index)  # keep mtime: git's racy-clean check needs it
         env = dict(os.environ, GIT_INDEX_FILE=str(index))
         git(top, "add", "-A", "--", *OUTSIDE_SPECS, env=env)
+        paths = set()
+        if (top / TECH).exists() or git(top, "ls-files", "--", f":(top,literal){TECH}", env=env):
+            paths.add(TECH)  # the effective declaration, even when its edit is not staged
         if globs:
             found = git(top, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
                         *_pathspecs(globs), env=env)
-            paths = sorted({p for p in found.split("\0") if p})
-            if paths:  # -A with a literal path also stages a deletion
-                git(top, "add", "-A", "--", *(f":(top,literal){p}" for p in paths), env=env)
+            paths |= {p for p in found.split("\0") if p}
+        if paths:  # -A with a literal path also stages a deletion
+            git(top, "add", "-A", "--", *(f":(top,literal){p}" for p in sorted(paths)), env=env)
         return git(top, "write-tree", env=env).strip()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _not_ignored(top: Path, paths: List[str]) -> List[str]:
+    """Drop paths an ignore rule covers, tracked or not — `identity` never adds them either."""
+    if not paths:
+        return paths
+    proc = subprocess.run(["git", "-C", str(top), "check-ignore", "--no-index", "-z", "--stdin"],
+                          input="\0".join(paths) + "\0", capture_output=True, text=True)
+    if proc.returncode not in (0, 1):  # 1: none ignored
+        raise TreeError(proc.stderr.strip() or "git check-ignore failed")
+    ignored = {p for p in proc.stdout.split("\0") if p}
+    return [p for p in paths if p not in ignored]
 
 
 def inputs_at(cwd: Path, rev: str) -> List[str]:
@@ -114,7 +130,7 @@ def inputs_at(cwd: Path, rev: str) -> List[str]:
         env = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / "index"))
         git(top, "read-tree", rev, env=env)
         found = git(top, "ls-files", "-z", "--cached", "--", *_pathspecs(globs), env=env)
-        return sorted({p for p in found.split("\0") if p})
+        return _not_ignored(top, sorted({p for p in found.split("\0") if p}))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

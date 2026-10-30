@@ -255,6 +255,15 @@ class WaveVerifyInputsTest(unittest.TestCase):
             with self.assertRaises(wave.Refused):
                 wave.cmd_verify(repo.path, {}, gated)
 
+    def test_a_tracked_input_later_ignored_is_not_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _ = self.gated(tmp)
+            repo.write(".gitignore", ".specs/features/f/design.md\n")
+            repo.commit("ignore a tracked input")
+            gated = repo.hash()[1]  # identity leaves an ignored input out
+            self.assertEqual(load_wave().cmd_verify(repo.path, {}, gated), [],
+                             "an unchanged candidate must verify clean")
+
     def test_an_unlisted_spec_commit_is_not_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo, gated = self.gated(tmp)
@@ -270,9 +279,9 @@ class OverlapDeclaredInputsTest(unittest.TestCase):
         return subprocess.run([sys.executable, str(OVERLAP), *args], cwd=repo.path,
                               capture_output=True, text=True)
 
-    def check(self, change):
+    def check(self, change, inputs=".specs/features/*/design.md"):
         with tempfile.TemporaryDirectory() as tmp:
-            repo = seeded(tmp, ".specs/features/*/design.md")
+            repo = seeded(tmp, inputs)
             change(repo)
             _, record = repo.hash()
             started = self.overlap(repo, "start", "--task", "2", "--tree", record)
@@ -294,6 +303,14 @@ class OverlapDeclaredInputsTest(unittest.TestCase):
 
     def test_a_deleted_declared_input(self):
         self.check(lambda r: (r.path / ".specs/features/f/design.md").unlink())
+
+    def test_an_unstaged_declaration_added(self):
+        self.check(lambda r: r.write(".specs/steering/tech.md",
+                                     "- Suite spec inputs: .specs/features/*/design.md\n"),
+                   inputs=None)
+
+    def test_an_unstaged_declaration_removed(self):
+        self.check(lambda r: r.write(".specs/steering/tech.md", "# Tech\n"))
 
 
 class DocsTest(unittest.TestCase):
