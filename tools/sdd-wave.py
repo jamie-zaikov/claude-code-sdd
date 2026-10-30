@@ -90,8 +90,8 @@ def save(repo: Path, wave: dict) -> None:
 
 def tree_of(cwd: Path) -> str:
     """A SNAPSHOT of the working tree outside `.specs/`, with `.specs/` as indexed, through a
-    temporary index. Not the suite-record identity (`sdd_tree.identity`); compare it to a gated tree
-    only through a `.specs/`-excluding diff."""
+    temporary index. Not the suite-record identity (`sdd_tree.identity`): it holds every indexed
+    `.specs/` file, so compare it to a gated tree only outside `.specs/`."""
     tmp = tempfile.mkdtemp(prefix="sdd-wave-")
     try:
         index = Path(tmp) / "index"
@@ -353,9 +353,17 @@ def cmd_strays(repo: Path, wave: dict) -> List[str]:
 
 
 def cmd_verify(repo: Path, wave: dict, gated: str) -> List[str]:
+    """Paths whose content in HEAD differs from the gated identity: every path outside `.specs/`,
+    plus the `.specs/` files the gated identity holds (its declared `Suite spec inputs:`). The input
+    set comes from the gated tree, so editing the declaration later cannot drop an input."""
     keep = set(wave.get("preLandUntracked", []))
     diff = git(repo, "diff", "--name-only", "--no-renames", "-z", gated, "HEAD", "--", *SPEC)
-    return sorted(p for p in diff.split("\0") if p and p not in keep)
+    inputs = [p for p in git(repo, "ls-tree", "-r", "-z", "--name-only", gated, "--",
+                             ":(top).specs").split("\0") if p]
+    if inputs:
+        diff += git(repo, "diff", "--name-only", "--no-renames", "-z", gated, "HEAD", "--",
+                    *(f":(top,literal){p}" for p in inputs))
+    return sorted({p for p in diff.split("\0") if p and p not in keep})
 
 
 def cmd_adopt(repo: Path, wave: dict, task: str, patch_out: Optional[str]) -> str:

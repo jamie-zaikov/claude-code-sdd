@@ -31,6 +31,21 @@ class AffirmsTest(unittest.TestCase):
             with self.subTest(lead=lead):
                 self.assertIsNone(prose.affirms(f"{lead} rebuild it on every attempt.", PIN))
 
+    def test_a_soft_wrap_after_the_negation_is_still_red(self):
+        for text in ("Do not\nrebuild it on every attempt.", "Never\n  rebuild it on every attempt.",
+                     "- You must **not**\n  rebuild it on every attempt."):
+            with self.subTest(text=text):
+                self.assertIsNone(prose.affirms(text, PIN))
+                self.assertFalse(prose.near(text, r"rebuild|regenerate", r"(?:every|each) attempt"))
+
+    def test_a_new_item_heading_or_paragraph_ends_the_clause(self):
+        for text in ("- Never skip the check\n- rebuild it on every attempt.",
+                     "Do not skip it.\n\nRebuild it on every attempt.",
+                     "## Not optional\nRebuild it on every attempt.",
+                     "1. No cache\n2. Rebuild it on every attempt."):
+            with self.subTest(text=text):
+                self.assertIsNotNone(prose.affirms(text, PIN))
+
     def test_presentation_stays_green(self):
         for text in ("Rebuild it on every attempt.", "**Rebuild** it on\n   every attempt.",
                      "- Rebuild it on every\n  attempt, from the specs."):

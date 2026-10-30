@@ -188,6 +188,55 @@ class OverlapSnapshotTest(unittest.TestCase):
                 self.overlap(repo, "discard", "--task", "2")
 
 
+def load_wave():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sdd_wave_t", ROOT / "tools" / "sdd-wave.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class WaveVerifyInputsTest(unittest.TestCase):
+    """wave-verify compares the gated identity with HEAD: a listed spec input that changed or went
+    away after the gates must be reported; an unlisted spec commit (a task checkbox) must not."""
+
+    def gated(self, tmp):
+        repo = seeded(tmp, ".specs/features/*/design.md")
+        return repo, repo.hash()[1]
+
+    def test_a_listed_input_edited_after_the_gates_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, gated = self.gated(tmp)
+            repo.write(".specs/features/f/design.md", "design 2\n")
+            repo.commit("listed edit")
+            self.assertEqual(load_wave().cmd_verify(repo.path, {}, gated),
+                             [".specs/features/f/design.md"])
+
+    def test_a_listed_input_deleted_after_the_gates_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, gated = self.gated(tmp)
+            repo.git("rm", "-q", ".specs/features/f/design.md")
+            repo.git("commit", "-q", "-m", "delete")
+            self.assertEqual(load_wave().cmd_verify(repo.path, {}, gated),
+                             [".specs/features/f/design.md"])
+
+    def test_dropping_the_declaration_does_not_drop_the_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, gated = self.gated(tmp)
+            repo.write(".specs/steering/tech.md", "# Tech\n")
+            repo.write(".specs/features/f/design.md", "design 2\n")
+            repo.commit("unlist and edit")
+            self.assertIn(".specs/features/f/design.md",
+                          load_wave().cmd_verify(repo.path, {}, gated))
+
+    def test_an_unlisted_spec_commit_is_not_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, gated = self.gated(tmp)
+            repo.write(".specs/features/f/tasks.md", "- [x] 1\n")
+            repo.commit("checkbox")
+            self.assertEqual(load_wave().cmd_verify(repo.path, {}, gated), [])
+
+
 class DocsTest(unittest.TestCase):
     def test_orchestrator_names_the_spec_inputs_exception(self):
         self.assertTrue(prose.near(read("agents/orchestrator.md"), r"`\.specs/` is excluded",

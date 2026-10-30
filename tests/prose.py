@@ -11,7 +11,7 @@ a path).
 `search` is a raw match: use it to forbid a phrase in any form. A positive pin uses `affirms` (or
 `near`), which also refuses a match that a negation reverses — "Do not rebuild it on every attempt"
 must not satisfy a pin on "Rebuild it on every attempt". A match is negated when one of the three
-words right before it, in the same clause, is a negation (not, never, no, without, don't ...); in
+words right before it, in the same clause (a soft line wrap does not end a clause), is a negation (not, never, no, without, don't ...); in
 `near` each term is checked on its own, so a negation slipped in between two terms is caught too,
 and every occurrence of each term is tried, so a negated occurrence never hides a good one.
 A pin whose rule really is negative puts the negation inside its pattern.
@@ -41,7 +41,11 @@ def norm_pattern(pat):
 
 _FLAGS = re.IGNORECASE | re.MULTILINE | re.DOTALL
 _NEGATION = re.compile(r"^(?:not|never|no|none|nor|neither|without|cannot|\w+n't)$", re.I)
-_CLAUSE_END = re.compile(r"[.;:!?,](?=\s|$)|[\n—]")  # a dot inside a path is no end
+# A clause ends at punctuation followed by space (a dot inside a path is no end), an em dash, a
+# blank line, a new list item or heading, or the end of a heading line. A single line break is presentation (a soft wrap), so
+# "Do not\nrebuild it" is still negated.
+_CLAUSE_END = re.compile(r"[.;:!?,](?=\s|$)|—|\n[ \t]*\n|\n[ \t]*(?:[-*+]|\d+[.)]|#+)[ \t]"
+                         r"|^[ \t]*#+[ \t][^\n]*\n", re.M)
 _WORDS = 3
 
 
