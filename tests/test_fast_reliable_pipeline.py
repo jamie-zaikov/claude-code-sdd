@@ -269,7 +269,7 @@ class OvernightReviewFixesTest(Base):
         gate = section(self.orch, "Feature Review Gate (runs automatically after the last task completes, before `complete`)")
         self.has(gate, r"Overnight: stop here\.\*\* If `overnightAuthorization` is set, do \*\*not\*\* publish", "gate PASS")
         self.has(gate, r"If `overnightAuthorization` is set, do \*\*not\*\* ask", "gate FAIL")
-        self.has(self.impl, r"Stopped because: <all tasks complete \| no runnable task \| user \| off>", "template")
+        self.has(self.impl, r"Stopped because: <all tasks complete \| no runnable task \| unverified commits \| user \| off>", "template")
         self.has(self.impl, r"^## Feature review$", "template section")
 
     def test_material_amendment_always_parks(self):

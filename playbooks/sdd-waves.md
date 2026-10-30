@@ -12,7 +12,8 @@ Run a wave of tasks A < B (tasks.md order) only when **all** hold; otherwise run
 
 1. `tech.md` declares `Task waves: 2`. Absent means off.
 2. Code track; neither task mutates a live system; neither is `deferred`.
-3. Both are dependency-ready (every task each `Depends:` line names is `complete`), and neither
+3. Both are dependency-ready (every task each `Depends:` line names is `complete` or
+   `awaiting_candidate`), and neither
    depends on the other. A task without a `Depends:` line depends on every earlier task, so it is
    never in a wave as task B.
 4. Their declared sets are disjoint: `Files:` ∪ `Shared:` of A against those of B, as paths and
@@ -77,7 +78,8 @@ the two. Record `wave: { tasks, base, attempt }` in the state file. On resume, r
 - **Both pass every gate** → github-agent `commit` task A by its explicit paths, then task B by
   its explicit paths (each message ends `SDD-Task: <N>`). Then `wave-verify --gated-tree <the
   candidate tree hash the gates judged>`: exit 1 means a gated path is not in HEAD — halt and report;
-  never mark the tasks complete. Then mark both complete and github-agent `wave-discard`.
+  never mark the tasks complete. Then mark both complete — and every `awaiting_candidate` task, whose
+  commit the candidate holds (the orchestrator's *Candidates* rule) — and github-agent `wave-discard`.
 - **A blocking result** → in-attempt repair (playbook *In-attempt repair*), **one task at a time**,
   never two repair executors at once. Before each repair write, github-agent `wave-snapshot`. The
   repair executor writes only paths its task owns; after each repair run `sdd-wave.py strays` — any

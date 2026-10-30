@@ -131,9 +131,9 @@ changes a shared module whose callers you cannot list; report it under `Notes` i
 `Candidate: no` task, list under `Notes` the modules you changed and their direct importers — the
 tester runs those focused tests, and the full suite runs at the unit's candidate.
 
-On a candidate's retry after a **full-suite failure**, you may fix any file of the
-`awaiting_candidate` tasks the orchestrator names in the retry report (the same integration unit);
-name each such file under `Notes`.
+On a retry after a **full-suite failure**, you may fix any file of the `awaiting_candidate` tasks
+the orchestrator names in the retry report. List each such file under `Files Changed` (so the
+commit holds it) and name its task under `Notes`.
 
 ### On Retry
 

@@ -50,34 +50,67 @@ class CandidateRuleTest(Base):
         self.near(self.orch, "marker", r"exact\s+line `\*\*Candidate:\*\* no`", r"focused tests")
         self.near(self.orch, "default", r"any other value, or no line at all", r"is a \*\*candidate\*\*",
                   r"full suite")
-        self.near(self.orch, "wave", r"A wave batch is always a candidate", window=40)
+        self.near(self.orch, "wave", r"wave batch\s+is\s+(always\s+)?a\s+candidate")
 
     def test_fail_closed_cases_force_the_full_suite(self):
-        self.near(self.orch, "fail closed", r"Fail closed", r"`fullSuite: required`")
-        for case in (r"last attempt failed", r"last task of the feature", r"`Contract:` interface",
-                     r"`Shared:` line", r"test infrastructure", r"gitignored input",
-                     r"installed environment", r"cannot list the callers"):
-            self.near(self.orch, f"fail-closed case {case}", r"Fail closed", case, window=900)
+        self.near(self.orch, "fail closed", r"Fail closed", r"`fullSuite: required`",
+                  r"`Candidate: no` task when \*\*any\s+one\*\* of these holds", r"candidate for this attempt")
+        self.lacks(self.orch, r"only when all of these hold", "fail-closed quantifier inverted")
+        for case in (r"last attempt failed", r"last task of the feature",
+                     r"no task after it in `tasks.md` that is not yet `complete` is a candidate",
+                     r"`Contract:` interface", r"`Shared:` line", r"test infrastructure",
+                     r"gitignored input", r"installed environment", r"cannot list the callers"):
+            self.near(self.orch, f"fail-closed case {case}", r"`Candidate: no` task when \*\*any\s+one\*\*", case,
+                      window=900)
 
-    def test_a_focused_task_waits_for_its_candidate(self):
-        self.near(self.orch, "awaiting", r"set to\s+`awaiting_candidate`, not `complete`",
+    def test_a_focused_record_is_never_full_suite_evidence(self):
+        self.near(self.orch, "records", r"`suiteRecord` holds full-suite runs only",
+                  r"`taskStatus\[N\]\.focusedRecord`", r"never into `suiteRecord`")
+        self.near(self.orch, "validator payload", r"`fullSuite: required \| focused`",
+                  r"the tester \*\*and\*\* the\s+validator")
+        self.near(self.orch, "stage 3", r"Pass the validator", r"the task's `fullSuite` value")
+
+    def test_a_focused_task_waits_for_a_full_suite(self):
+        self.near(self.orch, "awaiting", r"set to `awaiting_candidate`, not `complete`",
                   r"not marked `\[x\]`")
-        self.near(self.orch, "completion", r"next candidate passes", r"full-suite PASS",
-                  r"`awaiting_candidate` task to `complete`")
-        self.lacks(self.orch, r"`awaiting_candidate`[^.]{0,40}counts as complete", "awaiting is complete")
+        self.near(self.orch, "completion", r"\*\*Any\*\* full-suite PASS on a\s+tree that holds",
+                  r"`awaiting_candidate` task's commit", r"sets that task to\s+`complete`")
+        self.lacks(self.orch, r"focused (record )?PASS[^.]{0,80}(covers|completes|sets)",
+                   "focused run completes a task")
 
-    def test_feature_review_waits_for_every_candidate(self):
-        self.near(self.orch, "review blocked", r"Feature Review Gate never starts", r"`awaiting_candidate`")
-        self.near(self.orch, "review entry", r"Once every task is `complete` \(none `awaiting_candidate`\)")
+    def test_an_awaiting_task_satisfies_a_dependency(self):
+        self.near(self.orch, "predicate", r"`awaiting_candidate` task satisfies a dependency",
+                  r"overnight", r"Level 1", r"wave")
+        self.near(self.orch, "park order", r"every task its `Depends:` line names is `complete` or\s+`awaiting_candidate`")
+        self.near(self.orch, "level 1", r"names \(other than N\) is `complete` or `awaiting_candidate`")
+        self.near(read("playbooks/sdd-waves.md"), "waves", r"dependency-ready", r"`complete` or\s+`awaiting_candidate`")
 
-    def test_a_red_candidate_suite_fails_the_candidate(self):
-        self.near(self.orch, "red suite", r"full suite fails fails that attempt", r"failing tests",
-                  r"`awaiting_candidate` tasks")
-        self.near(self.orch, "retry owner", r"`retryCount` counts on the candidate", window=40)
-        self.near(self.orch, "halted", r"halted or parked\s+candidate leaves", r"open")
+    def test_feature_review_settles_then_waits(self):
+        self.near(self.orch, "review blocked", r"Feature Review\s+Gate never starts its reviewers",
+                  r"`awaiting_candidate`")
+        self.near(self.orch, "settle completes", r"`mode: suite-only` once", r"PASS sets every\s+`awaiting_candidate` task to\s+`complete`")
+        self.near(self.orch, "settle red", r"FAIL re-opens the last `awaiting_candidate` task",
+                  r"`fullSuite: required`")
+        self.near(read("playbooks/sdd-waves.md"), "wave completes", r"mark both complete",
+                  r"every `awaiting_candidate` task")
+
+    def test_a_red_full_suite_is_a_blocking_result(self):
+        self.near(self.orch, "red suite", r"full-suite failure is a blocking result", r"in-attempt repair",
+                  r"`retryCount` counts on\s+that task")
+        self.near(self.orch, "unit fix", r"executor may fix any file of those tasks", r"`Files Changed`",
+                  r"validator of each `awaiting_candidate` task whose files it changed\s+re-runs")
+
+    def test_a_halt_on_unverified_commits_ends_the_run(self):
+        self.near(self.orch, "halt", r"Fail closed on a halt", r"last full suite was red",
+                  r"\*\*end the run\*\*")
+        self.near(self.orch, "no later task", r"No later\s+task starts on that HEAD until the user decides")
+        self.near(self.orch, "summary", r"Stopped because:", r"unverified commits")
 
     def test_status_vocabulary_has_the_new_state(self):
         self.near(self.orch, "vocabulary", r"`in_progress`, `awaiting_candidate`, `complete`")
+        self.near(read("commands/sdd-status.md"), "status", r"`awaiting_candidate`")
+        self.near(read("commands/sdd-overnight.md"), "overnight status", r"tasks `awaiting_candidate`")
+        self.near(self.orch, "summary line", r"awaiting a candidate:")
 
     def test_the_tester_is_told_which_suite_to_run(self):
         self.near(self.orch, "stage 2", r"`fullSuite: required`", r"`fullSuite: focused`",
@@ -89,6 +122,9 @@ class TesterTest(Base):
         self.near(self.tester, "focused", r"`fullSuite: focused`", r"focused tests once",
                   r"direct importers", r"focused record")
         self.near(self.tester, "escape", r"cannot list the importers", r"run the full suite instead")
+        for case in (r"test infrastructure", r"gitignored input", r"the environment"):
+            self.near(self.tester, f"escalation {case}", r"cannot list the importers", case,
+                      r"run the full suite instead", window=300)
         self.near(self.tester, "record format", r"Focused record: tree <hash>", r"scope:")
         self.near(self.tester, "default full", r"`fullSuite: required`, or no value",
                   r"full suite once")
@@ -100,7 +136,8 @@ class TesterTest(Base):
     def test_expected_values_come_from_outside_the_code(self):
         self.near(self.tester, "oracle", r"Expected values come from outside the code under test",
                   r"contract", r"calculation")
-        self.near(self.tester, "no echo", r"Never from\s+a second call to the same production path")
+        self.near(self.tester, "no echo", r"(Never|Not) from\s+a second call to the same production path")
+        self.lacks(self.tester, r"(Or|Also|May come) from\s+a second call", "echo oracle allowed")
 
     def test_important_guards_are_proved_on_a_scratch_copy(self):
         self.near(self.tester, "guard", r"important guard proves itself", r"scratch copy",
@@ -119,8 +156,11 @@ class TesterTest(Base):
 class ValidatorTest(Base):
     def test_focused_record_is_valid_only_on_a_marked_task(self):
         self.near(self.validator, "focused valid", r"focused record", r"valid only when",
-                  r"exact line `\*\*Candidate:\*\* no`", r"`fullSuite: focused`")
-        self.near(self.validator, "else fail", r"In any other case a missing\s+suite record is a FAIL")
+                  r"exact line `\*\*Candidate:\*\* no` and the orchestrator passed `fullSuite: focused`")
+        self.lacks(self.validator, r"Candidate:\*\* no` or the orchestrator", "and became or")
+        self.near(self.validator, "hash and pass", r"focused record's tree hash must match",
+                  r"result must be PASS")
+        self.near(self.validator, "else fail", r"In any other case", r"missing\s+suite record", r"FAIL")
 
     def test_validator_checks_test_quality(self):
         self.near(self.validator, "quality", r"name the wrong result it rejects",
@@ -131,7 +171,7 @@ class ValidatorTest(Base):
 class ExecutorTest(Base):
     def test_candidate_retry_may_fix_the_unit(self):
         self.near(self.executor, "unit fix", r"full-suite failure", r"may fix any file of the",
-                  r"`awaiting_candidate` tasks")
+                  r"`awaiting_candidate` tasks", r"`Files Changed`")
 
 
 class TasksAgentTest(Base):
@@ -154,8 +194,9 @@ class TasksAgentTest(Base):
 
 class CheckerTest(Base):
     def test_checker_flags_an_uncovered_focused_task(self):
-        self.near(self.checker, "marks", r"Candidate marks", r"last\s+task", r"`Depends:` line",
-                  r"`Contract:` or `Shared:` line")
+        self.near(self.checker, "marks", r"Candidate marks", r"flag it when", r"last\s+task",
+                  r"`Depends:` line", r"`Contract:` or `Shared:` line")
+        self.lacks(self.checker, r"(accept|allow|pass) it when", "checker accepts")
 
 
 class ClaudeMdTest(Base):
