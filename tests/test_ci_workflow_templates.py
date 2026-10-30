@@ -6,7 +6,9 @@ structure lint, not a unit test — the Actions runtime cannot be executed here.
 for `ci-templates/workflows/sdd-{secret-scan,review-gate,build-test-lint}.yml`:
 
   * each file is valid YAML (parsed with PyYAML when importable);
-  * the shared trigger block matches the spec (PR on `main`; push branches-ignore [main]);
+  * every gate runs on PRs to `main`; only the secret scan also runs on push (branches-ignore
+    [main]) — a push trigger on build-test-lint ran the full suite twice per push to an open PR;
+  * every gate declares `concurrency` with `cancel-in-progress`, keyed per PR (or ref);
   * exactly one gate/job per file, with `sdd-`/gate naming;
   * the review-gate requires `ready-to-merge` AND forbids `blocked:*`, gated to pull_request;
   * the secret-scan job invokes the shared `sdd-secret-scan.py` via `--diff-file`;
@@ -162,16 +164,26 @@ class TriggerBlockTest(unittest.TestCase):
                     f"{path.name}: on.pull_request.branches must be [main]",
                 )
 
-    def test_push_ignores_main(self):
+    def test_only_the_secret_scan_runs_on_push(self):
+        on = get_on_block(load_yaml(SECRET_SCAN))
+        self.assertIn("push", on, "the secret scan has no push trigger")
+        self.assertEqual(on["push"].get("branches-ignore"), ["main"],
+                         "the secret scan must ignore main on push")
+        for path in (BUILD_TEST_LINT, REVIEW_GATE):
+            with self.subTest(workflow=path.name):
+                self.assertNotIn("push", get_on_block(load_yaml(path)),
+                                 f"{path.name}: a push trigger duplicates the PR run")
+
+    def test_a_newer_push_cancels_the_older_run(self):
         for path in ALL_FILES:
             with self.subTest(workflow=path.name):
-                on = get_on_block(load_yaml(path))
-                self.assertIn("push", on, f"{path.name}: no push trigger")
-                self.assertEqual(
-                    on["push"].get("branches-ignore"),
-                    ["main"],
-                    f"{path.name}: on.push.branches-ignore must be [main]",
-                )
+                conc = load_yaml(path).get("concurrency")
+                self.assertIsInstance(conc, dict, f"{path.name}: no concurrency block")
+                self.assertIs(conc.get("cancel-in-progress"), True, path.name)
+                group = conc.get("group", "")
+                self.assertIn("github.workflow", group, f"{path.name}: group not per workflow")
+                self.assertIn("github.event.pull_request.number", group,
+                              f"{path.name}: group not per PR")
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not importable — job-count parse checks skipped")

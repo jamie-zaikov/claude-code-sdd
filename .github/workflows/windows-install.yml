@@ -12,8 +12,12 @@ name: windows-install
 on:
   pull_request:
     branches: [ main ]
-  push:
-    branches-ignore: [ main ]
+  # No `push` trigger: the PR run is the gate; a push run duplicated it.
+
+# One run per PR (or branch): a newer push cancels the older run of this workflow.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

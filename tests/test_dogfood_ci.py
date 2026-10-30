@@ -10,7 +10,7 @@ be executed here).
 The suite asserts, per Task 9 sub-task 9.3 and FR-21 / FR-16.1 / FR-15:
 
   * each instantiated `.github/workflows/sdd-*.yml` is valid YAML (parsed with PyYAML) with the
-    shared trigger block (PR on `main`; push branches-ignore [main]) — FR-16.1;
+    `pull_request` trigger on `main`, and only the secret scan also on push — FR-16.1;
   * each dogfood workflow is byte-identical to its `ci-templates/workflows/` counterpart, and the
     dogfood `.github/scripts/sdd-secret-scan.py` is byte-identical to the template scanner — FR-21;
   * the seam fix: every workflow (template AND dogfood copy) carries a job-level `name:` equal to
@@ -130,16 +130,15 @@ class DogfoodWorkflowYamlTests(unittest.TestCase):
                     f"{name}: on.pull_request.branches must be [main]",
                 )
 
-    def test_push_trigger_ignores_main(self):
+    def test_only_the_secret_scan_runs_on_push(self):
         for name in WORKFLOW_NAMES:
             with self.subTest(workflow=name):
                 on = get_on_block(load_yaml(DOGFOOD_WORKFLOWS / name))
-                self.assertIn("push", on, f"{name}: no push trigger")
-                self.assertEqual(
-                    on["push"].get("branches-ignore"),
-                    ["main"],
-                    f"{name}: on.push.branches-ignore must be [main]",
-                )
+                if name == "sdd-secret-scan.yml":
+                    self.assertEqual(on.get("push", {}).get("branches-ignore"), ["main"],
+                                     f"{name}: on.push.branches-ignore must be [main]")
+                else:
+                    self.assertNotIn("push", on, f"{name}: a push trigger duplicates the PR run")
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not importable — YAML-parse checks skipped")
