@@ -63,7 +63,7 @@ class Base(unittest.TestCase):
         assert cls.rules is not None, "orchestrator.md lost its Critical Rules section"
 
     def has(self, text, pat, label):
-        if not prose.search(text, pat):
+        if not prose.affirms(text, pat):
             self.fail(f"{label}: missing /{pat}/")
 
     def lacks(self, text, pat, label):

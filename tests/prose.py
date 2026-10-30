@@ -7,6 +7,13 @@ not its emphasis or its line breaks. It matches against two views of the text: l
 (for patterns anchored with `^`/`$`) and lines joined (for a phrase wrapped across lines); either
 view matching is a match. Code spans (backticks) are kept: they carry identity (a key, a command,
 a path).
+
+`search` is a raw match: use it to forbid a phrase in any form. A positive pin uses `affirms` (or
+`near`), which also refuses a match that a negation reverses — "Do not rebuild it on every attempt"
+must not satisfy a pin on "Rebuild it on every attempt". A match is negated when one of the three
+words right before it, in the same clause, is a negation (not, never, no, without, don't ...); in
+`near` each term is checked on its own, so a negation slipped in between two terms is caught too.
+A pin whose rule really is negative puts the negation inside its pattern.
 """
 
 import re
@@ -31,9 +38,51 @@ def norm_pattern(pat):
     return pat.replace(r"\*\*", "").replace("__", "")
 
 
-def search(text, pat, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL):
+_FLAGS = re.IGNORECASE | re.MULTILINE | re.DOTALL
+_NEGATION = re.compile(r"^(?:not|never|no|none|nor|neither|without|cannot|\w+n't)$", re.I)
+_CLAUSE_END = re.compile(r"[.;:!?,](?=\s|$)|[\n—]")  # a dot inside a path is no end
+_WORDS = 3
+
+
+def search(text, pat, flags=_FLAGS):
     pat = norm_pattern(pat)
     return re.search(pat, norm_lines(text), flags) or re.search(pat, norm(text), flags)
+
+
+def _negated_at(view, start, floor=0):
+    """True when one of the few words right before `start` (same clause, after `floor`) negates."""
+    if view.count("`", 0, start) % 2:  # inside a code span: the span is one token, look before it
+        start = max(view.rfind("`", 0, start), floor)
+    lead = view[floor:start]
+    ends = list(_CLAUSE_END.finditer(lead))
+    if ends:
+        lead = lead[ends[-1].end():]
+    return any(_NEGATION.match(w.strip("*_`()[]\"'")) for w in lead.split()[-_WORDS:])
+
+
+def _affirmed(view, m):
+    groups = [g for g in sorted(m.re.groupindex) if g.startswith("_t")]
+    if not groups:
+        return not _negated_at(view, m.start())
+    floor = 0
+    for g in groups:
+        if m.start(g) < 0 or _negated_at(view, m.start(g), floor):
+            return False
+        floor = m.end(g)
+    return True
+
+
+def affirms(text, pat, flags=_FLAGS):
+    """A match of `pat` that no negation right before it reverses ("Do not rebuild it" never
+    satisfies a pin on "Rebuild it"), or None. In `near`, each term is checked on its own."""
+    rx = re.compile(norm_pattern(pat), flags)
+    for view in (norm_lines(text), norm(text)):
+        m = rx.search(view)
+        while m:  # every start position: a negated match must not hide a later, overlapping one
+            if _affirmed(view, m):
+                return m
+            m = rx.search(view, m.start() + 1)
+    return None
 
 
 def near(text, *terms, window=160):
@@ -41,4 +90,4 @@ def near(text, *terms, window=160):
     previous one, in the normalized text. Pins the KEY WORDS and DIRECTION of a rule (who, never,
     must, what) while tolerating rewording around them."""
     gap = r".{0,%d}?" % window
-    return search(text, gap.join(f"(?:{t})" for t in terms)) is not None
+    return affirms(text, gap.join(f"(?P<_t{i:02d}>{t})" for i, t in enumerate(terms))) is not None
