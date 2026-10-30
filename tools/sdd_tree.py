@@ -6,8 +6,9 @@
 
     Suite spec inputs: .specs/features/*/design.md, .specs/steering/tech.md
 
-Each entry is a git glob pathspec relative to the repository root and must start with `.specs/`
-(everything outside `.specs/` is always covered). Without the line, `.specs/` is excluded whole, so
+Each entry is a git glob pathspec relative to the repository root, must start with `.specs/`
+(everything outside `.specs/` is always covered) and holds no whitespace; a trailing `(note)` is
+ignored, and so is a line inside an HTML comment. A malformed entry stops the hash (fail closed). Without the line, `.specs/` is excluded whole, so
 a spec or state commit never changes the identity. A test that reads a spec file must have that file
 listed, or a spec edit can leave a stale suite record.
 
@@ -28,7 +29,8 @@ from pathlib import Path
 from typing import List
 
 OUTSIDE_SPECS = [":/", ":(top,exclude).specs"]
-INPUTS_LINE = re.compile(r"^\s*[-*]?\s*\**Suite spec inputs:\**\s*(.+)$", re.I | re.M)
+INPUTS_LINE = re.compile(r"^\s*[-*]?\s*\**Suite spec inputs\**:\**\s*(.+)$", re.I | re.M)
+COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 
 class TreeError(RuntimeError):
@@ -48,9 +50,12 @@ def spec_inputs(top: Path) -> List[str]:
     if not tech.is_file():
         return []
     globs: List[str] = []
-    for m in INPUTS_LINE.finditer(tech.read_text(encoding="utf-8", errors="replace")):
-        globs += [g.strip().strip("`") for g in m.group(1).split(",") if g.strip().strip("`")]
-    bad = [g for g in globs if not g.startswith(".specs/") or ".." in Path(g).parts]
+    text = COMMENT.sub("", tech.read_text(encoding="utf-8", errors="replace"))
+    for m in INPUTS_LINE.finditer(text):
+        entries = m.group(1).split("(", 1)[0]  # a trailing "(note)" is not part of an entry
+        globs += [g.strip().strip("`") for g in entries.split(",") if g.strip().strip("`")]
+    bad = [g for g in globs if not g.startswith(".specs/") or ".." in Path(g).parts
+           or any(c.isspace() for c in g)]
     if bad:
         raise TreeError("Suite spec inputs must be paths under .specs/: " + ", ".join(bad))
     return globs
@@ -66,7 +71,9 @@ def identity(cwd: Path) -> str:
         if real.is_file():
             shutil.copy2(real, index)  # keep mtime: git's racy-clean check needs it
         env = dict(os.environ, GIT_INDEX_FILE=str(index))
-        git(top, "rm", "-r", "--cached", "-q", "--ignore-unmatch", "--", ":(top).specs", env=env)
+        # -f: a spec file staged and then edited again must not stop the hash (index-only removal)
+        git(top, "rm", "-r", "-f", "--cached", "-q", "--ignore-unmatch", "--", ":(top).specs",
+            env=env)
         git(top, "add", "-A", "--", *OUTSIDE_SPECS, env=env)
         if globs:
             # .specs/ is now absent from the index, so every non-ignored file there is "other".

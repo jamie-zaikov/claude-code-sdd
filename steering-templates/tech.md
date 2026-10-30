@@ -32,9 +32,9 @@
 <!-- - Task waves: 2                     (opt-in: run two independent tasks concurrently in
                                             isolated worktrees with one combined gate; absent = off) -->
 <!-- - Wave-isolated tests: no           (`yes` when tests use no shared database/port/device/cache) -->
-<!-- - Suite spec inputs: .specs/features/*/design.md   (spec files your TESTS read; they stay in
-                                            the suite-record tree hash, every other `.specs/` file
-                                            is left out; absent = all of `.specs/` left out) -->
+<!-- Spec files your TESTS read stay in the suite-record tree hash; every other `.specs/` file is
+     left out (absent = all of `.specs/` left out). Comma-separated git globs under `.specs/`. -->
+<!-- - Suite spec inputs: .specs/features/*/design.md -->
 
 ## Testing
 <!-- Framework, conventions, directory structure, how to run tests -->

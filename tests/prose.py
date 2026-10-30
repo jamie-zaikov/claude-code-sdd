@@ -12,7 +12,8 @@ a path).
 `near`), which also refuses a match that a negation reverses — "Do not rebuild it on every attempt"
 must not satisfy a pin on "Rebuild it on every attempt". A match is negated when one of the three
 words right before it, in the same clause, is a negation (not, never, no, without, don't ...); in
-`near` each term is checked on its own, so a negation slipped in between two terms is caught too.
+`near` each term is checked on its own, so a negation slipped in between two terms is caught too,
+and every occurrence of each term is tried, so a negated occurrence never hides a good one.
 A pin whose rule really is negative puts the negation inside its pattern.
 """
 
@@ -60,18 +61,6 @@ def _negated_at(view, start, floor=0):
     return any(_NEGATION.match(w.strip("*_`()[]\"'")) for w in lead.split()[-_WORDS:])
 
 
-def _affirmed(view, m):
-    groups = [g for g in sorted(m.re.groupindex) if g.startswith("_t")]
-    if not groups:
-        return not _negated_at(view, m.start())
-    floor = 0
-    for g in groups:
-        if m.start(g) < 0 or _negated_at(view, m.start(g), floor):
-            return False
-        floor = m.end(g)
-    return True
-
-
 def affirms(text, pat, flags=_FLAGS):
     """A match of `pat` that no negation right before it reverses ("Do not rebuild it" never
     satisfies a pin on "Rebuild it"), or None. In `near`, each term is checked on its own."""
@@ -79,7 +68,7 @@ def affirms(text, pat, flags=_FLAGS):
     for view in (norm_lines(text), norm(text)):
         m = rx.search(view)
         while m:  # every start position: a negated match must not hide a later, overlapping one
-            if _affirmed(view, m):
+            if not _negated_at(view, m.start()):
                 return m
             m = rx.search(view, m.start() + 1)
     return None
@@ -87,7 +76,23 @@ def affirms(text, pat, flags=_FLAGS):
 
 def near(text, *terms, window=160):
     """True when every term (a regex) appears in order, each within `window` characters of the
-    previous one, in the normalized text. Pins the KEY WORDS and DIRECTION of a rule (who, never,
-    must, what) while tolerating rewording around them."""
-    gap = r".{0,%d}?" % window
-    return affirms(text, gap.join(f"(?P<_t{i:02d}>{t})" for i, t in enumerate(terms))) is not None
+    previous one, in the normalized text, and no term is negated (see `affirms`). Pins the KEY WORDS
+    and DIRECTION of a rule (who, never, must, what) while tolerating rewording around them."""
+    rxs = [re.compile(norm_pattern(t), _FLAGS) for t in terms]
+    return any(_chain(view, rxs, 0, 0, None, window) is not None
+               for view in (norm_lines(text), norm(text)))
+
+
+def _chain(view, rxs, i, pos, prev_end, window):
+    """Start positions of an affirmed chain of terms i.. (a list), or None. Every occurrence of term
+    i in its window is tried, so a negated or misplaced occurrence never hides a later good one."""
+    if i == len(rxs):
+        return []
+    m = rxs[i].search(view, pos)
+    while m and (prev_end is None or m.start() <= prev_end + window):
+        if not _negated_at(view, m.start(), prev_end or 0):
+            rest = _chain(view, rxs, i + 1, m.end(), m.end(), window)
+            if rest is not None:
+                return [m.start()] + rest
+        m = rxs[i].search(view, m.start() + 1)
+    return None

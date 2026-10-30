@@ -84,6 +84,23 @@ class SpecsLeftOutTest(unittest.TestCase):
             repo.write("src/a.py", "a = 2\n")
             self.assertNotEqual(repo.hash()[1], h1, "a code edit must change the hash")
 
+    def test_a_spec_staged_then_edited_again_still_hashes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = seeded(tmp)
+            _, h1 = repo.hash()
+            repo.write(".specs/features/f/design.md", "staged\n")
+            repo.git("add", ".specs/features/f/design.md")
+            repo.write(".specs/features/f/design.md", "edited after staging\n")  # MM
+            repo.write(".specs/features/f/new.md", "a\n")
+            repo.git("add", ".specs/features/f/new.md")
+            repo.write(".specs/features/f/new.md", "b\n")  # AM
+            index = (Path(tmp) / ".git" / "index").read_bytes()
+            rc, h2 = repo.hash()
+            self.assertEqual(rc, 0, "a staged-then-edited spec file stopped the hash")
+            self.assertEqual(h2, h1)
+            self.assertEqual((Path(tmp) / ".git" / "index").read_bytes(), index,
+                             "the real index was changed")
+
     def test_the_hash_equals_the_code_tree_alone(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = seeded(tmp)
@@ -119,8 +136,22 @@ class SpecInputsTest(unittest.TestCase):
                        .read_text() + "more\n")
             self.assertNotEqual(repo.hash()[1], h1, "the second listed glob is not in the hash")
 
+    def test_a_note_bold_key_and_comment_are_parsed_as_written(self):
+        cases = {
+            "- Suite spec inputs: .specs/features/*/design.md   (spec files the tests read)": True,
+            "- **Suite spec inputs**: .specs/features/*/design.md": True,
+            "<!-- an example, not a setting:\n- Suite spec inputs: .specs/features/*/design.md\n-->": False,
+        }
+        for line, listed in cases.items():
+            with self.subTest(line=line), tempfile.TemporaryDirectory() as tmp:
+                repo = seeded(tmp)
+                repo.write(".specs/steering/tech.md", f"# Tech\n{line}\n")
+                _, h1 = repo.hash()
+                repo.write(".specs/features/f/design.md", "design 2\n")
+                self.assertEqual(repo.hash()[1] != h1, listed, "listed file in/out of the hash")
+
     def test_an_entry_outside_specs_fails_closed(self):
-        for bad in ("src/*.py", ".specs/../src/a.py"):
+        for bad in ("src/*.py", ".specs/../src/a.py", ".specs/a.md .specs/b.md"):
             with tempfile.TemporaryDirectory() as tmp:
                 repo = seeded(tmp, bad)
                 rc, out = repo.hash()
@@ -158,6 +189,12 @@ class DocsTest(unittest.TestCase):
     def test_orchestrator_names_the_spec_inputs_exception(self):
         self.assertTrue(prose.near(read("agents/orchestrator.md"), r"`\.specs/` is excluded",
                                    r"except", r"`Suite spec inputs:`", r"stay in the hash"))
+
+    def test_preflight_finds_unlisted_spec_reads(self):
+        self.assertTrue(prose.near(read("agents/orchestrator.md"), r"Spec files the tests read",
+                                   r"does not list under `Suite spec inputs:`", r"gap",
+                                   r"Propose the line",
+                                   r"never add it yourself"))
 
     def test_steering_template_offers_the_key(self):
         self.assertTrue(prose.search(read("steering-templates/tech.md"), r"Suite spec inputs:"))

@@ -56,6 +56,10 @@ class AffirmsTest(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIsNone(prose.affirms(text, r"sdd-wave\.py status"))
 
+    def test_a_negated_match_does_not_hide_an_overlapping_one(self):
+        text = "Do not rebuild it from cache; rebuild it on every attempt."
+        self.assertIsNotNone(prose.affirms(text, r"rebuild it.{0,40}?attempt"))
+
     def test_a_negated_match_does_not_hide_a_later_one(self):
         text = "No unexplained acronyms or slang. Expand an acronym the first time it appears."
         self.assertTrue(prose.near(text, r"acronym", r"first time"))
@@ -68,6 +72,11 @@ class NearTest(unittest.TestCase):
 
     def test_the_rule_is_green(self):
         self.assertTrue(prose.near(self.RULE, *self.TERMS))
+
+    def test_a_negated_occurrence_does_not_hide_a_later_one(self):
+        self.assertTrue(prose.near("Use the pack, never the cache, and the cache stays.",
+                                   r"pack", r"cache"))
+        self.assertFalse(prose.near("Use the pack, never the cache.", r"pack", r"cache"))
 
     def test_a_negation_before_any_term_is_red(self):
         for inverted in (self.RULE.replace("which stay", "which never stay"),

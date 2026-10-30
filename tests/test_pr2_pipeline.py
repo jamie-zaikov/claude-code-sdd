@@ -157,7 +157,8 @@ class OverlapTest(Base):
 
     def test_conditions(self):
         self.has(self.ovl, r"on the \*\*code track\*\*", "code track only")
-        self.has(self.ovl, r"does not say `Stage overlap: off`", "toggle")
+        # a key name, not a rule direction: "unless tech.md says" and "does not say" both name it
+        self.assertTrue(prose.search(self.ovl, r"`Stage overlap: off`"), "toggle")
         self.has(self.ovl, r"every task\s+its `Depends:` line names \(other than N\) is `complete`", "depends")
         self.has(self.ovl, r"no speculation is\s+running", "depth one")
         self.has(self.ovl, r"Never start a speculation for a non-code task, a task that mutates a live\s+system", "never")

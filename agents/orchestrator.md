@@ -418,6 +418,9 @@ is present — a missing prerequisite found at 02:00 costs the whole night. Chec
   value), and `gh auth status` succeeds with the scopes the publish point needs (`repo`, PR write).
 - **Inputs:** every file the tasks cite from `input-data/` or steering exists (deck files, fixtures,
   sample payloads).
+- **Spec files the tests read:** search the test tree for `.specs` paths. When a test reads a spec
+  file that `tech.md` does not list under `Suite spec inputs:`, that is a gap — a spec edit would
+  leave a stale suite record. Propose the line to the user; never add it yourself.
 - **Acceptance probe:** when `tech.md` declares one, it is marked `Probe scope: sim-only` and its
   command starts (run it once; a failure here is a gap to fix now, not at 02:00).
 - **Permissions:** for each command class the tasks will run unattended (test runner, linters,
