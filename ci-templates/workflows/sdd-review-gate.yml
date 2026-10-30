@@ -33,8 +33,8 @@ jobs:
     # required check by its documented `sdd-` name.
     name: sdd-review-gate
     runs-on: ubuntu-latest
-    # No-op on push-to-feature-branch events: there is no PR label context yet.
-    # The gate only enforces on pull_request events targeting `main`.
+    # The workflow has only a pull_request trigger; this guard is defence in depth, so the
+    # gate can never report a skipped (passing) check for any other event.
     if: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Enforce review labels

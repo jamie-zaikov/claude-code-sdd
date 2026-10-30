@@ -174,16 +174,25 @@ class TriggerBlockTest(unittest.TestCase):
                 self.assertNotIn("push", get_on_block(load_yaml(path)),
                                  f"{path.name}: a push trigger duplicates the PR run")
 
+    GROUP = "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+
     def test_a_newer_push_cancels_the_older_run(self):
         for path in ALL_FILES:
             with self.subTest(workflow=path.name):
                 conc = load_yaml(path).get("concurrency")
                 self.assertIsInstance(conc, dict, f"{path.name}: no concurrency block")
-                self.assertIs(conc.get("cancel-in-progress"), True, path.name)
-                group = conc.get("group", "")
-                self.assertIn("github.workflow", group, f"{path.name}: group not per workflow")
-                self.assertIn("github.event.pull_request.number", group,
-                              f"{path.name}: group not per PR")
+                # Exact: without the ref fallback, push runs of all branches share one group.
+                self.assertEqual(conc.get("group"), self.GROUP, f"{path.name}: group not per PR or ref")
+                if path != SECRET_SCAN:
+                    self.assertIs(conc.get("cancel-in-progress"), True, path.name)
+
+    def test_a_push_scan_is_never_cancelled(self):
+        # A push run scans only its own before..after range; a cancelled one leaves commits
+        # unscanned. PR runs rescan base..head, so only they may cancel.
+        conc = load_yaml(SECRET_SCAN)["concurrency"]
+        self.assertEqual(conc.get("cancel-in-progress"),
+                         "${{ github.event_name == 'pull_request' }}",
+                         "the secret scan must cancel PR runs only")
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not importable — job-count parse checks skipped")

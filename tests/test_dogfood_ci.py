@@ -140,6 +140,16 @@ class DogfoodWorkflowYamlTests(unittest.TestCase):
                 else:
                     self.assertNotIn("push", on, f"{name}: a push trigger duplicates the PR run")
 
+    def test_windows_install_runs_once_per_pr(self):
+        doc = load_yaml(DOGFOOD_WORKFLOWS / "windows-install.yml")
+        on = get_on_block(doc)
+        self.assertEqual(on.get("pull_request", {}).get("branches"), ["main"])
+        self.assertNotIn("push", on, "windows-install: a push trigger duplicates the PR run")
+        conc = doc.get("concurrency") or {}
+        self.assertEqual(conc.get("group"),
+                         "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}")
+        self.assertIs(conc.get("cancel-in-progress"), True)
+
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not importable — YAML-parse checks skipped")
 class JobNameSeamFixTests(unittest.TestCase):
