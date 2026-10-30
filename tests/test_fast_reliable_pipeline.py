@@ -63,7 +63,7 @@ class Base(unittest.TestCase):
         assert cls.rules is not None, "orchestrator.md lost its Critical Rules section"
 
     def has(self, text, pat, label):
-        if not prose.search(text, pat):
+        if not prose.affirms(text, pat):
             self.fail(f"{label}: missing /{pat}/")
 
     def lacks(self, text, pat, label):
@@ -393,7 +393,7 @@ class TreeHashRacyCleanTest(unittest.TestCase):
     entries modified in the index's second as clean by stat and never re-hashes them, so the hash
     reports the OLD content. Every tool that copies the index must keep its mtime (copy2)."""
 
-    TOOLS = ("sdd-tree-hash.py", "sdd-overlap.py", "sdd-module-size.py")
+    TOOLS = ("sdd_tree.py", "sdd-overlap.py", "sdd-module-size.py")
 
     def test_index_copy_keeps_mtime_in_every_tool(self):
         for name in self.TOOLS:

@@ -7,6 +7,14 @@ not its emphasis or its line breaks. It matches against two views of the text: l
 (for patterns anchored with `^`/`$`) and lines joined (for a phrase wrapped across lines); either
 view matching is a match. Code spans (backticks) are kept: they carry identity (a key, a command,
 a path).
+
+`search` is a raw match: use it to forbid a phrase in any form. A positive pin uses `affirms` (or
+`near`), which also refuses a match that a negation reverses — "Do not rebuild it on every attempt"
+must not satisfy a pin on "Rebuild it on every attempt". A match is negated when one of the three
+words right before it, in the same clause (a soft line wrap does not end a clause), is a negation (not, never, no, without, don't ...); in
+`near` each term is checked on its own, so a negation slipped in between two terms is caught too,
+and every occurrence of each term is tried, so a negated occurrence never hides a good one.
+A pin whose rule really is negative puts the negation inside its pattern.
 """
 
 import re
@@ -31,14 +39,68 @@ def norm_pattern(pat):
     return pat.replace(r"\*\*", "").replace("__", "")
 
 
-def search(text, pat, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL):
+_FLAGS = re.IGNORECASE | re.MULTILINE | re.DOTALL
+_NEGATION = re.compile(r"^(?:not|never|no|none|nor|neither|without|cannot|\w+n't)$", re.I)
+# A clause ends at punctuation followed by space (a dot inside a path is no end), an em dash, a
+# blank line, a new list item or heading, or the end of a heading line. A single line break is presentation (a soft wrap), so
+# "Do not\nrebuild it" is still negated.
+_CLAUSE_END = re.compile(r"[.;:!?,](?=\s|$)|—|\n[ \t]*\n|\n[ \t]*(?:[-*+]|\d+[.)]|#+)[ \t]"
+                         r"|^[ \t]*#+[ \t][^\n]*\n", re.M)
+_WORDS = 3
+
+
+def search(text, pat, flags=_FLAGS):
     pat = norm_pattern(pat)
     return re.search(pat, norm_lines(text), flags) or re.search(pat, norm(text), flags)
 
 
+def _negated_at(view, start, floor=0):
+    """True when one of the few words right before `start` (same clause, after `floor`) negates."""
+    if view.count("`", 0, start) % 2:  # inside a code span: the span is one token, look before it
+        start = max(view.rfind("`", 0, start), floor)
+    lead = view[floor:start]
+    ends = list(_CLAUSE_END.finditer(lead))
+    if ends:
+        lead = lead[ends[-1].end():]
+    return any(_NEGATION.match(w.strip("*_`()[]\"'")) for w in lead.split()[-_WORDS:])
+
+
+def affirms(text, pat, flags=_FLAGS):
+    """A match of `pat` that no negation right before it reverses ("Do not rebuild it" never
+    satisfies a pin on "Rebuild it"), or None. In `near`, each term is checked on its own."""
+    rx = re.compile(norm_pattern(pat), flags)
+    for view in (norm_lines(text), norm(text)):
+        m = rx.search(view)
+        while m:  # every start position: a negated match must not hide a later, overlapping one
+            if not _negated_at(view, m.start()):
+                return m
+            m = rx.search(view, m.start() + 1)
+    return None
+
+
 def near(text, *terms, window=160):
     """True when every term (a regex) appears in order, each within `window` characters of the
-    previous one, in the normalized text. Pins the KEY WORDS and DIRECTION of a rule (who, never,
-    must, what) while tolerating rewording around them."""
-    gap = r".{0,%d}?" % window
-    return search(text, gap.join(f"(?:{t})" for t in terms)) is not None
+    previous one, in the normalized text, and no term is negated (see `affirms`). Pins the KEY WORDS
+    and DIRECTION of a rule (who, never, must, what) while tolerating rewording around them."""
+    rxs = [re.compile(norm_pattern(t), _FLAGS) for t in terms]
+    return any(_chain(view, rxs, 0, 0, None, window, {}) is not None
+               for view in (norm_lines(text), norm(text)))
+
+
+def _chain(view, rxs, i, pos, prev_end, window, dead):
+    """Start positions of an affirmed chain of terms i.. (a list), or None. Every occurrence of term
+    i in its window is tried, so a negated or misplaced occurrence never hides a later good one."""
+    if i == len(rxs):
+        return []
+    if pos >= dead.get(i, len(view) + 1):  # term i has no occurrence at or after an earlier pos
+        return None
+    m = rxs[i].search(view, pos)
+    if m is None:
+        dead[i] = min(pos, dead.get(i, pos))
+    while m and (prev_end is None or m.start() <= prev_end + window):
+        if not _negated_at(view, m.start(), prev_end or 0):
+            rest = _chain(view, rxs, i + 1, m.end(), m.end(), window, dead)
+            if rest is not None:
+                return [m.start()] + rest
+        m = rxs[i].search(view, m.start() + 1)
+    return None

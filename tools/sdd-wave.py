@@ -56,6 +56,7 @@ class Refused(Exception):
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sdd_wave_fs import (Failed, collisions, owned, remove, safe_target,  # noqa: E402
                          spec_rev, unsafe_items, unwritable, valid_owned, write_blob)
+from sdd_tree import TreeError, inputs_at  # noqa: E402
 
 
 def git(cwd: Path, *args: str, env=None, check: bool = True, data: Optional[bytes] = None) -> str:
@@ -89,7 +90,9 @@ def save(repo: Path, wave: dict) -> None:
 
 
 def tree_of(cwd: Path) -> str:
-    """Working-tree hash outside `.specs/`, through a temporary index (as sdd-tree-hash.py)."""
+    """A SNAPSHOT of the working tree outside `.specs/`, with `.specs/` as indexed, through a
+    temporary index. Not the suite-record identity (`sdd_tree.identity`): it holds every indexed
+    `.specs/` file, so compare it to a gated tree only outside `.specs/`."""
     tmp = tempfile.mkdtemp(prefix="sdd-wave-")
     try:
         index = Path(tmp) / "index"
@@ -351,9 +354,22 @@ def cmd_strays(repo: Path, wave: dict) -> List[str]:
 
 
 def cmd_verify(repo: Path, wave: dict, gated: str) -> List[str]:
+    """Paths whose content in HEAD differs from the gated identity: every path outside `.specs/`,
+    plus every declared spec input — those the gated identity holds AND those HEAD's own tech.md
+    declares. The gated set means editing the declaration cannot drop an input; HEAD's set means a
+    new glob member or a newly declared input is reported too."""
     keep = set(wave.get("preLandUntracked", []))
     diff = git(repo, "diff", "--name-only", "--no-renames", "-z", gated, "HEAD", "--", *SPEC)
-    return sorted(p for p in diff.split("\0") if p and p not in keep)
+    inputs = {p for p in git(repo, "ls-tree", "-r", "-z", "--name-only", gated, "--",
+                             ":(top).specs").split("\0") if p}
+    try:  # plus HEAD's own declared inputs: a new glob member or a new declaration is reported
+        inputs |= set(inputs_at(repo, "HEAD"))
+    except TreeError as exc:
+        raise Refused(str(exc))
+    if inputs:
+        diff += git(repo, "diff", "--name-only", "--no-renames", "-z", gated, "HEAD", "--",
+                    *(f":(top,literal){p}" for p in sorted(inputs)))
+    return sorted({p for p in diff.split("\0") if p and p not in keep})
 
 
 def cmd_adopt(repo: Path, wave: dict, task: str, patch_out: Optional[str]) -> str:

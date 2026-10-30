@@ -31,7 +31,7 @@ class Base(unittest.TestCase):
         cls.impl = cls.orch[start:cls.orch.index("### Feature Review Gate", start)]
 
     def has(self, text, pat, label):
-        if not prose.search(text, pat):
+        if not prose.affirms(text, pat):
             self.fail(f"{label}: missing /{pat}/")
 
     def lacks(self, text, pat, label):
@@ -43,7 +43,9 @@ class ContextPackTest(Base):
     def test_orchestrator_builds_the_pack_every_attempt(self):
         self.has(self.impl, r"\*\*Context pack \(before Stage 1, every attempt\)\.\*\*", "pack step")
         self.has(self.impl, r"python3 ~/\.claude/tools/sdd-context-pack\.py\s+--feature-dir", "pack command")
-        self.has(self.impl, r"Rebuild it on every attempt", "rebuild")
+        # key words, not the phrase: "Regenerate it for each attempt" is the same obligation
+        self.assertTrue(prose.near(self.impl, r"rebuild|regenerate", r"(?:every|each) attempt",
+                                   window=20), "rebuild: the pack is rebuilt on every attempt")
         self.has(self.impl, r"Never pass\s+`spec-memory/` wholesale", "no wholesale spec-memory")
         self.lacks(self.impl, r"All feature spec files", "old whole-folder input")
 
@@ -155,7 +157,8 @@ class OverlapTest(Base):
 
     def test_conditions(self):
         self.has(self.ovl, r"on the \*\*code track\*\*", "code track only")
-        self.has(self.ovl, r"`Stage overlap: off`", "toggle")
+        # a key name, not a rule direction: "unless tech.md says" and "does not say" both name it
+        self.assertTrue(prose.search(self.ovl, r"`Stage overlap: off`"), "toggle")
         self.has(self.ovl, r"every task\s+its `Depends:` line names \(other than N\) is `complete`", "depends")
         self.has(self.ovl, r"no speculation is\s+running", "depth one")
         self.has(self.ovl, r"Never start a speculation for a non-code task, a task that mutates a live\s+system", "never")

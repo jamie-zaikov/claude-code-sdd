@@ -418,6 +418,9 @@ is present — a missing prerequisite found at 02:00 costs the whole night. Chec
   value), and `gh auth status` succeeds with the scopes the publish point needs (`repo`, PR write).
 - **Inputs:** every file the tasks cite from `input-data/` or steering exists (deck files, fixtures,
   sample payloads).
+- **Spec files the tests read:** search the test tree for `.specs` paths. When a test reads a spec
+  file that `tech.md` does not list under `Suite spec inputs:`, that is a gap — a spec edit would
+  leave a stale suite record. Propose the line to the user; never add it yourself.
 - **Acceptance probe:** when `tech.md` declares one, it is marked `Probe scope: sim-only` and its
   command starts (run it once; a failure here is a gap to fix now, not at 02:00).
 - **Permissions:** for each command class the tasks will run unattended (test runner, linters,
@@ -540,7 +543,8 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   The tester produces it (Stage 2) after its final change; the executor uses targeted tests while it
   works. A stage **reuses** the record when its own `treeHash` equals the record's, and runs the full
   suite itself only when the tree has changed since the record was written. `.specs/` is excluded,
-  so a state-file write never invalidates the record. **An empty hash, or a command that exits
+  so a spec or state-file commit never invalidates the record — except the `.specs/` files that
+  `tech.md` lists under `Suite spec inputs:` (spec files the tests read), which stay in the hash. **An empty hash, or a command that exits
   non-zero, never matches** — run the full suite. **Limit:** the hash covers tracked and untracked,
   non-ignored files only. A task that changes a gitignored file the tests read (generated config,
   `input-data/` fixtures) or the installed environment (`pip install`, a lockfile sync) voids the

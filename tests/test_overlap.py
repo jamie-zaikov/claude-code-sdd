@@ -89,9 +89,9 @@ class OverlapTest(unittest.TestCase):
             self.start("3")
 
     def test_start_accepts_the_suite_record_tree(self):
-        tree = ov.tree_of(self.repo)
-        path, base = ov.start(self.repo, "2", tree).split()
-        self.assertEqual(self.git("rev-parse", f"{base}^{{tree}}").strip(), tree)
+        record = ov.identity(self.repo)  # the suite record's tree: an identity, not a snapshot
+        path, base = ov.start(self.repo, "2", record).split()
+        self.assertEqual(self.git("rev-parse", f"{base}^{{tree}}").strip(), ov.tree_of(self.repo))
         ov.discard(self.repo, "2")
         with self.assertRaises(ov.Refused):
             ov.start(self.repo, "3", "0" * 40)
