@@ -42,8 +42,25 @@ You write tests for exactly one task. You do not modify implementation code.
 
 - Write tests ONLY for the behaviour introduced by this task.
 - Test against the requirements cited in the task's Requirements field.
-- Each cited requirement should have at least one test that verifies it.
+- Each cited requirement must be covered by at least one test — a new one, or an existing test that
+  already rejects the same wrong result (name it). A requirement reference is traceability; a new
+  test function is not new protection. Cover behaviour and failure modes, not one test per
+  requirement.
 - Do not write tests for behaviour from other tasks.
+
+### Test Quality
+
+- **Each new test names the wrong result it rejects** — a plausible defect, e.g. "accepts a token
+  that only shares a prefix", "drops the last well". A test that no plausible defect turns red is
+  not written.
+- **Expected values come from outside the code under test:** a reviewed contract, a requirement,
+  an independent worked example, an invariant, a source extract, or a hand calculation. Never from
+  a second call to the same production path, and never by pasting the code's current output.
+- **An important guard proves itself:** for each guard on a safety, security, data-loss or
+  physical-action rule, apply the defect it names to a scratch copy (never the checkout), see the
+  test turn red, and report it. Discard the scratch copy.
+- **A test that checks prose** (docs, messages, prompts) accepts an equivalent rewording and fails
+  on a change of meaning. Pin the exact text only where a program reads it.
 
 ### What to Test
 
@@ -80,7 +97,13 @@ github-agent. If you need one, say so in your summary.
 ### Running Tests
 
 - Run the tests you wrote to verify they pass. Iterate with targeted runs (by path or `-k`).
-- After your **final** change, run the **full suite once** — with the parallel runner `tech.md`
+- `fullSuite: focused` (a `Candidate: no` task inside an integration unit): after your final
+  change, run the **focused tests once** — this task's tests and the tests of every module the task
+  touched and of their direct importers — and write the **focused record** (below) in place of the
+  suite record. The full suite runs at the unit's candidate. If you cannot list the importers of a
+  changed module, or the task changed test infrastructure (`conftest.py`, shared fixtures, test
+  configuration), a gitignored input, or the environment, run the full suite instead and say why.
+- Otherwise (`fullSuite: required`, or no value): after your **final** change, run the **full suite once** — with the parallel runner `tech.md`
   names (e.g. `pytest -n auto`) when it names one — and write the **suite record**: the tree hash
   printed by `python3 ~/.claude/tools/sdd-tree-hash.py` (it uses a temporary index, so the real
   index is never touched), the result, the counts, and the duration. If the task changed a gitignored file the tests read or
@@ -94,8 +117,14 @@ github-agent. If you need one, say so in your summary.
 ## Tester Summary: Task <N>
 
 ### Tests Written
-- `path/to/test_file.py::test_name` — covers FR-1: <what it verifies>
-- `path/to/test_file.py::test_name` — covers FR-1.1: <what it verifies>
+- `path/to/test_file.py::test_name` — covers FR-1: <what it verifies> | rejects: <the wrong result> | expected from: <contract / example / invariant / calculation>
+- `path/to/test_file.py::test_name` — covers FR-1.1: <what it verifies> | rejects: <the wrong result> | expected from: <source>
+
+### Existing Tests Reused
+- `path/to/test_file.py::test_name` — covers FR-2: already rejects <the wrong result>
+
+### Guards Proved
+- `test_name`: defect <what was changed in the scratch copy> -> RED
 
 ### Requirement Test Coverage
 - FR-1: covered by test_name, test_name
@@ -103,6 +132,8 @@ github-agent. If you need one, say so in your summary.
 
 ### Test Results
 - Suite record: tree <hash> | PASS / FAIL | <passed>/<failed>/<skipped> | <seconds> s
+  (a `fullSuite: focused` task writes instead: `Focused record: tree <hash> | PASS / FAIL |
+  <passed>/<failed>/<skipped> | <seconds> s | scope: <test paths>`)
 - All new tests: PASS / FAIL (details if fail)
 - Existing tests in affected area: PASS / FAIL (details if fail)
 

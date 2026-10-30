@@ -67,6 +67,7 @@ appended to your inputs. You may list several needs in one request.
 **Contract:** <Optional — interfaces this task must keep exactly as the design states (public API, CLI, wire/file format, schema); omit when none>
 **Shared:** <Optional — shared fixtures, lockfiles, or generated files this task writes, e.g. `tests/fixtures/ir_inputs/`, `uv.lock`; omit when none>
 **Depends:** <Task numbers this task needs, e.g. `1, 3` — or `none`>
+**Candidate:** <Optional — write `no` only for a task inside an integration unit whose full suite runs at a later task; omit otherwise>
 
 ---
 
@@ -77,6 +78,8 @@ appended to your inputs. You may list several needs in one request.
 ### Task Design Rules
 
 1. **Atomic tasks:** Each task should be completable in one focused agent session and deliver one checkable outcome. Split by outcome, not by file count: a task that touches many files in one subsystem is fine; a task with two unrelated outcomes is two tasks.
+
+1a. **Integration units:** Plan coherent changes that leave the product path usable, not one task per administrative step. Keep a producer and the consumer it needs in **one task** when a separate landing would leave the suite red or the path unusable (a new format and the reader that accepts it; a renamed interface and its callers). Put process work — a golden-file freeze, docs — inside the task that needs it, not in a task of its own. A split task (rule 3) stays its own task; mark it `**Candidate:** no` in the unit of the task that extends the new module when rule 7 allows it.
 
 2. **Dependency order:** Tasks are ordered so that each task can be implemented without depending on incomplete future tasks. If Task 3 depends on Task 1's output, Task 1 comes first. Every task carries a **`Depends:`** line that lists **every** earlier task whose output it needs — code it imports or calls, files it edits after them, fixtures or tests it extends — or `none`. Be complete, not minimal: the orchestrator lets a later task run past a halted one only when `Depends:` says it may, so a missing entry lets a task build on code that is not there. A task with no `Depends:` line is treated as depending on every earlier task.
 
@@ -91,6 +94,12 @@ appended to your inputs. You may list several needs in one request.
 5. **No non-coding tasks:** Do not include tasks for "deploy", "user testing", "documentation review", or anything that can't be done by a coding agent. Only include tasks that produce code or tests. *(Non-code feature: this rule is lifted. Every task legitimately produces a non-code artifact — a write-up, documentation, a diagram, or a knowledge-vault update — and must still be completable by an agent in one session.)*
 
 6. **Scope boundary:** State each task's outcome, acceptance and hard constraints precisely enough that an agent can verify it is done without assumptions. Name file paths, function signatures and component names from the design as **estimates** that guide the executor; put on a `Contract:` line only the interfaces the design makes a constraint (public API, CLI, wire or file format, schema). The executor may change anything that is not a contract, inside the task's subsystem, and reports what it changed.
+
+7. **Full-suite candidates:** The full test suite runs once per **candidate**, not once per task. Every task is a candidate unless its block has the line `**Candidate:** no`. Write `no` only when all of these hold:
+   - the task belongs to an integration unit of related tasks that a later task in the same unit closes, and that later task lists it on its `Depends:` line;
+   - the task changes no `Contract:` interface, no file on a `Shared:` line, no test infrastructure (`conftest.py`, shared fixtures, test configuration), and no installed environment;
+   - it is not the last task of the feature.
+   Keep units small (two or three tasks) so that a red full suite points to few changes. When unsure, omit the line — the task is then a candidate. The user approves the marks with the task list. *(Non-code feature: omit the line; it has no test suite.)*
 
 ### Non-Code Features
 

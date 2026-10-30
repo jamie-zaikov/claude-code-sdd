@@ -127,7 +127,13 @@ github-agent. If you need one, say so in your summary.
 While you work, run **targeted** tests only — the tests for the modules you touched (by path or
 `-k`). Do **not** run the full suite: the tester runs it once, after its final change, and records
 the result as the suite record. You may run the full suite once at the end only when the task
-changes a shared module whose callers you cannot list; report it under `Notes` if you do.
+changes a shared module whose callers you cannot list; report it under `Notes` if you do. On a
+`Candidate: no` task, list under `Notes` the modules you changed and their direct importers — the
+tester runs those focused tests, and the full suite runs at the unit's candidate.
+
+On a candidate's retry after a **full-suite failure**, you may fix any file of the
+`awaiting_candidate` tasks the orchestrator names in the retry report (the same integration unit);
+name each such file under `Notes`.
 
 ### On Retry
 
