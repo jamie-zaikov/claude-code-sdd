@@ -590,10 +590,12 @@ Tasks: <completed before> → <completed now> of <total>; awaiting a candidate: 
   executor may fix any file of those tasks — it lists each such file under `Files Changed`, so the
   commit holds it, and the validator of each `awaiting_candidate` task whose files it changed
   re-runs in that attempt's Stage 3. **Fail closed on a halt:** when a task halts while any task is
-  `awaiting_candidate` and its last full suite was red, HEAD holds unverified code — park the
-  halted task as usual, then **end the run** (overnight: `Stopped because: unverified commits`;
-  attended: present the failing tests and the `awaiting_candidate` tasks to the user). No later
-  task starts on that HEAD until the user decides.
+  `awaiting_candidate`, HEAD holds code no full suite has passed. Park the halted task as usual, then
+  launch the task-tester with `mode: suite-only` once on the clean HEAD. A PASS sets every
+  `awaiting_candidate` task to `complete`, and the run goes on. A FAIL, or a missing result, **ends the
+  run** — overnight: `Stopped because: unverified commits`; attended: present the failing tests and
+  the `awaiting_candidate` tasks to the user, and wait. On a FAIL no later task starts on that HEAD
+  until the user decides.
 
   **After the executor returns — `MATERIAL CHANGE` first.** If the executor's summary contains a
   `MATERIAL CHANGE:` note, stop this task's pipeline before Stage 2: the task is unfinished by
@@ -804,7 +806,9 @@ settle the suite: compute `sdd-tree-hash.py` for the final tree; when it equals 
 feature's suite result — **do not run the suite again**. Otherwise launch the task-tester with
 `mode: suite-only` once and use its record. A PASS sets every `awaiting_candidate` task to
 `complete`; a FAIL re-opens the last `awaiting_candidate` task with `fullSuite: required` and the
-failing tests as its retry input — the reviewers start only when no task is `awaiting_candidate`. Pass each reviewer:
+failing tests as its retry input — a retry, so its `retryCount` goes up and the convergence rule and
+the cap apply; overnight, the run goes on with that task. The reviewers start only when no task is
+`awaiting_candidate`. Pass each reviewer:
 - The feature name and directory
 - `modularity: enforced` or `modularity: not-enforced` (as for the per-task reviews)
 - The open and routed findings from the index (`sdd-findings.py list --status open,routed`) — the

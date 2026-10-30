@@ -76,9 +76,10 @@ work, not to the gates themselves. The orchestrator playbook therefore enforces:
   records a suite record keyed by tree hash; later stages reuse it while the tree is unchanged.
 - **One full suite per candidate.** The tasks-agent plans integration units (a producer with the
   consumer it needs). A task marked `Candidate: no` runs only its focused tests and waits as
-  `awaiting_candidate`; the full suite at the unit's candidate completes it. An unmarked task, a
-  wave batch, the last task, and any task that touches a contract, shared file, test
-  infrastructure, or the environment always run the full suite. Each new test names the wrong
+  `awaiting_candidate`; the next full-suite PASS on a tree that holds its commit completes it. An
+  unmarked task, a wave batch, the last task, a retry, a task with no candidate after it, and any
+  task that touches a contract, shared file, test infrastructure, or the environment always run
+  the full suite. A halt while a task waits runs the full suite on the clean HEAD; red ends the run. Each new test names the wrong
   result it rejects and takes its expected value from outside the code under test.
 - **Retry by convergence.** A third attempt runs without asking only when the blocking findings
   strictly shrink and none is new; retryCount 3 always halts.

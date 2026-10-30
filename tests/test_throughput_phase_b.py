@@ -64,8 +64,8 @@ class CandidateRuleTest(Base):
                       window=900)
 
     def test_a_focused_record_is_never_full_suite_evidence(self):
-        self.near(self.orch, "records", r"`suiteRecord` holds full-suite runs only",
-                  r"`taskStatus\[N\]\.focusedRecord`", r"never into `suiteRecord`")
+        self.near(self.orch, "records", r"`suiteRecord`", r"full-suite runs only",
+                  r"`taskStatus\[N\]\.focusedRecord`", r"never (into|in|to) `suiteRecord`")
         self.near(self.orch, "validator payload", r"`fullSuite: required \| focused`",
                   r"the tester \*\*and\*\* the\s+validator")
         self.near(self.orch, "stage 3", r"Pass the validator", r"the task's `fullSuite` value")
@@ -79,7 +79,7 @@ class CandidateRuleTest(Base):
                    "focused run completes a task")
 
     def test_an_awaiting_task_satisfies_a_dependency(self):
-        self.near(self.orch, "predicate", r"`awaiting_candidate` task satisfies a dependency",
+        self.near(self.orch, "predicate", r"`awaiting_candidate` task", r"satisf(ies|y) (a|any|each) dependency",
                   r"overnight", r"Level 1", r"wave")
         self.near(self.orch, "park order", r"every task its `Depends:` line names is `complete` or\s+`awaiting_candidate`")
         self.near(self.orch, "level 1", r"names \(other than N\) is `complete` or `awaiting_candidate`")
@@ -88,9 +88,10 @@ class CandidateRuleTest(Base):
     def test_feature_review_settles_then_waits(self):
         self.near(self.orch, "review blocked", r"Feature Review\s+Gate never starts its reviewers",
                   r"`awaiting_candidate`")
-        self.near(self.orch, "settle completes", r"`mode: suite-only` once", r"PASS sets every\s+`awaiting_candidate` task to\s+`complete`")
+        self.near(self.orch, "settle completes", r"`mode: suite-only` once and use its record", r"PASS sets every\s+`awaiting_candidate` task to\s+`complete`")
         self.near(self.orch, "settle red", r"FAIL re-opens the last `awaiting_candidate` task",
-                  r"`fullSuite: required`")
+                  r"`fullSuite: required`", r"`retryCount` goes up", r"run goes on with that task",
+                  window=300)
         self.near(read("playbooks/sdd-waves.md"), "wave completes", r"mark both complete",
                   r"every `awaiting_candidate` task")
 
@@ -98,13 +99,24 @@ class CandidateRuleTest(Base):
         self.near(self.orch, "red suite", r"full-suite failure is a blocking result", r"in-attempt repair",
                   r"`retryCount` counts on\s+that task")
         self.near(self.orch, "unit fix", r"executor may fix any file of those tasks", r"`Files Changed`",
-                  r"validator of each `awaiting_candidate` task whose files it changed\s+re-runs")
+                  r"validator of each `awaiting_candidate` task whose files it changed\s+re-runs",
+                  r"in that attempt's Stage 3")
 
     def test_a_halt_on_unverified_commits_ends_the_run(self):
-        self.near(self.orch, "halt", r"Fail closed on a halt", r"last full suite was red",
-                  r"\*\*end the run\*\*")
-        self.near(self.orch, "no later task", r"No later\s+task starts on that HEAD until the user decides")
+        self.near(self.orch, "halt", r"Fail closed on a halt", r"`mode: suite-only`", r"clean HEAD",
+                  r"PASS sets every\s+`awaiting_candidate` task to `complete`", window=300)
+        self.near(self.orch, "halt red", r"Fail closed on a halt", r"FAIL", r"\*\*ends the\s+run\*\*",
+                  r"attended", r"wait", window=500)
+        self.near(self.orch, "no later task", r"no later\s+task\s+(starts|runs)", r"on that HEAD", r"user decides")
+        self.lacks(self.orch, r"attended: [^.]{0,80}continue with the next task", "attended continues")
         self.near(self.orch, "summary", r"Stopped because:", r"unverified commits")
+
+    def test_the_pass_branch_writes_awaiting_for_a_focused_task(self):
+        self.near(self.orch, "pass branch", r"`taskStatus\[N\]\.status = \"complete\"`",
+                  r"`\"awaiting_candidate\"` for a task that ran only focused\s+tests")
+
+    def test_either_agent_can_force_the_full_suite(self):
+        self.near(self.orch, "callers", r"the executor or the tester cannot list the callers")
 
     def test_status_vocabulary_has_the_new_state(self):
         self.near(self.orch, "vocabulary", r"`in_progress`, `awaiting_candidate`, `complete`")
@@ -203,7 +215,9 @@ class ClaudeMdTest(Base):
     def test_global_rule_states_the_candidate_policy(self):
         self.near(self.claude, "bullet", r"One full suite per candidate", r"`Candidate: no`",
                   r"focused tests", r"`awaiting_candidate`")
-        self.near(self.claude, "always", r"always run the full suite")
+        self.near(self.claude, "always", r"always run\s+the full suite")
+        self.near(self.claude, "completion", r"next full-suite PASS on a tree that holds its commit")
+        self.near(self.claude, "always cases", r"a retry", r"no candidate after it", r"always run")
         self.near(self.claude, "quality", r"names the wrong\s+result it rejects")
 
 
