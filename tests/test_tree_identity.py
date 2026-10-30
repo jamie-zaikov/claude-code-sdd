@@ -229,12 +229,71 @@ class WaveVerifyInputsTest(unittest.TestCase):
             self.assertIn(".specs/features/f/design.md",
                           load_wave().cmd_verify(repo.path, {}, gated))
 
+    def test_a_new_glob_member_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, gated = self.gated(tmp)
+            repo.write(".specs/features/new/design.md", "new test input\n")
+            repo.commit("new matching input")
+            self.assertEqual(load_wave().cmd_verify(repo.path, {}, gated),
+                             [".specs/features/new/design.md"])
+
+    def test_a_newly_declared_input_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, gated = self.gated(tmp)
+            repo.write(".specs/steering/tech.md", "- Suite spec inputs: "
+                       ".specs/features/*/design.md, .specs/features/f/tasks.md\n")
+            repo.commit("new declared input")
+            self.assertEqual(load_wave().cmd_verify(repo.path, {}, gated),
+                             [".specs/features/f/tasks.md"])
+
+    def test_a_malformed_declaration_in_head_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, gated = self.gated(tmp)
+            repo.write(".specs/steering/tech.md", "- Suite spec inputs: src/*.py\n")
+            repo.commit("bad declaration")
+            wave = load_wave()
+            with self.assertRaises(wave.Refused):
+                wave.cmd_verify(repo.path, {}, gated)
+
     def test_an_unlisted_spec_commit_is_not_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo, gated = self.gated(tmp)
             repo.write(".specs/features/f/tasks.md", "- [x] 1\n")
             repo.commit("checkbox")
             self.assertEqual(load_wave().cmd_verify(repo.path, {}, gated), [])
+
+
+class OverlapDeclaredInputsTest(unittest.TestCase):
+    """The speculative worktree must hold the declared spec inputs the record was computed on."""
+
+    def overlap(self, repo, *args):
+        return subprocess.run([sys.executable, str(OVERLAP), *args], cwd=repo.path,
+                              capture_output=True, text=True)
+
+    def check(self, change):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = seeded(tmp, ".specs/features/*/design.md")
+            change(repo)
+            _, record = repo.hash()
+            started = self.overlap(repo, "start", "--task", "2", "--tree", record)
+            self.assertEqual(started.returncode, 0, started.stderr)
+            worktree = Path(started.stdout.split()[0])
+            try:
+                ident = subprocess.run([sys.executable, str(HASH)], cwd=worktree,
+                                       capture_output=True, text=True).stdout.strip()
+                self.assertEqual(ident, record, "the worktree does not match the suite record")
+                return worktree, repo
+            finally:
+                self.overlap(repo, "discard", "--task", "2")
+
+    def test_an_unstaged_edit_of_a_declared_input(self):
+        self.check(lambda r: r.write(".specs/features/f/design.md", "tested, not staged\n"))
+
+    def test_a_new_untracked_declared_input(self):
+        self.check(lambda r: r.write(".specs/features/g/design.md", "new input\n"))
+
+    def test_a_deleted_declared_input(self):
+        self.check(lambda r: (r.path / ".specs/features/f/design.md").unlink())
 
 
 class DocsTest(unittest.TestCase):

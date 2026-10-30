@@ -5,8 +5,9 @@
     sdd-overlap.py land    --task M --base B     -> moves M's work into the main checkout
     sdd-overlap.py discard --task M              -> removes M's worktree; nothing else changes
 
-`start` snapshots the main checkout's tree (task N's finished but not yet committed work, plus
-`.specs/` as indexed) through a temporary index as a detached base commit, and adds a worktree for
+`start` snapshots the main checkout's tree (task N's finished but not yet committed work, `.specs/`
+as indexed, and the declared `Suite spec inputs:` as on disk — `sdd_tree.snapshot`) through a
+temporary index as a detached base commit, and adds a worktree for
 task M on it under `<git-common-dir>/sdd-overlap/task-M`. `--tree` takes the suite record's tree
 hash: `start` refuses unless the checkout's identity (`sdd_tree.identity`, which leaves out
 unlisted `.specs/` files and so is not a snapshot) still equals it. Only one speculation exists at
@@ -38,7 +39,7 @@ from pathlib import Path
 from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sdd_tree import TreeError, identity  # noqa: E402
+from sdd_tree import TreeError, identity, snapshot  # noqa: E402
 
 PATHSPEC = [":/", ":(top,exclude).specs"]
 
@@ -103,7 +104,10 @@ def start(repo: Path, task: str, tree: Optional[str]) -> str:
             raise Refused(str(exc))
         if now != tree:
             raise Refused(f"the checkout's tree is {now}, not the suite record's {tree}")
-    tree = tree_of(repo)
+    try:
+        tree = snapshot(repo)  # declared spec inputs as on disk, so the worktree matches the record
+    except TreeError as exc:
+        raise Refused(str(exc))
     base = git(repo, "commit-tree", tree, "-p", "HEAD", "-m",
                f"sdd-speculative-base for task {task}").strip()
     path = worktree_path(repo, task)

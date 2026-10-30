@@ -56,6 +56,7 @@ class Refused(Exception):
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sdd_wave_fs import (Failed, collisions, owned, remove, safe_target,  # noqa: E402
                          spec_rev, unsafe_items, unwritable, valid_owned, write_blob)
+from sdd_tree import TreeError, inputs_at  # noqa: E402
 
 
 def git(cwd: Path, *args: str, env=None, check: bool = True, data: Optional[bytes] = None) -> str:
@@ -354,15 +355,20 @@ def cmd_strays(repo: Path, wave: dict) -> List[str]:
 
 def cmd_verify(repo: Path, wave: dict, gated: str) -> List[str]:
     """Paths whose content in HEAD differs from the gated identity: every path outside `.specs/`,
-    plus the `.specs/` files the gated identity holds (its declared `Suite spec inputs:`). The input
-    set comes from the gated tree, so editing the declaration later cannot drop an input."""
+    plus every declared spec input — those the gated identity holds AND those HEAD's own tech.md
+    declares. The gated set means editing the declaration cannot drop an input; HEAD's set means a
+    new glob member or a newly declared input is reported too."""
     keep = set(wave.get("preLandUntracked", []))
     diff = git(repo, "diff", "--name-only", "--no-renames", "-z", gated, "HEAD", "--", *SPEC)
-    inputs = [p for p in git(repo, "ls-tree", "-r", "-z", "--name-only", gated, "--",
-                             ":(top).specs").split("\0") if p]
+    inputs = {p for p in git(repo, "ls-tree", "-r", "-z", "--name-only", gated, "--",
+                             ":(top).specs").split("\0") if p}
+    try:  # plus HEAD's own declared inputs: a new glob member or a new declaration is reported
+        inputs |= set(inputs_at(repo, "HEAD"))
+    except TreeError as exc:
+        raise Refused(str(exc))
     if inputs:
         diff += git(repo, "diff", "--name-only", "--no-renames", "-z", gated, "HEAD", "--",
-                    *(f":(top,literal){p}" for p in inputs))
+                    *(f":(top,literal){p}" for p in sorted(inputs)))
     return sorted({p for p in diff.split("\0") if p and p not in keep})
 
 

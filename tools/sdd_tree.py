@@ -45,14 +45,10 @@ def git(cwd: Path, *args: str, env=None) -> str:
     return proc.stdout
 
 
-def spec_inputs(top: Path) -> List[str]:
-    """The `Suite spec inputs:` globs from the working tree's steering; each must be under `.specs/`."""
-    tech = top / ".specs" / "steering" / "tech.md"
-    if not tech.is_file():
-        return []
+def parse_inputs(text: str) -> List[str]:
+    """The `Suite spec inputs:` globs in a tech.md text; each must be a path under `.specs/`."""
     globs: List[str] = []
-    text = COMMENT.sub("", tech.read_text(encoding="utf-8", errors="replace"))
-    for m in INPUTS_LINE.finditer(text):
+    for m in INPUTS_LINE.finditer(COMMENT.sub("", text)):
         for entry in m.group(1).split(","):
             entry = NOTE.sub("", entry).strip().strip("`")  # each entry may end in its own "(note)"
             if entry:
@@ -64,13 +60,72 @@ def spec_inputs(top: Path) -> List[str]:
     return globs
 
 
+def spec_inputs(top: Path) -> List[str]:
+    """The `Suite spec inputs:` globs from the working tree's steering."""
+    tech = top / ".specs" / "steering" / "tech.md"
+    if not tech.is_file():
+        return []
+    return parse_inputs(tech.read_text(encoding="utf-8", errors="replace"))
+
+
+def _pathspecs(globs: List[str]) -> List[str]:
+    return [f":(top,glob){g}" for g in globs]
+
+
+def _real_index(top: Path) -> Path:
+    return Path(git(top, "rev-parse", "--path-format=absolute", "--git-path", "index").strip())
+
+
+def snapshot(cwd: Path) -> str:
+    """A tree to CHECK OUT (overlap's speculative base): the working tree outside `.specs/`,
+    `.specs/` as indexed, and the declared spec inputs as they are on disk — so the checkout's
+    identity equals the working tree's identity."""
+    top = Path(git(cwd, "rev-parse", "--show-toplevel").strip())
+    globs = spec_inputs(top)
+    tmp = tempfile.mkdtemp(prefix="sdd-snap-")
+    try:
+        index = Path(tmp) / "index"
+        real = _real_index(top)
+        if real.is_file():
+            shutil.copy2(real, index)  # keep mtime: git's racy-clean check needs it
+        env = dict(os.environ, GIT_INDEX_FILE=str(index))
+        git(top, "add", "-A", "--", *OUTSIDE_SPECS, env=env)
+        if globs:
+            found = git(top, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
+                        *_pathspecs(globs), env=env)
+            paths = sorted({p for p in found.split("\0") if p})
+            if paths:  # -A with a literal path also stages a deletion
+                git(top, "add", "-A", "--", *(f":(top,literal){p}" for p in paths), env=env)
+        return git(top, "write-tree", env=env).strip()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def inputs_at(cwd: Path, rev: str) -> List[str]:
+    """The declared spec-input paths of a commit, by that commit's own tech.md."""
+    top = Path(git(cwd, "rev-parse", "--show-toplevel").strip())
+    proc = subprocess.run(["git", "-C", str(top), "show", f"{rev}:.specs/steering/tech.md"],
+                          capture_output=True, text=True)
+    globs = parse_inputs(proc.stdout) if proc.returncode == 0 else []
+    if not globs:
+        return []
+    tmp = tempfile.mkdtemp(prefix="sdd-inp-")
+    try:
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / "index"))
+        git(top, "read-tree", rev, env=env)
+        found = git(top, "ls-files", "-z", "--cached", "--", *_pathspecs(globs), env=env)
+        return sorted({p for p in found.split("\0") if p})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def identity(cwd: Path) -> str:
     top = Path(git(cwd, "rev-parse", "--show-toplevel").strip())
     globs = spec_inputs(top)
     tmp = tempfile.mkdtemp(prefix="sdd-tree-")
     try:
         index = Path(tmp) / "index"
-        real = Path(git(top, "rev-parse", "--path-format=absolute", "--git-path", "index").strip())
+        real = _real_index(top)
         if real.is_file():
             shutil.copy2(real, index)  # keep mtime: git's racy-clean check needs it
         env = dict(os.environ, GIT_INDEX_FILE=str(index))
@@ -82,7 +137,7 @@ def identity(cwd: Path) -> str:
             # .specs/ is now absent from the index, so every non-ignored file there is "other".
             # Listing first avoids `git add` failing on a glob that matches nothing.
             found = git(top, "ls-files", "-z", "--others", "--exclude-standard", "--",
-                        *(f":(top,glob){g}" for g in globs), env=env)
+                        *_pathspecs(globs), env=env)
             paths = [p for p in found.split("\0") if p]
             if paths:
                 git(top, "add", "--", *(f":(top,literal){p}" for p in paths), env=env)
