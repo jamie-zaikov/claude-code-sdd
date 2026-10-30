@@ -540,7 +540,8 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   The tester produces it (Stage 2) after its final change; the executor uses targeted tests while it
   works. A stage **reuses** the record when its own `treeHash` equals the record's, and runs the full
   suite itself only when the tree has changed since the record was written. `.specs/` is excluded,
-  so a state-file write never invalidates the record. **An empty hash, or a command that exits
+  so a spec or state-file commit never invalidates the record — except the `.specs/` files that
+  `tech.md` lists under `Suite spec inputs:` (spec files the tests read), which stay in the hash. **An empty hash, or a command that exits
   non-zero, never matches** — run the full suite. **Limit:** the hash covers tracked and untracked,
   non-ignored files only. A task that changes a gitignored file the tests read (generated config,
   `input-data/` fixtures) or the installed environment (`pip install`, a lockfile sync) voids the

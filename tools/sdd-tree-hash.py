@@ -3,47 +3,30 @@
 
     sdd-tree-hash.py [-C DIR]   -> prints the tree hash, exit 0
 
-The hash covers every tracked and untracked, non-ignored file outside `.specs/`, read through a
-TEMPORARY index (a copy of the real one), so the real index is never touched and a state-file
-write under `.specs/` never changes the hash. Run from any directory inside the repository.
+The hash covers every tracked and untracked, non-ignored file outside `.specs/`, plus the `.specs/`
+files that `tech.md` lists under `Suite spec inputs:` (see `sdd_tree.py`). It is read through a
+TEMPORARY index with every `.specs/` entry removed, so the real index is never touched and a spec or
+state commit never changes the hash unless a listed file changed. Run from any directory inside the
+repository.
 
 Limit: gitignored files and the installed environment are not covered — a change to them voids a
 suite record by declaration, not by hash.
 
-Exit codes: 0 hash printed; 2 not a git repository or git error (nothing is printed on stdout, so
-an empty hash can never match a recorded one). Stdlib only.
+Exit codes: 0 hash printed; 2 not a git repository, git error, or a `Suite spec inputs:` entry
+outside `.specs/` (nothing is printed on stdout, so an empty hash can never match a recorded one).
+Stdlib only.
 """
 
 import argparse
-import os
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-PATHSPEC = [":/", ":(top,exclude).specs"]
-
-
-def git(cwd: Path, *args: str, env=None) -> str:
-    proc = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, env=env)
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or f"git {' '.join(args)} failed")
-    return proc.stdout
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sdd_tree import TreeError, identity  # noqa: E402
 
 
 def tree_hash(cwd: Path) -> str:
-    tmp = tempfile.mkdtemp(prefix="sdd-tree-")
-    try:
-        index = Path(tmp) / "index"
-        real = Path(git(cwd, "rev-parse", "--path-format=absolute", "--git-path", "index").strip())
-        if real.is_file():
-            shutil.copy2(real, index)  # keep mtime: git's racy-clean check needs it
-        env = dict(os.environ, GIT_INDEX_FILE=str(index))
-        git(cwd, "add", "-A", "--", *PATHSPEC, env=env)
-        return git(cwd, "write-tree", env=env).strip()
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    return identity(cwd)
 
 
 def main(argv=None) -> int:
@@ -52,7 +35,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         print(tree_hash(Path(args.cwd)))
-    except (RuntimeError, FileNotFoundError) as exc:
+    except (TreeError, FileNotFoundError) as exc:
         print(f"sdd-tree-hash: {exc}", file=sys.stderr)
         return 2
     return 0

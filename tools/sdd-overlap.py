@@ -5,10 +5,12 @@
     sdd-overlap.py land    --task M --base B     -> moves M's work into the main checkout
     sdd-overlap.py discard --task M              -> removes M's worktree; nothing else changes
 
-`start` snapshots the main checkout's tree (task N's finished but not yet committed work; pass the
-suite record's tree hash as --tree, or it is computed through a temporary index) as a detached base
-commit, and adds a worktree for task M on it under `<git-common-dir>/sdd-overlap/task-M`. Only one
-speculation exists at a time.
+`start` snapshots the main checkout's tree (task N's finished but not yet committed work, plus
+`.specs/` as indexed) through a temporary index as a detached base commit, and adds a worktree for
+task M on it under `<git-common-dir>/sdd-overlap/task-M`. `--tree` takes the suite record's tree
+hash: `start` refuses unless the checkout's identity (`sdd_tree.identity`, which leaves out
+unlisted `.specs/` files and so is not a snapshot) still equals it. Only one speculation exists at
+a time.
 
 `land` runs only when no tracked file outside `.specs/` has uncommitted changes and the main
 checkout's full content outside `.specs/` (tracked and untracked) equals the snapshot — i.e. task N
@@ -35,6 +37,9 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sdd_tree import TreeError, identity  # noqa: E402
+
 PATHSPEC = [":/", ":(top,exclude).specs"]
 
 
@@ -54,7 +59,8 @@ def git(cwd: Path, *args: str, check: bool = True, env=None) -> str:
 
 
 def tree_of(cwd: Path) -> str:
-    """The working tree's tree hash outside `.specs/`, through a temporary index."""
+    """A SNAPSHOT of the working tree outside `.specs/`, with `.specs/` as indexed, through a
+    temporary index. Not the suite-record identity: see `sdd_tree.identity`."""
     tmp = tempfile.mkdtemp(prefix="sdd-ovl-")
     try:
         index = Path(tmp) / "index"
@@ -90,9 +96,14 @@ def start(repo: Path, task: str, tree: Optional[str]) -> str:
     if existing(repo):  # also catches an orphaned directory left by a crash: discard it first
         raise Refused("a speculation already exists (discard it first): "
                       + ", ".join(p.name for p in existing(repo)))
-    tree = tree or tree_of(repo)
-    if git(repo, "cat-file", "-t", tree, check=False).strip() != "tree":
-        raise Refused(f"{tree} is not a tree object")
+    if tree is not None:
+        try:
+            now = identity(repo)
+        except TreeError as exc:
+            raise Refused(str(exc))
+        if now != tree:
+            raise Refused(f"the checkout's tree is {now}, not the suite record's {tree}")
+    tree = tree_of(repo)
     base = git(repo, "commit-tree", tree, "-p", "HEAD", "-m",
                f"sdd-speculative-base for task {task}").strip()
     path = worktree_path(repo, task)

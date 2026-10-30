@@ -89,7 +89,9 @@ def save(repo: Path, wave: dict) -> None:
 
 
 def tree_of(cwd: Path) -> str:
-    """Working-tree hash outside `.specs/`, through a temporary index (as sdd-tree-hash.py)."""
+    """A SNAPSHOT of the working tree outside `.specs/`, with `.specs/` as indexed, through a
+    temporary index. Not the suite-record identity (`sdd_tree.identity`); compare it to a gated tree
+    only through a `.specs/`-excluding diff."""
     tmp = tempfile.mkdtemp(prefix="sdd-wave-")
     try:
         index = Path(tmp) / "index"
