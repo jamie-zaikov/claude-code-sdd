@@ -7,8 +7,8 @@
     Suite spec inputs: .specs/features/*/design.md, .specs/steering/tech.md
 
 Each entry is a git glob pathspec relative to the repository root, must start with `.specs/`
-(everything outside `.specs/` is always covered) and holds no whitespace; a trailing `(note)` is
-ignored, and so is a line inside an HTML comment. A malformed entry stops the hash (fail closed). Without the line, `.specs/` is excluded whole, so
+(everything outside `.specs/` is always covered) and holds no whitespace; each entry
+may end in its own `(note)`, which is ignored, and so is a line inside an HTML comment. A malformed entry stops the hash (fail closed). Without the line, `.specs/` is excluded whole, so
 a spec or state commit never changes the identity. A test that reads a spec file must have that file
 listed, or a spec edit can leave a stale suite record.
 
@@ -31,6 +31,7 @@ from typing import List
 OUTSIDE_SPECS = [":/", ":(top,exclude).specs"]
 INPUTS_LINE = re.compile(r"^\s*[-*]?\s*\**Suite spec inputs\**:\**\s*(.+)$", re.I | re.M)
 COMMENT = re.compile(r"<!--.*?-->", re.S)
+NOTE = re.compile(r"\s*\([^()]*\)\s*$")
 
 
 class TreeError(RuntimeError):
@@ -52,8 +53,10 @@ def spec_inputs(top: Path) -> List[str]:
     globs: List[str] = []
     text = COMMENT.sub("", tech.read_text(encoding="utf-8", errors="replace"))
     for m in INPUTS_LINE.finditer(text):
-        entries = m.group(1).split("(", 1)[0]  # a trailing "(note)" is not part of an entry
-        globs += [g.strip().strip("`") for g in entries.split(",") if g.strip().strip("`")]
+        for entry in m.group(1).split(","):
+            entry = NOTE.sub("", entry).strip().strip("`")  # each entry may end in its own "(note)"
+            if entry:
+                globs.append(entry)
     bad = [g for g in globs if not g.startswith(".specs/") or ".." in Path(g).parts
            or any(c.isspace() for c in g)]
     if bad:

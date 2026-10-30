@@ -79,19 +79,23 @@ def near(text, *terms, window=160):
     previous one, in the normalized text, and no term is negated (see `affirms`). Pins the KEY WORDS
     and DIRECTION of a rule (who, never, must, what) while tolerating rewording around them."""
     rxs = [re.compile(norm_pattern(t), _FLAGS) for t in terms]
-    return any(_chain(view, rxs, 0, 0, None, window) is not None
+    return any(_chain(view, rxs, 0, 0, None, window, {}) is not None
                for view in (norm_lines(text), norm(text)))
 
 
-def _chain(view, rxs, i, pos, prev_end, window):
+def _chain(view, rxs, i, pos, prev_end, window, dead):
     """Start positions of an affirmed chain of terms i.. (a list), or None. Every occurrence of term
     i in its window is tried, so a negated or misplaced occurrence never hides a later good one."""
     if i == len(rxs):
         return []
+    if pos >= dead.get(i, len(view) + 1):  # term i has no occurrence at or after an earlier pos
+        return None
     m = rxs[i].search(view, pos)
+    if m is None:
+        dead[i] = min(pos, dead.get(i, pos))
     while m and (prev_end is None or m.start() <= prev_end + window):
         if not _negated_at(view, m.start(), prev_end or 0):
-            rest = _chain(view, rxs, i + 1, m.end(), m.end(), window)
+            rest = _chain(view, rxs, i + 1, m.end(), m.end(), window, dead)
             if rest is not None:
                 return [m.start()] + rest
         m = rxs[i].search(view, m.start() + 1)

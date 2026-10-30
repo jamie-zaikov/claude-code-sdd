@@ -140,6 +140,8 @@ class SpecInputsTest(unittest.TestCase):
         cases = {
             "- Suite spec inputs: .specs/features/*/design.md   (spec files the tests read)": True,
             "- **Suite spec inputs**: .specs/features/*/design.md": True,
+            "- Suite spec inputs: .specs/x.md (fixtures), .specs/features/*/design.md (golden ids)":
+                True,
             "<!-- an example, not a setting:\n- Suite spec inputs: .specs/features/*/design.md\n-->": False,
         }
         for line, listed in cases.items():
@@ -151,7 +153,8 @@ class SpecInputsTest(unittest.TestCase):
                 self.assertEqual(repo.hash()[1] != h1, listed, "listed file in/out of the hash")
 
     def test_an_entry_outside_specs_fails_closed(self):
-        for bad in ("src/*.py", ".specs/../src/a.py", ".specs/a.md .specs/b.md"):
+        for bad in ("src/*.py", ".specs/../src/a.py", ".specs/a.md .specs/b.md",
+                    ".specs/a.md (a note, with a comma)", ".specs/a.md (note) tail"):
             with tempfile.TemporaryDirectory() as tmp:
                 repo = seeded(tmp, bad)
                 rc, out = repo.hash()
