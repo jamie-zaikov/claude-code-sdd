@@ -1,7 +1,7 @@
 # SDD CI gate — build / test / lint (FR-15, FR-16, NFR-3).
 #
-# One gate per file (design DD-1): shares the `sdd-` prefix and the identical
-# trigger block with sdd-secret-scan.yml and sdd-review-gate.yml.
+# One gate per file (design DD-1): shares the `sdd-` prefix and the
+# `pull_request` trigger with sdd-secret-scan.yml and sdd-review-gate.yml.
 #
 # Downstream stacks vary, so this template invokes a CONVENTIONAL entrypoint:
 # it runs `scripts/ci.sh` when the project provides one and fails on any check
@@ -14,8 +14,13 @@ name: sdd-build-test-lint
 on:
   pull_request:
     branches: [ main ]          # PR events targeting the protected branch
-  push:
-    branches-ignore: [ main ]   # pushes to feature branches, for fast feedback
+  # No `push` trigger: the pre-push hook already runs scripts/ci.sh, and a push
+  # trigger ran the full suite a second time on every push to an open PR.
+
+# One run per PR (or branch): a newer push cancels the older run of this workflow.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 # Least privilege (NFR-1): building/testing/linting only reads repo content.
 permissions:

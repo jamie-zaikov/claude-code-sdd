@@ -1,7 +1,7 @@
 # SDD CI gate — review gate (FR-14, FR-12, NFR-1, NFR-3).
 #
-# One gate per file (design DD-1): shares the `sdd-` prefix and the identical
-# trigger block with sdd-secret-scan.yml and sdd-build-test-lint.yml.
+# One gate per file (design DD-1): shares the `sdd-` prefix and the
+# `pull_request` trigger with sdd-secret-scan.yml and sdd-build-test-lint.yml.
 #
 # Server-side enforcement of the human merge gate (D3): a PR to `main` passes
 # ONLY when the `ready-to-merge` label is present AND no `blocked:*` label
@@ -13,8 +13,13 @@ name: sdd-review-gate
 on:
   pull_request:
     branches: [ main ]          # PR events targeting the protected branch
-  push:
-    branches-ignore: [ main ]   # pushes to feature branches, for fast feedback
+  # No `push` trigger: the gate acts only on PR events (labels); on push it only
+  # produced a skipped check.
+
+# One run per PR (or branch): a newer push cancels the older run of this workflow.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 # Least privilege (NFR-1): labels are read from the event payload file on disk
 # ($GITHUB_EVENT_PATH), so no API access or elevated scope is required.
@@ -28,8 +33,8 @@ jobs:
     # required check by its documented `sdd-` name.
     name: sdd-review-gate
     runs-on: ubuntu-latest
-    # No-op on push-to-feature-branch events: there is no PR label context yet.
-    # The gate only enforces on pull_request events targeting `main`.
+    # The workflow has only a pull_request trigger; this guard is defence in depth, so the
+    # gate can never report a skipped (passing) check for any other event.
     if: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Enforce review labels
