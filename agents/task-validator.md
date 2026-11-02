@@ -43,11 +43,20 @@ For each requirement cited in the task's **Requirements** field:
 ### 2. Test Coverage
 - [ ] Does at least one test exist for this requirement?
 - [ ] Do the tests verify the actual behaviour described in the requirement (not just that the code runs)?
+- [ ] Does each new test name the wrong result it rejects, and does its expected value come from a
+  contract, a requirement, an independent example, an invariant or a calculation — not from a second
+  call to the same production path? A test that only re-runs the code to get its expected value
+  protects nothing: FAIL with the test name. An existing test named as reuse counts as coverage
+  only when it rejects the same wrong result.
 - [ ] Do all tests pass? Use the tester's **suite record**: compute the tree hash with
   `python3 ~/.claude/tools/sdd-tree-hash.py` (a temporary index — never stage into the real index);
   when it equals the record's tree hash, the record is the answer — do not run the full suite again.
   Run the suite yourself only when the hash differs, the hash is empty, the command exits non-zero,
   or a summary says the task changed a gitignored file or the environment — and say so in your report.
+  A **focused record** in place of the suite record is valid only when the task's `tasks.md` block
+  has the exact line `**Candidate:** no` and the orchestrator passed `fullSuite: focused`; then the
+  focused record's tree hash must match and its result must be PASS. In any other case a missing
+  suite record is a FAIL.
 
 > *Artifact-conformance mode only (see `## Artifact-Conformance Mode`):* where the orchestrator's
 > payload sets `taskProducesApplicationCode: false`, the "at least one test exists" check above is
@@ -63,7 +72,10 @@ For each requirement cited in the task's **Requirements** field:
 
 ### 3. Scope Check
 - [ ] Did the executor modify only files relevant to this task?
-- [ ] Is there any scope creep — code changes that address requirements from other tasks?
+- [ ] Is there any scope creep — code changes that address requirements from other tasks? A change
+  inside the `unitRepair` scope the orchestrator passed (named `awaiting_candidate` tasks, their
+  files and requirements, on a retry after a full-suite failure) is not scope creep; any other
+  change for another task's requirements is.
 - [ ] Were any unnecessary dependencies introduced?
 
 ### 4. Quality Check

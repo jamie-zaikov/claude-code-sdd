@@ -269,7 +269,7 @@ class OvernightReviewFixesTest(Base):
         gate = section(self.orch, "Feature Review Gate (runs automatically after the last task completes, before `complete`)")
         self.has(gate, r"Overnight: stop here\.\*\* If `overnightAuthorization` is set, do \*\*not\*\* publish", "gate PASS")
         self.has(gate, r"If `overnightAuthorization` is set, do \*\*not\*\* ask", "gate FAIL")
-        self.has(self.impl, r"Stopped because: <all tasks complete \| no runnable task \| user \| off>", "template")
+        self.has(self.impl, r"Stopped because: <all tasks complete \| no runnable task \| unverified commits \| user \| off>", "template")
         self.has(self.impl, r"^## Feature review$", "template section")
 
     def test_material_amendment_always_parks(self):
@@ -287,7 +287,7 @@ class OvernightReviewFixesTest(Base):
         self.has(self.impl, r"reset its `retryCount` to 0 only when the\s+user explicitly asks", "retry reset")
         self.has(self.impl, r"cannot run while any task is `deferred`", "feature review waits")
         state = section(self.orch, "State File Management")
-        self.has(state, r"`pending`, `in_progress`, `complete`, or `deferred`", "status vocabulary")
+        self.has(state, r"`pending`, `in_progress`, `awaiting_candidate`, `complete`, or\s+`deferred`", "status vocabulary")
 
     def test_convergence_identity_is_defined(self):
         self.has(self.impl, r"A finding's identity is \*\*`\(stage, file path, requirement id or the reviewer's finding title\)`\*\*", "identity")

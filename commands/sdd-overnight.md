@@ -18,7 +18,7 @@ file does not exist, stop and suggest `/sdd-feature <feature-name>`.
 ## `status`
 
 Report, from the state file only: whether `overnightAuthorization` is set (and its `grantedAt`), the
-phase, tasks `completed`/`total`, tasks `deferred`, the count of `userApprovalNeeded` entries, and
+phase, tasks `completed`/`total`, tasks `awaiting_candidate`, tasks `deferred`, the count of `userApprovalNeeded` entries, and
 the last `preflight.ranAt` with its open gaps. Change nothing.
 
 ## `on`

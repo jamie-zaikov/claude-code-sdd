@@ -460,12 +460,14 @@ had been invoked. Record the authorization as `overnightAuthorization: { granted
   tree is clean (`git status --porcelain` empty outside `.specs/`) before the next task starts; if it
   is not, stop the run. The next task never inherits a parked task's code.
 - **Which task runs next — mechanical, never guessed.** After a park, a later task may run only
-  when **every task its `Depends:` line names is `complete`**. Because each named task had to meet
-  the same rule, the check is transitive by construction. A task without a `Depends:` line depends
-  on every earlier task, so it runs only when all of them are `complete`. Run the qualifying tasks
+  when **every task its `Depends:` line names is `complete` or `awaiting_candidate`**. Because each
+  named task had to meet the same rule, the check is transitive by construction. A task without a
+  `Depends:` line depends on every earlier task, so it runs only when all of them are `complete` or
+  `awaiting_candidate`. Run the qualifying tasks
   in `tasks.md` order. When no task qualifies, the run ends.
 - **The end of the run — one rule.** The run ends when no runnable task remains. If every task is
-  `complete`, run the **Feature Review Gate** once, but **never publish** overnight: record the
+  `complete` or `awaiting_candidate`, run the **Feature Review Gate** once (its suite settle completes
+  the `awaiting_candidate` tasks first), but **never publish** overnight: record the
   verdict under `featureReview` with `reviewedHead: <git rev-parse HEAD>`, set `publishPending: true` on PASS, and do not ask on FAIL — the
   findings go to the summary. The publish sequence waits for the user's explicit word. Then write
   `spec-memory/overnight-summary.md` with the **Overnight summary template** below.
@@ -488,13 +490,13 @@ sections, in this order, so every morning report reads the same:
 ```
 # Overnight summary — <feature> (<grantedAt> → <stoppedAt>)
 ## Result
-Tasks: <completed before> → <completed now> of <total>. Stopped because: <all tasks complete | no runnable task | user | off>.
+Tasks: <completed before> → <completed now> of <total>; awaiting a candidate: <task list | none>. Stopped because: <all tasks complete | no runnable task | unverified commits | user | off>.
 ## Feature review
 <not run (tasks remain) | PASS — publishPending, waits for your word | FAIL — findings below>
 ## Needs you
 <one entry per userApprovalNeeded item: the context, the decision, the choice made and why, each option's effect (the *Asking the User* shape); "none" if empty>
 ## Tasks
-| Task | Commit | Validator | Code review | Security | Suite record |
+| Task | Commit | Validator | Code review | Security | Suite record (or `focused: <record>`) |
 ## Deferred
 <one line per deferred task: task, the entry or halt it waits on, parkedRef>
 ## Deferred findings
@@ -550,8 +552,53 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   `input-data/` fixtures) or the installed environment (`pip install`, a lockfile sync) voids the
   record — the stage that made the change says so, and the next stage runs the full suite. Use the parallel runner
   steering declares (e.g. `pytest -n auto`) when `tech.md` names one. The full suite runs at least
-  once per accepted candidate — a task, or a wave batch — after its last change, and at the
+  once per accepted candidate — a candidate task, or a wave batch — after its last change, and at the
   Feature Review Gate only when no valid record matches the final tree.
+
+  **Candidates (one full suite per integration unit).** A task whose `tasks.md` block has the exact
+  line `**Candidate:** no` is inside an integration unit: its tester runs the **focused tests** (the
+  task's own tests and the tests of every module it touched and of their direct importers) and
+  writes a **focused record**. Every other task — a `Candidate:` line with any other value, or no
+  line at all — is a **candidate**, and its tester runs the full suite as above. A wave batch is
+  always a candidate. Fail closed — pass `fullSuite: required` on a `Candidate: no` task when **any
+  one** of these holds, and the task is then a candidate for this attempt:
+  - the task's last attempt failed, or it is the last task of the feature;
+  - no task after it in `tasks.md` that is not yet `complete` is a candidate (a re-opened task, a
+    resume after a crash);
+  - the task changes a `Contract:` interface, a file on its `Shared:` line, test infrastructure
+    (`conftest.py`, shared fixtures, test configuration), a gitignored input the tests read, or
+    the installed environment;
+  - the executor or the tester cannot list the callers of a module the task changed.
+
+  **Records.** `suiteRecord` holds full-suite runs only. A focused record goes to
+  `taskStatus[N].focusedRecord` and never into `suiteRecord`, so a hash match never reuses a focused
+  run as full-suite evidence. Pass `fullSuite: required | focused` to the tester **and** the
+  validator (the validator accepts a focused record only with `fullSuite: focused`).
+
+  **Waiting and completion.** A `Candidate: no` task that passes every gate is committed as usual
+  but set to `awaiting_candidate`, not `complete`, and is not marked `[x]`. A task that names it on
+  `Depends:` may run (an `awaiting_candidate` task satisfies a dependency, as `complete` does — in
+  the overnight run order, Level 1 overlap and wave eligibility alike). **Any** full-suite PASS on a
+  tree that holds an `awaiting_candidate` task's commit — a candidate's, a wave batch's, a tester's
+  own escalation to the full suite, or the Feature Review Gate's suite settle — sets that task to
+  `complete` and marks it `[x]`, once the task whose tree it is passes every gate. The Feature Review
+  Gate never starts its reviewers while any task is `awaiting_candidate`.
+
+  **A red full suite.** A full-suite failure is a blocking result of the task that ran it, and is
+  handled like any other (in-attempt repair when eligible, then the retry; `retryCount` counts on
+  that task). Its retry report names the failing tests and carries a **`unitRepair` scope** — the
+  `awaiting_candidate` tasks, their files, and their requirements. Pass `unitRepair` to that
+  attempt's executor, tester, validator and reviewers. The executor may fix any file in it — it
+  lists each such file under `Files Changed`, so the commit holds it; the tester may add a
+  regression test for a requirement in it; the validator does not count a change inside it as scope
+  creep; and the validator of each `awaiting_candidate` task whose files it changed re-runs in that
+  attempt's Stage 3. A change outside `unitRepair` stays scope creep. **Fail closed on a halt:** when a task halts while any task is
+  `awaiting_candidate`, HEAD holds code no full suite has passed. Park the halted task as usual, then
+  launch the task-tester with `mode: suite-only` once on the clean HEAD. A PASS sets every
+  `awaiting_candidate` task to `complete`, and the run goes on. A FAIL, or a missing result, **ends the
+  run** — overnight: `Stopped because: unverified commits`; attended: present the failing tests and
+  the `awaiting_candidate` tasks to the user, and wait. On a FAIL no later task starts on that HEAD
+  until the user decides.
 
   **After the executor returns — `MATERIAL CHANGE` first.** If the executor's summary contains a
   `MATERIAL CHANGE:` note, stop this task's pipeline before Stage 2: the task is unfinished by
@@ -575,6 +622,8 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
   **Stage 2 — Testing** *(code track only — skipped when `taskProducesApplicationCode: false`)***:**
   Invoke the **task-tester** subagent. Pass it:
   - The context pack path, the steering files, and the executor's completion summary
+  - `fullSuite: required` (a candidate, or a fail-closed case) or `fullSuite: focused` (a
+    `Candidate: no` task) — *Candidates*, above
 
   **Stages 3–5 — Validation and review, concurrently.** The validator and the reviewers read the
   same tree and are independent, so launch them **in one message**:
@@ -586,7 +635,8 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
     the rabbit hole.
 
   Pass the validator the context pack path, the executor's and tester's summaries, the suite
-  record, and the **classification payload**. On `taskProducesApplicationCode: false` it runs
+  record (or the task's focused record), the task's `fullSuite` value, and the **classification
+  payload**. On `taskProducesApplicationCode: false` it runs
   artifact-conformance mode (the `Acceptance:` checklist, the render/lint check, the closed coherence
   rubric). The validator confirms spec conformance; it does NOT hunt for bugs or security holes —
   that is the reviewers' job.
@@ -666,8 +716,10 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
 
 - On **pass** — code track: validator PASS *and* **both** reviewers PASS; non-code track: validator
   PASS *and* the security-reviewer PASS (the code-review stage was skipped). Update
-  `taskStatus[N].status = "complete"`, record `codeReview` (`"pass"`, or `"skipped"` on the non-code
-  track) and `securityReview: "pass"`, update `completed` count, mark the task `[x]` in `tasks.md`.
+  `taskStatus[N].status = "complete"` (`"awaiting_candidate"` for a task that ran only focused
+  tests — *Candidates*, above), record `codeReview` (`"pass"`, or `"skipped"` on the non-code
+  track) and `securityReview: "pass"`, update `completed` count, mark the task `[x]` in `tasks.md`
+  (an `awaiting_candidate` task waits for its candidate's pass for the count and the mark).
   Report to user (surface any non-blocking Medium/Low findings for awareness, recorded as deferred
   findings in the index — never fixed in this task) and advance.
   - **GitHub (per-task pass, local-first):** invoke **github-agent** `{ action: commit, message, paths: [<task's changed files>] }` — a **local commit only, no push**. The commit message you author **ends with the fixed trailer line** `SDD-Task: <N>` on its own line, so the commit is machine-attributable to its task. When the session gives a commit-attribution line (e.g. `Co-Authored-By: <the session's model>`), you write it into the message yourself, after `SDD-Task:` — **unless a user instruction (CLAUDE.md, memory, or the user's own words) removes or changes it: the user's rule wins over the session's attribution.** github-agent never adds or edits a trailer. Confirm the returned `commit:` SHA — a report without one is a failed commit. **Record the verdict blocks locally** — write the validator's (and, on the code track, the two reviewers') verbatim, stage-attributed verdicts to the feature's `spec-memory/` as the local audit trail. Nothing is pushed and no PR comment is posted: there is no PR yet. The accumulated verdicts are transcribed to the PR once, at the publish point (Feature Review Gate → PASS).
@@ -710,11 +762,11 @@ Tasks: <completed before> → <completed now> of <total>. Stopped because: <all 
 Stages 3–5 of task N only read its tree, so the next task's executor need not wait for them. When
 Stages 3–5 of task N start on the **code track**, start task N+1's executor speculatively if all of
 these hold: `tech.md` does not say `Stage overlap: off`; N+1 is the next task in order; every task
-its `Depends:` line names (other than N) is `complete`; N+1 is not deferred; and no speculation is
+its `Depends:` line names (other than N) is `complete` or `awaiting_candidate`; N+1 is not deferred; and no speculation is
 running.
 
-1. **Start.** Invoke **github-agent** `{ action: overlap-start, task: N+1, tree: <N's suite-record
-   tree hash> }`. It runs `python3 ~/.claude/tools/sdd-overlap.py start` and returns the worktree
+1. **Start.** Invoke **github-agent** `{ action: overlap-start, task: N+1, tree: <the tree hash of
+   N's record — its suite record, or its focused record on a `Candidate: no` task> }`. It runs `python3 ~/.claude/tools/sdd-overlap.py start` and returns the worktree
    path and the base commit. Record `speculation: { task: N+1, base, worktree, startedAfter: N }`.
 2. **Execute.** Build N+1's context pack, then invoke the **task-executor** with its usual input
    plus `worktree: <path>` and `speculative: true`. It writes code in the worktree only.
@@ -749,13 +801,17 @@ exists, and no wave task is parked with `park`**; and on resume run `python3
 
 ### Feature Review Gate (runs automatically after the last task completes, before `complete`)
 
-Once every task is `complete`, do NOT jump straight to `complete`. Run one whole-feature review pass
+Once every task is `complete` or `awaiting_candidate`, do NOT jump straight to `complete`. Run one whole-feature review pass
 first — the only stage that sees how the tasks compose. Set `phase` to `feature-review` and invoke the
 **code-reviewer** and **security-reviewer** subagents in `feature` mode, **concurrently**. First
 settle the suite: compute `sdd-tree-hash.py` for the final tree; when it equals the suite record's
 `treeHash` and no stage declared a changed gitignored input or environment since, the record is the
 feature's suite result — **do not run the suite again**. Otherwise launch the task-tester with
-`mode: suite-only` once and use its record. Pass each reviewer:
+`mode: suite-only` once and use its record. A PASS sets every `awaiting_candidate` task to
+`complete`; a FAIL re-opens the last `awaiting_candidate` task with `fullSuite: required` and the
+failing tests as its retry input — a retry, so its `retryCount` goes up and the convergence rule and
+the cap apply; overnight, the run goes on with that task. The reviewers start only when no task is
+`awaiting_candidate`. Pass each reviewer:
 - The feature name and directory
 - `modularity: enforced` or `modularity: not-enforced` (as for the per-task reviews)
 - The open and routed findings from the index (`sdd-findings.py list --status open,routed`) — the
@@ -1012,9 +1068,9 @@ index lives in `spec-memory/findings.jsonl`, never in this file), `prototypeAuth
 (top level: `{ tasks, base, attempt }` while a wave exists), `repairTrees` (per task),
 `blockingHistory` (per
 attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,
-`deferredBy`, `retryResetBy`, and `attemptTrees` (per task); `suiteRecord`, `preflight`, `overnightAuthorization`,
+`deferredBy`, `retryResetBy`, and `attemptTrees` and `focusedRecord` (per task); `suiteRecord`, `preflight`, `overnightAuthorization`,
 `userApprovalNeeded`, `publishPending`, `modularity`, `invocations`, and `speculation` (top level). `taskStatus[N].status` takes exactly one of
-`pending`, `in_progress`, `complete`, or `deferred`. Use these exact names — a key spelled differently in each feature
+`pending`, `in_progress`, `awaiting_candidate`, `complete`, or `deferred`. Use these exact names — a key spelled differently in each feature
 breaks resume and status.
 
 **Size limit — the state file is an index, not a log.** Every stage reads `.spec-state.json`, so

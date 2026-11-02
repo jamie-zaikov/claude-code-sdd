@@ -91,6 +91,10 @@ Tasks in `tasks.md` must be ordered so no task depends on the output of a later 
 - For each task, note any files it is expected to create or modify (from the **Files:** field).
 - Check whether any earlier task references a file that is only created by a later task.
 - Flag forward dependencies.
+- **Candidate marks.** For each task with the line `**Candidate:** no`, flag it when: it is the last
+  task; no later task without that line lists it on its `Depends:` line (directly, or through other
+  `Candidate: no` tasks); or it has a `Contract:` or `Shared:` line. Each such case would let a task
+  complete without a full-suite run that covers it.
 
 ### Check 7 — Task Completeness
 
