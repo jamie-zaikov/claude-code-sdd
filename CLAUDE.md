@@ -40,14 +40,16 @@ prototype patch may be adopted after confirmation; every gate still runs on it.
 
 **Explore → Promote** (`playbooks/sdd-explore.md`). When the user chooses it — never inferred — the
 **explorer** subagent solves a hard problem inside `exploreAuthority`, a scope the user grants once
-per feature (objective, boundary, action path, forbidden routes, budget): no pipeline, no specs,
-no per-attempt approval, but every project safeguard, every patch saved with its manifest, and
-every created object deleted and verified. Explore runs between tasks only — before a task to find
-how to build it, or after a task to evaluate it in simulation — one attempt per explorer
-invocation; the orchestrator reads only each attempt's log entry and the user redirects between
-attempts. Promote then runs the proven solution through the existing planning path with no extra
-gate; a run is an observation, not an oracle. Overnight mode never grants or widens
-`exploreAuthority`.
+per feature (objective, boundary, action path, forbidden routes, a budget of attempts, a cadence):
+no pipeline, no specs, no new permission grant per attempt, but every project safeguard, every
+patch saved with its manifest, and every created object deleted and verified or retained on the
+user's word. The authority is durable; execution advances one requested attempt, or one requested
+bounded sequence (`cadence: continuous, upTo: N`), at a time — silence never extends it. Explore is
+checkpoint-only: it runs between tasks — before a task to find how to build it, or after a task to
+evaluate it in simulation — one attempt per explorer invocation; the orchestrator reads only each
+attempt's log entry, a respawn is recovery only, and the user redirects between attempts. Promote
+then runs the proven solution through the existing planning path with no extra gate; a run is an
+observation, not an oracle. Overnight mode never grants or widens `exploreAuthority`.
 
 **Feature class — the user declares the track.** Right after the consistency check passes, the
 Classification Gate locks `featureClass`: `code` (the default) or `non-code`. It is a declared human
