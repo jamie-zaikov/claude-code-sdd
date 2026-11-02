@@ -38,7 +38,8 @@ task is in progress, and nothing is parked for it. Three window kinds, and no ot
   through its owner agent and the user. An evaluation never edits product code, never reopens or
   passes a task by itself, and never stands in for a gate or for the acceptance probe. A read-only
   or no-change evaluation needs no patch. **Severity cap:** an explore-stage finding is recorded
-  with severity `medium` or `note` only — it never blocks a task by itself. A Critical/High claim
+  with severity at most `medium` (`medium`, `low` or `note`) — never `high` or `critical`; it never
+  blocks a task by itself. A Critical/High claim
   from Explore is a material decision put to the user (*Asking the User*); only a gate's own
   re-derivation — the validator, a reviewer, or the Feature Review Gate — can make it blocking.
 
@@ -125,6 +126,11 @@ exploreAuthority: {
   attempt: Explore is attended work.
 - **Start narrow.** Prefer the smallest objective that can settle the open uncertainty; a wider
   Explore is a new decision for the user, never a drift.
+- **Completing an older grant.** A grant recorded before a key this release requires (`reconcile`,
+  `cadence`) is completed on the user's word only: ask once, in the *Asking the User* shape, and
+  record the added fields under the grant with `amendedAt` and the user's quote. An agent never
+  fills a missing key in and never assumes a default; until the user completes it, the explorer
+  stops with `grant missing or incomplete`.
 
 ## 3. A window — the loop, one invocation at a time
 
@@ -219,13 +225,17 @@ a result, you report from the stub (the reservation), the ledger and the status 
 7. **Missing evidence is a stop.** When the grant is live and `attemptsUsed > 0` but the log or
    the ledger file is missing (a fresh clone, lost gitignored files), a cleanup cannot be verified:
    stop, report, and start no attempt until the user re-provides the files or declares the boundary
-   clean (recorded under `decisions[]`).
+   clean (recorded under `decisions[]`). Run this check **before you reserve** an attempt, so the
+   first attempt of a fresh feature never stops on its own reservation.
 8. **Solution brief** — `spec-memory/explore/solution-<window>.md`, written by the `close`
    invocation: the mechanisms that work; the variants that fail and why (one line per failure
    mechanism); the product changes needed, each with its patch and manifest path; the **open
    limits** (e.g. 6 of 18 timing limits exceeded), never silently relaxed; the provisional commits
    the window used; and the evidence paths. The brief is evidence, not a spec. Closing the window
-   sets `window.closedAt` and `explore.status: closed`.
+   sets `window.closedAt` and `explore.status: closed`. On revocation the `close` writes a **stub
+   brief** instead, and only this: the window kind, `head`, `provisional`, the attempt ids with
+   their results, the retained and unresolved objects, `reason: revoked` with the user's words, and
+   the line `no mechanism claimed` — Promote never reads a stub brief as a solution brief.
 
 ## 4. Promote — SDD implements the solution
 
@@ -275,8 +285,10 @@ a result, you report from the stub (the reservation), the ledger and the status 
 ## 5. Sessions, resume and overnight
 
 - **Resume.** The grant survives a session. On any resume, show the user the grant (objective,
-  boundary, budget, cadence) and the attempts used, list retained and open ledger items, then
-  continue the feature. A new attempt starts only on the user's word (or an active continuous
+  boundary, budget, cadence) and the attempts used **of** the budget (`attemptsUsed` includes
+  `reserved` and `uncertain` entries — list each such entry by id; the next invocation is a
+  `recover`), list retained and open ledger items, then continue the feature.
+  A new attempt starts only on the user's word (or an active continuous
   request stated again by the user — a sequence never survives a session by itself); an explorer
   status file not `done`, or a `reserved`/`uncertain` attempt, means the next invocation is a
   `recover`. A missing log or ledger with `attemptsUsed > 0` is the stop of §3.7.
@@ -285,9 +297,12 @@ a result, you report from the stub (the reservation), the ledger and the status 
   `complete`); `idle` is the interval between invocations inside an open window; `running` while an
   explorer invocation is live. You set `spent` at the budget stop, and `closed` when a window
   closes and at `complete`. **Revocation:** on the user's word you first launch one final `close`
-  invocation (cleanup of `open` objects, verified; the brief, or a stub brief; the progress line
-  keeps retained and unresolved objects), set `window.closedAt`, then set `revoked`; task, overlap
-  and wave launches resume only after that. Open objects are never left as they are.
+  invocation (cleanup of `open` objects, verified; the brief, or the stub brief of §3.8; the
+  progress line keeps retained and unresolved objects), set `window.closedAt`, then set `revoked`;
+  task, overlap and wave launches resume only after that. Open objects are never left as they are.
+  **Sequence while an explorer is `running` or stale:** wait for the invocation to end, or kill it
+  per the contract and confirm it is gone; if its attempt is `uncertain`, run `recover` first; then
+  the final `close` — never `close` before that `recover`, because `close` reconciles nothing.
 - **Overnight.** `/sdd-overnight <feature> on` refuses to start while `explore.status` is `idle` or
   `running` (a window is open); an overnight run starts no Explore attempt and never grants or
   widens the authority.

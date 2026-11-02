@@ -50,7 +50,9 @@ The orchestrator passes you, every invocation:
 
 A grant that is missing, a prompt without `boundary`, `actionPath` or `forbidden`, or
 `reconcile: none` with a boundary that permits creating live objects, is a stop: write nothing to
-a live system and return `EXPLORE REQUEST: grant missing or incomplete`.
+a live system and return `EXPLORE REQUEST: grant missing or incomplete`. A grant that lacks
+`reconcile` or `cadence` (recorded before this release) is completed only by the user's word
+through the orchestrator; never assume a default for a missing key.
 
 ## Hard rules — the grant binds you; it never revokes a project rule
 
@@ -160,7 +162,10 @@ retained objects. Then write the **solution brief** at the brief path: the mecha
 the variants that fail and why (one line per distinct failure mechanism); the product changes
 needed, each with its patch and manifest path — an evaluation with no change has none; the **open
 limits** (a timing limit exceeded, a constraint unmet), never silently relaxed; the provisional
-commits the window used; the evidence paths. The brief is evidence, not a spec. Write no new
+commits the window used; the evidence paths. The brief is evidence, not a spec. When the prompt
+says the grant is revoked, write a **stub brief** instead, and only this: the window kind, `head`,
+`provisional`, the attempt ids with their results, the retained and unresolved objects,
+`reason: revoked` with the user's words, and the line `no mechanism claimed`. Write no new
 attempt.
 
 ## Stop rules — stop at once, clean up, report, wait

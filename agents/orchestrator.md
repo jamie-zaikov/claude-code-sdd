@@ -200,7 +200,8 @@ morning.
        so a session that resumes past that point would otherwise never pass through it, and every
        implementation stage reads `featureClass`. Resuming is the one path that can skip it.
      - **Explore grant on resume.** If `exploreAuthority` is set, show the user the grant
-       (objective, boundary, budget) and `explore.attemptsUsed`, list open ledger items, and
+       (objective, boundary, budget) and `explore.attemptsUsed` of the budget with every
+       `reserved` or `uncertain` entry by id, list open ledger items, and
        continue; a new attempt starts only on the user's word (`playbooks/sdd-explore.md` §5).
    - If it does not exist, this is a new feature. Create the feature directory and initialize the state file. The local feature branch is created by `/sdd-feature` (deterministically `feature/<feature-name>`, FR-3.1) and is **not pushed** — the branch stays local through the whole build and reaches GitHub only at the single publish point (see *GitHub Integration*, local-first).
 3. If `.specs/features/<feature-name>/scope.md` exists, read it. This artifact is produced by the main session during pre-orchestrator scoping and captures resolved open questions, scope boundaries, discrepancies reconciled, and cross-cutting rules. Treat it as authoritative input alongside steering, and pass it to every specialist agent you invoke.
@@ -274,9 +275,10 @@ rules hold even without the playbook:
   evaluation never edits product code, never reopens or passes a task, and never stands in for a
   gate or the acceptance probe; an `awaiting_candidate` commit it uses is provisional — Explore
   never completes it and never replaces its full suite. An explore-stage finding is recorded with
-  severity `medium` or `note` only; a Critical/High claim is a decision for the user, and only a
+  severity at most `medium`; a Critical/High claim is a decision for the user, and only a
   gate's own re-derivation can make it blocking. On the user's revocation, one final `close`
-  invocation runs (verified cleanup), then `window.closedAt` and `revoked`.
+  invocation runs (verified cleanup), then `window.closedAt` and `revoked`; a running or stale
+  explorer ends first, and an `uncertain` attempt runs `recover` before that `close`.
 - **No live action outside `actionPath` or `boundary`.** A permission the grant does not cover
   needs a new user decision, recorded under `exploreAuthority.decisions[]`; a `decisions[]` entry
   never covers a hook block or a deny result; Explore never improvises a route around a tooling gap.
