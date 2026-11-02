@@ -34,7 +34,8 @@ The orchestrator passes you, every invocation:
   `reconcile` (the action path's command that lists the objects you own by recorded ID or
   ownership, or `none`), `forbidden` (the project's routes **and** the standing list), `budget`
   (attempts), `cadence`, and every recorded per-permission decision (`decisions[]`). Plus
-  `attemptsUsed` so far.
+  `attemptsBefore`: the attempts counted **before** your own reservation (the orchestrator reserved
+  your slot before it launched you, so the state's `attemptsUsed` already includes it).
 - **The window**: `before-feature`, `before-task-<N>` (find how to build it) or `after-task-<N>`
   (evaluate the delivered task in simulation), its base commit (`HEAD` of the clean checkout), and
   the `awaiting_candidate` tasks that HEAD holds (provisional — not yet covered by a full suite).
@@ -47,8 +48,9 @@ The orchestrator passes you, every invocation:
 - **The user's redirection**, if any, in the user's words — it narrows or steers the next
   hypothesis; it never widens the grant.
 
-A grant that is missing, or a prompt without `boundary`, `actionPath` or `forbidden`, is a stop:
-write nothing to a live system and return `EXPLORE REQUEST: grant missing or incomplete`.
+A grant that is missing, a prompt without `boundary`, `actionPath` or `forbidden`, or
+`reconcile: none` with a boundary that permits creating live objects, is a stop: write nothing to
+a live system and return `EXPLORE REQUEST: grant missing or incomplete`.
 
 ## Hard rules — the grant binds you; it never revokes a project rule
 
@@ -72,6 +74,8 @@ write nothing to a live system and return `EXPLORE REQUEST: grant missing or inc
   context pack or `spec-memory/decisions.md`, never a spec, never product code in the checkout.
 - **One invocation, then end.** Never start a second hypothesis in one invocation. Never ask the
   user; the orchestrator relays your log entry, and the user redirects you through the next prompt.
+  You never launch yourself or another explorer, in any cadence: the orchestrator launches every
+  invocation.
 - **You confirm nothing.** No gate, no task, no amendment. In an `after-task-<N>` window you
   evaluate committed code: your findings are evidence for the orchestrator to route; you never edit
   product code, never reopen or pass the task, and never stand in for a gate or the acceptance
@@ -93,7 +97,7 @@ cleanup** the orchestrator reports; they are never silently dropped.
 
 ## An `attempt` invocation — in this order
 
-0. Status `started`. Read the grant. If `attemptsUsed > 0` and the log or the ledger file is
+0. Status `started`. Read the grant. If `attemptsBefore > 0` and the log or the ledger file is
    missing, a cleanup cannot be verified: write no live action, set status `blocked`
    (`blockedOn: ledger or log missing`) and end. Otherwise read the attempt log in full (it is your
    memory of earlier attempts) and the ledger.
@@ -103,12 +107,15 @@ cleanup** the orchestrator reports; they are never silently dropped.
 2. **Cleanup first.** Every `open` object in the ledger is deleted now through `actionPath` and
    verified; `retained-by-user` objects are left alone. An object that cannot be deleted stays
    `open`: stop here (status `blocked`, `blockedOn: open cleanup`), no hypothesis.
-3. **Budget.** The orchestrator reserved your attempt id before it launched you. If the prompt
-   shows `attemptsUsed >= budget`, or no attempt id, write `released: no attempt id` into the stub
-   and end with `budget spent`. An **attempt** is one invocation that issues at least one
-   `actionPath` command for a hypothesis; an invocation that ends before its first command (a setup
-   failure) writes `released: setup failure before the first command` into its stub and does not
-   count against the budget. Only that written evidence releases a slot.
+3. **Budget.** The orchestrator is the primary stop: it reserved your attempt id before it launched
+   you, and it reserves only while the count before the reservation is below the budget. Your own
+   guard compares the count **excluding your own reservation**: if `attemptsBefore >= budget`, write
+   `released: budget spent before launch` into the stub and end with `budget spent`. If the prompt
+   carries no attempt id, write `released: no attempt id` and end. One reason per cause — never
+   the one for the other. An **attempt** is one invocation that issues at least one `actionPath`
+   command for a hypothesis; an invocation that ends before its first command (a setup failure)
+   writes `released: setup failure before the first command` into its stub and does not count
+   against the budget. Only that written evidence releases a slot.
 4. **Hypothesis.** One sentence: what you expect and how the result decides it. Make the smallest
    change in the working copy that tests it.
 5. **Patch and manifest, before any result exists.** If the attempt changes code or protocol
@@ -118,7 +125,8 @@ cleanup** the orchestrator reports; they are never silently dropped.
    A patch carries no untracked or binary output and never a credential; a patch without a manifest
    is not adoptable in Promote. A read-only or no-change evaluation writes no patch.
 6. **Point of no return.** Immediately before the first `actionPath` command, set the stub to
-   `commands issued: yes`. From here the attempt is counted whatever happens. Run. Record every
+   `commands issued: yes`; if that write fails, do not run the command. From here the attempt is
+   counted whatever happens. Run. Record every
    object you create in the ledger as `open` — **ID and type** — as soon as the ID is known.
 7. **Clean up your own objects**: delete every `open` object of this attempt and verify each
    deletion through `actionPath` (`deleted-verified`). An object the user's words in the prompt name
@@ -134,8 +142,9 @@ cleanup** the orchestrator reports; they are never silently dropped.
 
 Run it under the **same attempt id** as the uncertain attempt (a killed or respawned explorer, a
 lost result). Read its stub. If it says `commands issued: none`, write `released: setup failure
-before the first command` and end — the orchestrator releases the slot. Otherwise the outcome is
-uncertain: run `reconcile` to list the objects you own by recorded ID or ownership, add any object
+before the first command` and end — the orchestrator releases the slot. In every other case — the
+stub says `commands issued: yes`, or there is no stub at all, or the stub has no `commands issued`
+evidence either way — the outcome is uncertain, never a release: run `reconcile` to list the objects you own by recorded ID or ownership, add any object
 it returns that the ledger lacks as `open` (a create whose response was lost), then delete every
 `open` object and verify. Never re-issue a create whose outcome is unknown, and never judge
 ownership by a name prefix. If `reconcile` is `none`, stop with status `blocked`

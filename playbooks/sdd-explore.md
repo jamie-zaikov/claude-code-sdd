@@ -37,12 +37,16 @@ task is in progress, and nothing is parked for it. Three window kinds, and no ot
   any finding — into the findings index (by you, with stage `explore`), or as a material amendment
   through its owner agent and the user. An evaluation never edits product code, never reopens or
   passes a task by itself, and never stands in for a gate or for the acceptance probe. A read-only
-  or no-change evaluation needs no patch.
+  or no-change evaluation needs no patch. **Severity cap:** an explore-stage finding is recorded
+  with severity `medium` or `note` only — it never blocks a task by itself. A Critical/High claim
+  from Explore is a material decision put to the user (*Asking the User*); only a gate's own
+  re-derivation — the validator, a reviewer, or the Feature Review Gate — can make it blocking.
 
 **Window entry — mechanical, against existing state.** A window opens only when all hold: no task
 is `in_progress`; the main checkout is clean outside `.specs/`; no wave exists; no Level 1
 speculation exists; no specialist writer is live (every status file for the feature is `done`,
-`failed` or answered). While a window is open (until `window.closedAt` is set) **no task, Level 1
+`failed`, or `blocked` whose `blockedOn` the orchestrator has acted on and whose agent has ended).
+While a window is open (until `window.closedAt` is set) **no task, Level 1
 overlap or wave launches**. A `before-task-<N>` window is requested before task N could start
 speculatively: when the user has asked for one, do not start N's overlap. `HEAD` is the base of
 every attempt; record it in the window.
@@ -60,7 +64,10 @@ what the objective needs (a runner that simulates one order cannot test two link
 cannot, Explore does not improvise a route: either narrow the objective to what the path can test,
 or extend the path first as a small reviewed change through the normal gates, then explore. Surface
 the gap to the user with the two options; **the user chooses**, never the agent. Check this before
-the grant, not after.
+the grant, not after. The same check requires a **`reconcile` capability** whenever `boundary`
+permits creating live objects — without it a create whose response was lost can never be found or
+deleted; `reconcile: none` is acceptable only for a read-only or simulate-only boundary that creates
+nothing.
 
 **Ask once per feature**, in the *Asking the User* shape (context, WHAT, WHY, HOW): the objective,
 the boundary, the action path and its reconcile capability, the forbidden routes, the budget, the
@@ -141,12 +148,18 @@ invocation number; a `recover` reuses the attempt id it settles.
   boundary or authority change (an `EXPLORE REQUEST`), the budget or `upTo` reached, an unknown
   action outcome (a `recover` pending), open cleanup, or a material decision. Silence never creates
   or extends a continuous request; the next sequence is the user's word again. Overnight still
-  starts no attempt.
+  starts no attempt. There is no wall-clock cap in this release: each attempt is bounded by the
+  contract's grace window (stale → nudge → kill → `recover`), and the sequence by `upTo` and the
+  budget. In every cadence only you launch an explorer; the explorer never launches itself.
 
 **Budget and reservation — attempts only.** An **attempt** is one explorer invocation that issues
 at least one `actionPath` command for a hypothesis. **Before** each `attempt` launch you reserve
 the slot in the state file: `explore.attempts[]` gains `{ id, invocation, window, state:
-"reserved" }`, and `attemptsUsed` counts every entry that is not `released`. A crash, a kill or a
+"reserved" }`, and `attemptsUsed` counts every entry that is not `released`. **You are the primary
+budget stop:** reserve only when `attemptsUsed < budget` (the count before the new reservation);
+otherwise set `explore.status: spent` and launch nothing. Pass the explorer `attemptsBefore` (the
+count before its reservation); its own guard compares that count, never one that includes its own
+slot. A crash, a kill or a
 lost result never frees the slot. Only the explorer's written evidence of a setup failure before
 its first command (`released: …` in its log stub) lets you mark the entry `released`; the stub's
 `commands issued: yes` or any uncertainty marks it `counted` (or `uncertain`). An attempt whose
@@ -157,7 +170,8 @@ hypothesis.
 status file that is not `done`, or an `uncertain` attempt runs a `recover` invocation: cleanup of
 `open` objects, reconciliation of a lost result through the grant's `reconcile` command (an object
 created with a lost response is found by recorded ID or ownership — never by a name prefix, and a
-create with an unknown outcome is never re-issued), a log entry, no hypothesis. The next `attempt`
+create with an unknown outcome is never re-issued), a log entry, no hypothesis. A missing stub, or
+a stub without `commands issued` evidence either way, is uncertain — never a release. The next `attempt`
 needs the user's word (`step`) or the active continuous request. A grant whose `reconcile` is
 `none` stops on an uncertain outcome until the user settles it.
 
@@ -269,8 +283,11 @@ a result, you report from the stub (the reservation), the ledger and the status 
 - **Status.** `explore.status` is `closed` | `idle` | `running` | `spent` | `revoked`. `closed`
   means no window is open (before the first window, between windows, and when the feature reaches
   `complete`); `idle` is the interval between invocations inside an open window; `running` while an
-  explorer invocation is live. You set `spent` at the budget stop, `revoked` on the user's word,
-  and `closed` when a window closes and at `complete`.
+  explorer invocation is live. You set `spent` at the budget stop, and `closed` when a window
+  closes and at `complete`. **Revocation:** on the user's word you first launch one final `close`
+  invocation (cleanup of `open` objects, verified; the brief, or a stub brief; the progress line
+  keeps retained and unresolved objects), set `window.closedAt`, then set `revoked`; task, overlap
+  and wave launches resume only after that. Open objects are never left as they are.
 - **Overnight.** `/sdd-overnight <feature> on` refuses to start while `explore.status` is `idle` or
   `running` (a window is open); an overnight run starts no Explore attempt and never grants or
   widens the authority.

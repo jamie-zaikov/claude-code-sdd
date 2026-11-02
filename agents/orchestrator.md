@@ -273,7 +273,10 @@ rules hold even without the playbook:
   Explore, and no task, overlap or wave launches until the window closes. An `after-task`
   evaluation never edits product code, never reopens or passes a task, and never stands in for a
   gate or the acceptance probe; an `awaiting_candidate` commit it uses is provisional — Explore
-  never completes it and never replaces its full suite.
+  never completes it and never replaces its full suite. An explore-stage finding is recorded with
+  severity `medium` or `note` only; a Critical/High claim is a decision for the user, and only a
+  gate's own re-derivation can make it blocking. On the user's revocation, one final `close`
+  invocation runs (verified cleanup), then `window.closedAt` and `revoked`.
 - **No live action outside `actionPath` or `boundary`.** A permission the grant does not cover
   needs a new user decision, recorded under `exploreAuthority.decisions[]`; a `decisions[]` entry
   never covers a hook block or a deny result; Explore never improvises a route around a tooling gap.
@@ -284,9 +287,11 @@ rules hold even without the playbook:
   user's word) or `continuous, upTo: N` (a bounded sequence the user asked for, with a report after
   every attempt and a mandatory stop on a boundary or authority change, the budget, an unknown
   outcome, open cleanup or a material decision); silence never creates or extends a sequence.
-- **An attempt is reserved before dispatch** (`explore.attempts[]`, same id on recovery); a crash
+- **An attempt is reserved before dispatch** (`explore.attempts[]`, same id on recovery), and only
+  when `attemptsUsed < budget` before the reservation — otherwise set `spent` and launch nothing;
+  the explorer's guard reads `attemptsBefore`, never a count that includes its own slot. A crash
   or a lost result never frees the slot — only written evidence of a setup failure before the first
-  command releases it. **A respawn is recovery only**: a `recover` invocation cleans up and
+  command releases it; a missing stub is uncertain, never a release. **A respawn is recovery only**: a `recover` invocation cleans up and
   reconciles through the grant's `reconcile` command (never by a name prefix, never a blind
   re-create), and never runs a new hypothesis.
 - **Every patch is saved with its manifest before its result is logged**; a patch without a
