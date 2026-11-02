@@ -72,7 +72,10 @@ For each requirement cited in the task's **Requirements** field:
 
 ### 3. Scope Check
 - [ ] Did the executor modify only files relevant to this task?
-- [ ] Is there any scope creep — code changes that address requirements from other tasks?
+- [ ] Is there any scope creep — code changes that address requirements from other tasks? A change
+  inside the `unitRepair` scope the orchestrator passed (named `awaiting_candidate` tasks, their
+  files and requirements, on a retry after a full-suite failure) is not scope creep; any other
+  change for another task's requirements is.
 - [ ] Were any unnecessary dependencies introduced?
 
 ### 4. Quality Check

@@ -98,7 +98,7 @@ class CandidateRuleTest(Base):
     def test_a_red_full_suite_is_a_blocking_result(self):
         self.near(self.orch, "red suite", r"full-suite failure is a blocking result", r"in-attempt repair",
                   r"`retryCount` counts on\s+that task")
-        self.near(self.orch, "unit fix", r"executor may fix any file of those tasks", r"`Files Changed`",
+        self.near(self.orch, "unit fix", r"executor may fix any file in it", r"`Files Changed`",
                   r"validator of each `awaiting_candidate` task whose files it changed\s+re-runs",
                   r"in that attempt's Stage 3")
 
@@ -163,6 +163,26 @@ class TesterTest(Base):
         self.near(self.tester, "reuse", r"existing test that\s+already rejects the same wrong result")
         self.lacks(self.tester, r"Each cited requirement should have at least one test that verifies it",
                    "old one-test-per-requirement incentive")
+
+
+class CodexReviewTest(Base):
+    """PR #26 Codex review: the unit-repair scope reaches every stage; a guard proof isolates effects."""
+
+    def test_unit_repair_scope_reaches_every_stage(self):
+        self.near(self.orch, "scope", r"`unitRepair` scope", r"`awaiting_candidate` tasks, their files, and their requirements")
+        self.near(self.orch, "stages", r"Pass `unitRepair` to", r"executor, tester, validator and reviewers")
+        self.near(self.orch, "outside", r"change outside `unitRepair` stays scope creep")
+        self.near(self.validator, "validator", r"inside the `unitRepair` scope", r"is not scope creep",
+                  r"any other\s+change for another task's requirements is")
+        self.near(self.tester, "tester", r"passes a `unitRepair` scope", r"may add a regression test",
+                  r"requirement it names")
+
+    def test_guard_proof_isolates_effects(self):
+        self.near(self.tester, "isolation", r"isolates files only, not\s+effects",
+                  r"\*\*only\*\* against an offline fake or spy, or a disposable backend",
+                  r"live or shared target", r"unreachable", window=300)
+        self.near(self.tester, "blocked", r"cannot\s+establish that isolation", r"do not run the mutation",
+                  r"`blocked`")
 
 
 class ValidatorTest(Base):

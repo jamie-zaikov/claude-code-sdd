@@ -586,10 +586,13 @@ Tasks: <completed before> → <completed now> of <total>; awaiting a candidate: 
 
   **A red full suite.** A full-suite failure is a blocking result of the task that ran it, and is
   handled like any other (in-attempt repair when eligible, then the retry; `retryCount` counts on
-  that task). Its retry report names the failing tests and every `awaiting_candidate` task, and its
-  executor may fix any file of those tasks — it lists each such file under `Files Changed`, so the
-  commit holds it, and the validator of each `awaiting_candidate` task whose files it changed
-  re-runs in that attempt's Stage 3. **Fail closed on a halt:** when a task halts while any task is
+  that task). Its retry report names the failing tests and carries a **`unitRepair` scope** — the
+  `awaiting_candidate` tasks, their files, and their requirements. Pass `unitRepair` to that
+  attempt's executor, tester, validator and reviewers. The executor may fix any file in it — it
+  lists each such file under `Files Changed`, so the commit holds it; the tester may add a
+  regression test for a requirement in it; the validator does not count a change inside it as scope
+  creep; and the validator of each `awaiting_candidate` task whose files it changed re-runs in that
+  attempt's Stage 3. A change outside `unitRepair` stays scope creep. **Fail closed on a halt:** when a task halts while any task is
   `awaiting_candidate`, HEAD holds code no full suite has passed. Park the halted task as usual, then
   launch the task-tester with `mode: suite-only` once on the clean HEAD. A PASS sets every
   `awaiting_candidate` task to `complete`, and the run goes on. A FAIL, or a missing result, **ends the

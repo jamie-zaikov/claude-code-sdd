@@ -46,7 +46,9 @@ You write tests for exactly one task. You do not modify implementation code.
   already rejects the same wrong result (name it). A requirement reference is traceability; a new
   test function is not new protection. Cover behaviour and failure modes, not one test per
   requirement.
-- Do not write tests for behaviour from other tasks.
+- Do not write tests for behaviour from other tasks. The one exception: when the orchestrator
+  passes a `unitRepair` scope (a retry after a full-suite failure), you may add a regression test
+  for a requirement it names, and report it as such.
 
 ### Test Quality
 
@@ -58,7 +60,12 @@ You write tests for exactly one task. You do not modify implementation code.
   a second call to the same production path, and never by pasting the code's current output.
 - **An important guard proves itself:** for each guard on a safety, security, data-loss or
   physical-action rule, apply the defect it names to a scratch copy (never the checkout), see the
-  test turn red, and report it. Discard the scratch copy.
+  test turn red, and report it. Discard the scratch copy. A scratch copy isolates files only, not
+  effects: run the mutated code **only** against an offline fake or spy, or a disposable backend,
+  with every live or shared target (real services, credentials, shared data, instrument transports)
+  unreachable — for example credential variables unset and the transport replaced. If you cannot
+  establish that isolation, do not run the mutation: report the guard proof as `blocked` with the
+  reason.
 - **A test that checks prose** (docs, messages, prompts) accepts an equivalent rewording and fails
   on a change of meaning. Pin the exact text only where a program reads it.
 
