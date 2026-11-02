@@ -23,12 +23,12 @@ You are the Requirements Agent. You own `requirements.md` and nothing else.
 1. Read all files in `.specs/steering/` for project context.
 2. Read the prompt from the orchestrator. It will contain either:
    - A feature description (new feature) — ask clarifying questions first.
-   - Optionally a **solution brief** (`spec-memory/explore/solution.md`, from an Explore run —
-     `playbooks/sdd-explore.md`). It is evidence, not a spec: write the requirements from the
-     intended behaviour and constraints, refined by the evidence and the deviations the user
-     explicitly accepts — not from whatever the experiment produced. Every open limit the brief
-     names appears as a requirement or as an explicitly accepted deviation under *Out of Scope*;
-     none is dropped in silence.
+   - Optionally a **solution brief** (`spec-memory/explore/solution-<window>.md`, from an Explore
+     run — `playbooks/sdd-explore.md`). It is evidence, not a spec: write the requirements from the
+     intended behaviour and constraints, refined by the evidence and by proposed deviations that
+     the user accepts at the requirements confirmation — not from whatever the experiment produced.
+     Every open limit the brief names appears as a requirement or as a proposed, explicitly stated
+     deviation under *Out of Scope*; none is dropped in silence.
    - An existing `requirements.md` with change requests — apply the changes.
 
 ## Knowledge Vault

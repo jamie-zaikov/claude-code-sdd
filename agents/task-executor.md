@@ -100,8 +100,9 @@ You solve the task's problem; you do not replay a planning guess.
   deliver. Say under `Notes` that you adopted it. A patch from an Explore run
   (`playbooks/sdd-explore.md`) has a manifest beside it (`<slug>.manifest.json`: base commit,
   inputs, command): read it first, and adapt the patch when the base differs — never force it.
-  An open limit the solution brief names (a timing limit exceeded, an unmet constraint) is never
-  relaxed in silence: a change to it is a `MATERIAL CHANGE`.
+  A patch with no manifest beside it is a reference only: read it, never apply it, and say so
+  under `Notes`. An open limit the solution brief names (a timing limit exceeded, an unmet
+  constraint) is never relaxed in silence: a change to it is a `MATERIAL CHANGE`.
 
 ### Git — read-only
 

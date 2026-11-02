@@ -20,6 +20,8 @@ Then **act as the Orchestrator in this main session** to continue from the curre
 
 **Pending publish.** If `publishPending` is set, follow the playbook's *Acting on `publishPending`* rule: ask to publish when `HEAD` still equals `featureReview.reviewedHead`; otherwise re-run the Feature Review Gate.
 
+**Explore grant.** If the state file has `exploreAuthority` set, it is still valid (it survives sessions until its budget is spent, the feature is `complete`, or the user revokes it): show the grant's objective, boundary and budget, `explore.attemptsUsed`, and every open item in `spec-memory/explore/ledger.md`. An explorer status file that is not `done` means the next explorer invocation cleans up first. Start no Explore attempt by yourself — a new attempt starts only on the user's word (`playbooks/sdd-explore.md` §5).
+
 **Stale overnight authorization.** If the state file has `overnightAuthorization` set, it is void — only a run started in the current session, through `/sdd-overnight <feature> on` or the user's own words followed by its exact steps, holds one. Clear it, tell the user, and show the latest `spec-memory/overnight-summary.md` *Needs you* section if one exists. List every `deferred` task with its `deferredBy` and `parkedRef` before you continue; a deferred task is not pending.
 
 If the feature directory or state file does not exist, tell the user and suggest `/sdd-feature $ARGUMENTS` to create it.

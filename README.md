@@ -12,6 +12,7 @@ agents/
   tasks-agent.md              # Owns tasks.md, hierarchical task breakdown
   spec-consistency-checker.md # Read-only cross-document auditor, runs before implementation
   task-executor.md            # Implements one task, in the shared feature-branch checkout
+  explorer.md                 # One Explore attempt per invocation under a user-granted exploreAuthority
   task-tester.md              # Writes tests for one task
   task-validator.md           # Validates implementation + tests against requirements, pass/fail
   code-reviewer.md            # Adversarial correctness/robustness review, per task + whole feature
@@ -100,7 +101,7 @@ cd sdd-global
 
 The installer will:
 
-1. Copy all 13 agents to `<claude home>/agents/`, the slash commands to `commands/`, the
+1. Copy all 14 agents to `<claude home>/agents/`, the slash commands to `commands/`, the
    playbooks (`playbooks/*.md`, when the checkout has them) to `playbooks/`, and the agent tools to
    `tools/`
 2. Install the global CLAUDE.md
@@ -276,6 +277,7 @@ Everything installs to `~/.claude/`:
 │   ├── tasks-agent.md
 │   ├── spec-consistency-checker.md
 │   ├── task-executor.md
+│   ├── explorer.md
 │   ├── task-tester.md
 │   ├── task-validator.md
 │   ├── code-reviewer.md

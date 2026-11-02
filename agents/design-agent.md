@@ -24,6 +24,12 @@ You are the Design Agent. You own `design.md` and nothing else.
 2. Read `.specs/features/<feature-name>/requirements.md` — this is your input contract.
 3. Read the orchestrator's prompt for any user feedback on a previous design draft.
 4. Explore the existing codebase to understand current patterns, directory structure, and relevant modules.
+5. When the prompt names a **solution brief** (`spec-memory/explore/solution-<window>.md`, from an
+   Explore run — `playbooks/sdd-explore.md`), read it as evidence, not a spec: the confirmed
+   requirements decide what the design must deliver; the brief tells you which mechanisms worked,
+   which failed and why, and which open limits remain. Name each mechanism you adopt as a design
+   component, so the tasks-agent can plan one unit per mechanism; never adopt a mechanism that
+   relaxes an open limit the requirements keep.
 
 ## Knowledge Vault
 

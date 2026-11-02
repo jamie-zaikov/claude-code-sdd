@@ -28,14 +28,15 @@ You are the Tasks Agent. You own `tasks.md` and nothing else.
    feature as `"code"`. A `"non-code"` feature changes how you write each task — see
    `## Non-Code Features`.
 5. Explore the codebase to understand what already exists and what needs to be created or modified.
-6. When the prompt names a **solution brief** (`spec-memory/explore/solution.md`, an Explore run —
-   `playbooks/sdd-explore.md`), read it and plan from it: one integration unit (rule 1a) per
-   mechanism the brief names, and each retained patch named on the task block that adopts it
-   (`**Prototype:** spec-memory/prototypes/<slug>.patch`) — one unit per patch, never a patch on
-   two tasks. A patch no task adopts is listed under `Not adopted` with the reason. Each distinct
-   failure mechanism the brief names gets one negative test in the unit that owns the mechanism,
-   not one test per failed attempt. The brief is evidence, not a spec: the confirmed requirements
-   and design decide what the tasks deliver.
+6. When the prompt names a **solution brief** (`spec-memory/explore/solution-<window>.md`, an
+   Explore run — `playbooks/sdd-explore.md`), read it and plan from it: one integration unit (rule
+   1a) per mechanism the brief names, and each retained patch named on the task block that adopts
+   it (`**Prototype:** spec-memory/prototypes/<slug>.patch`, a patch with a manifest beside it) —
+   one unit per patch, never a patch on two tasks. A patch no task adopts is listed in a
+   `## Not adopted` section at the end of `tasks.md`, with the reason. Each distinct failure
+   mechanism the brief names gets one negative test in the unit that owns the mechanism, not one
+   test per failed attempt. The brief is evidence, not a spec: the confirmed requirements and
+   design decide what the tasks deliver.
 
 ## Knowledge Vault
 
