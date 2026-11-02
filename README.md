@@ -39,6 +39,7 @@ tools/                    # Mechanical checks the agents run (installed to ~/.cl
 
 playbooks/                # Procedures the orchestrator reads on demand (installed to ~/.claude/playbooks/)
   sdd-waves.md            # The two-task wave procedure (opt-in: `Task waves: 2` in tech.md)
+  sdd-explore.md          # Explore → Promote: a free agent under a one-time user grant, then normal gates
 
 hooks/                    # Secret-handling safeguards (installer opt-in — see hooks/README.md)
   secret-guard.py         # PreToolUse (Bash|PowerShell): blocks secret dumps, allows sanctioned use

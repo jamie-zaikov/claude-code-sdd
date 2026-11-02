@@ -238,6 +238,37 @@ pass it to that task's executor as `prototype: <path>`; the executor
 may adopt it, and every gate runs on the delivered result. A prototype is never recorded as a passed
 task, and no confirmation or verdict is ever back-dated to cover it.
 
+#### Explore → Promote — `playbooks/sdd-explore.md`
+
+When the user chooses to explore — before a feature whose design appears only from simulation
+feedback, or inside a feature when one mechanism turns out uncertain — read
+`~/.claude/playbooks/sdd-explore.md` and follow it exactly: it is the one definition of the
+procedure. In short — a free agent solves the problem inside a scope the user grants once
+(`exploreAuthority`: no pipeline, no specs, no per-attempt approval, every project safeguard), and
+Promote runs the proven solution through the existing planning path with no extra gate. These rules
+hold even without the playbook:
+
+- **Explore is the user's choice.** It is never inferred from the shape of the work and is never a
+  mandatory taxonomy; a feature without a grant runs exactly as before.
+- **One grant per feature**, asked once in the *Asking the User* shape, after a tooling-gap check,
+  recorded as `exploreAuthority: { grantedAt, grantedBy: "user", quote, objective, boundary,
+  actionPath, forbidden, budget, explorer }`. The grant never revokes a project rule.
+- **No live action outside `actionPath` or `boundary`.** A permission the grant does not cover
+  needs a new user decision; Explore never improvises a route around a tooling gap.
+- **The explorer is a recorded role exception.** By default the task-executor (`mode: prototype`)
+  writes probe code and you write none; `explorer: "main session"` is recorded in the grant, and
+  choosing to explore does not imply it.
+- **Every patch is saved with its manifest before its result is logged**; a patch described only
+  in prose cannot be adopted. Every created object is in the ledger and its deletion is verified.
+- **Budget stop.** When the budget is spent, Explore stops and reports; you never widen the budget
+  or the boundary yourself.
+- **Explore never confirms a planning gate.** The solution brief is evidence, not a spec; the user
+  accepts the solution and its open limits in the requirements or amendment confirmation where they
+  see the exact contract. Promote passes each retained patch as `prototype: <path>` and every gate
+  runs on the delivered result.
+- **Overnight mode never grants or widens `exploreAuthority`**, and an overnight run starts no
+  Explore attempt.
+
 ### Amendments — material vs internal reconciliation
 
 A discovery made during design or implementation changes the specs in one of two ways. The test is
@@ -1064,7 +1095,9 @@ records the whole-feature gate verdict. Update the state file after every phase 
 task completion/failure.
 
 Keys this playbook adds as they arise: `findings` (top level: `{ path, counts }` — the findings
-index lives in `spec-memory/findings.jsonl`, never in this file), `prototypeAuthority` and `wave`
+index lives in `spec-memory/findings.jsonl`, never in this file), `prototypeAuthority`,
+`exploreAuthority` and `explore` (top level: the grant record and `{ attempts, status, reason }` —
+`playbooks/sdd-explore.md`), and `wave`
 (top level: `{ tasks, base, attempt }` while a wave exists), `repairTrees` (per task),
 `blockingHistory` (per
 attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,
@@ -1113,6 +1146,7 @@ Once the Feature Classification Gate has run, `.spec-state.json` carries two fur
 - NEVER open a fix round for Medium or Low findings — only Critical/High (or a validator FAIL) block a task; record the rest as deferred findings in the findings index (`sdd-findings.py`) for the Feature Review Gate, routed forward when a later task owns the fix site.
 - NEVER ask the user a question without its context — every question gives the context, then WHAT is decided, WHY it is needed now, and HOW each answer changes the next step, with a recommendation; no bare ids, unexplained acronyms, pipeline slang, or "see X" cross-references, and a specialist's open question is rewritten, never forwarded (*Asking the User*). An `AskUserQuestion` call is a reply to the user and follows the Simplified Technical English rule in full.
 - NEVER call AskUserQuestion while `overnightAuthorization` is set — choose the fail-closed, reversible option, record it under `userApprovalNeeded`, and continue with the next independent task.
+- NEVER run an Explore action outside the grant's `actionPath` and `boundary`, and never grant, widen or infer `exploreAuthority` yourself — it is the user's recorded decision, asked once per feature (`playbooks/sdd-explore.md`).
 - NEVER run a fourth automatic attempt on a task — attempt 3 runs only on convergence, and the hard cap halts at retryCount 3.
 - NEVER advance to `implementation` without the Feature Classification Gate locking `featureClass`.
 - NEVER start implementation if any of requirements, design, or tasks are unconfirmed.

@@ -38,6 +38,14 @@ Probes come in three tiers — read-only discovery (always), an isolated prototy
 authority the user grants once), and live mutation (project-level authority only). A retained
 prototype patch may be adopted after confirmation; every gate still runs on it.
 
+**Explore → Promote** (`playbooks/sdd-explore.md`). When the user chooses it — never inferred — a
+free agent solves a hard problem inside `exploreAuthority`, a scope the user grants once per
+feature (objective, boundary, action path, forbidden routes, budget, explorer): no pipeline, no
+specs, no per-attempt approval, but every project safeguard, every patch saved with its manifest,
+and every created object deleted and verified. Promote then runs the proven solution through the
+existing planning path with no extra gate; a run is an observation, not an oracle. Overnight mode
+never grants or widens `exploreAuthority`.
+
 **Feature class — the user declares the track.** Right after the consistency check passes, the
 Classification Gate locks `featureClass`: `code` (the default) or `non-code`. It is a declared human
 decision, never inferred — a `non-code` feature ships no application code (a write-up, documentation,
