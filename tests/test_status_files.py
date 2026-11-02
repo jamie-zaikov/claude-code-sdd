@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "tools" / "sdd-status.py"
 WRITERS = ("requirements-agent", "design-agent", "tasks-agent", "task-executor", "task-tester",
            "task-validator", "code-reviewer", "security-reviewer", "github-agent", "vault-reader",
-           "vault-writer")
+           "vault-writer", "explorer")
 
 
 def load_tool():

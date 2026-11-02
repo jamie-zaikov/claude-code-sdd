@@ -256,9 +256,9 @@ class ReadmeContentTest(unittest.TestCase):
         self.assertIn("github-agent.md", self.text, "README does not list github-agent.md")
 
     def test_agent_count_bumped(self):
-        """FR-24/NFR-3: agent count bumped to 13; no stale '12 agents' remains."""
-        self.assertNotRegex(self.text, r"\b12\s+agents\b", "README still says '12 agents'")
-        self.assertRegex(self.text, r"\b13\s+agents\b", "README does not state '13 agents'")
+        """FR-24/NFR-3: agent count bumped (13 with github-agent, 14 with explorer); no stale count remains."""
+        self.assertNotRegex(self.text, r"\b1[23]\s+agents\b", "README still states a stale agent count")
+        self.assertRegex(self.text, r"\b14\s+agents\b", "README does not state '14 agents'")
 
     def test_ci_templates_tree_entry(self):
         """FR-24: ci-templates/ appears in the 'What's Included' tree."""

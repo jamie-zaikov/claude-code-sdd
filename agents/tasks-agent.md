@@ -28,6 +28,16 @@ You are the Tasks Agent. You own `tasks.md` and nothing else.
    feature as `"code"`. A `"non-code"` feature changes how you write each task — see
    `## Non-Code Features`.
 5. Explore the codebase to understand what already exists and what needs to be created or modified.
+6. When the prompt names a **solution brief** (`spec-memory/explore/solution-<window>.md`, an
+   Explore run — `playbooks/sdd-explore.md`), read it and plan from it. The integration unit (rule
+   1a) stays the unit: several mechanisms and retained patches may map to one coherent unit, and a
+   patch is traceability, not a task boundary. Each retained patch is named on the **one** task
+   block that applies it (`**Prototype:** spec-memory/prototypes/<slug>.patch`, a patch with a
+   manifest beside it) — one owning task per patch, never a patch on two tasks. A patch no task
+   adopts is listed in a `## Not adopted` section at the end of `tasks.md`, with the reason. Each distinct failure
+   mechanism the brief names gets one negative test in the unit that owns the mechanism, not one
+   test per failed attempt. The brief is evidence, not a spec: the confirmed requirements and
+   design decide what the tasks deliver.
 
 ## Knowledge Vault
 
@@ -68,6 +78,7 @@ appended to your inputs. You may list several needs in one request.
 **Shared:** <Optional — shared fixtures, lockfiles, or generated files this task writes, e.g. `tests/fixtures/ir_inputs/`, `uv.lock`; omit when none>
 **Depends:** <Task numbers this task needs, e.g. `1, 3` — or `none`>
 **Candidate:** <Optional — write `no` only for a task inside an integration unit whose full suite runs at a later task; omit otherwise>
+**Prototype:** <Optional — the retained Explore patch this task adopts, e.g. `spec-memory/prototypes/<slug>.patch`; omit when none>
 
 ---
 

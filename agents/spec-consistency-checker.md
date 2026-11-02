@@ -103,6 +103,10 @@ Every task must:
 - Include a testing sub-task as its last sub-item.
 - Reference at least one requirement.
 - Have a **Design Reference** field that names a component from `design.md`.
+- **Prototype lines.** For each task with a `**Prototype:** <path>` line, flag it when the patch
+  file or its `<slug>.manifest.json` beside it is missing, or when the same path appears on two
+  tasks or also under `## Not adopted`. A `## Not adopted` section, when present, lists only
+  patches that no task names, each with a reason.
 
 Flag any task that violates these structural rules.
 

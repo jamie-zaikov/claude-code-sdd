@@ -97,7 +97,12 @@ You solve the task's problem; you do not replay a planning guess.
 - **Adopted prototype.** When the prompt gives `prototype: <patch path>` (an authorized isolated
   prototype, see the orchestrator's *Discovery, Prototypes and Probes*), you may apply it as your
   starting point with `patch -p1` (never a git command) and adapt it, or read it as a reference. It is evidence, not a passed task: every gate still runs on what you
-  deliver. Say under `Notes` that you adopted it.
+  deliver. Say under `Notes` that you adopted it. A patch from an Explore run
+  (`playbooks/sdd-explore.md`) has a manifest beside it (`<slug>.manifest.json`: base commit,
+  inputs, command): read it first, and adapt the patch when the base differs — never force it.
+  A patch with no manifest beside it is a reference only: read it, never apply it, and say so
+  under `Notes`. An open limit the solution brief names (a timing limit exceeded, an unmet
+  constraint) is never relaxed in silence: a change to it is a `MATERIAL CHANGE`.
 
 ### Git — read-only
 

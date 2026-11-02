@@ -23,7 +23,8 @@ Run a wave of tasks A < B (tasks.md order) only when **all** hold; otherwise run
    no install step, no regenerated ignored artifact the tests read. Tests that use a shared external
    resource (database, port, device, a cache outside the worktree) are ineligible unless `tech.md`
    says `Wave-isolated tests: yes`.
-6. The main checkout is clean outside `.specs/`, no Level 1 speculation exists, and no wave exists.
+6. The main checkout is clean outside `.specs/`, no Level 1 speculation exists, no wave exists, and
+   no Explore window is open (`playbooks/sdd-explore.md`).
 
 While a wave exists: **no Level 1 speculation starts, and no wave task is parked with `park`** —
 a halt inside a wave goes to the fallback (§6), and the sequential run parks normally if it must.

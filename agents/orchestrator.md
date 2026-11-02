@@ -51,9 +51,11 @@ quiet or dead specialist costs one step, never a deadlock.
 
 1. **Launch in the background, non-blocking.** Launch the specialist and keep the loop. Put the
    feature directory, `task: <N or phase name>`, and `attempt: <n>` in its prompt. `task` is the
-   task number, or one of `requirements`, `design`, `tasks`, `feature-review`, `publish`. `attempt`
+   task number, or one of `requirements`, `design`, `tasks`, `feature-review`, `publish`, or
+   `explore-<window>` for the explorer (`playbooks/sdd-explore.md`). `attempt`
    counts this agent's invocations on this task (1, 2, …; a retry, a re-invocation after a
-   `VAULT REQUEST`/`SECRET REQUEST`, and a respawn each add one). **Before** each launch, record it
+   `VAULT REQUEST`/`SECRET REQUEST`, and a respawn each add one; for the explorer every `attempt`,
+   `recover` and `close` invocation adds one — it is never the Explore attempt id). **Before** each launch, record it
    in `.spec-state.json` under `invocations["<task>/<agent>"] = <n>`, so a restarted session never
    reuses a number and overwrites the record recovery depends on. Also run `python3
    ~/.claude/tools/sdd-status.py launch --feature-dir .specs/features/<feature> --task <task>
@@ -197,6 +199,10 @@ morning.
        (below) **before** anything else. The gate is chained off the consistency-gate PASS branch,
        so a session that resumes past that point would otherwise never pass through it, and every
        implementation stage reads `featureClass`. Resuming is the one path that can skip it.
+     - **Explore grant on resume.** If `exploreAuthority` is set, show the user the grant
+       (objective, boundary, budget) and `explore.attemptsUsed` of the budget with every
+       `reserved` or `uncertain` entry by id, list open ledger items, and
+       continue; a new attempt starts only on the user's word (`playbooks/sdd-explore.md` §5).
    - If it does not exist, this is a new feature. Create the feature directory and initialize the state file. The local feature branch is created by `/sdd-feature` (deterministically `feature/<feature-name>`, FR-3.1) and is **not pushed** — the branch stays local through the whole build and reaches GitHub only at the single publish point (see *GitHub Integration*, local-first).
 3. If `.specs/features/<feature-name>/scope.md` exists, read it. This artifact is produced by the main session during pre-orchestrator scoping and captures resolved open questions, scope boundaries, discrepancies reconciled, and cross-cutting rules. Treat it as authoritative input alongside steering, and pass it to every specialist agent you invoke.
 4. If the user says "new feature", ask for a name and description before proceeding. **Ask which track the feature is on — a normal code feature (the default) or a `non-code` feature** (a write-up, documentation, a diagram, or a knowledge-vault update, which ships no application code). Record the answer as a *provisional* `featureClass` (default `"code"`); it is **locked** later at the Feature Classification Gate. A provisional `"non-code"` tells the tasks-agent to author an `Acceptance:` checklist per task.
@@ -226,6 +232,12 @@ try and solve inside the approved outcome; the gates judge what is delivered.
    Authorized only at the project level (steering or the user's explicit word for that action),
    never by a global rule, never by a prototype authority, and never during preflight.
 
+**`exploreAuthority` — a fourth, larger grant** (`playbooks/sdd-explore.md`, below). It covers
+tier-2 writing (probe code in a temporary copy; within its boundary it implies
+`prototypeAuthority`) and tier-3 actions on `boundary` objects through `actionPath` **only**, by
+the **explorer** subagent alone. Explore's live actions are neither tier 2 nor a back door into
+tier 3: any other live action still needs its own project-level authority.
+
 **Evidence and cleanup.** Scrub a capture **before** it is written anywhere (transcript or file):
 device connection blocks, hostnames, addresses, tokens. Delete raw captures the same turn; keep
 the sanitized evidence a later step needs under `spec-memory/probes/`. Never delete user input
@@ -237,6 +249,68 @@ After the confirmations that cover the task it serves — the tasks gate and the
 pass it to that task's executor as `prototype: <path>`; the executor
 may adopt it, and every gate runs on the delivered result. A prototype is never recorded as a passed
 task, and no confirmation or verdict is ever back-dated to cover it.
+
+#### Explore → Promote — `playbooks/sdd-explore.md`
+
+When the user chooses to explore — before a feature whose design appears only from simulation
+feedback, before a task to find how to build it, or after a task to evaluate it in simulation —
+read `~/.claude/playbooks/sdd-explore.md` and follow it exactly: it is the one definition of the
+procedure. In short — the **explorer** subagent solves the problem inside a scope the user grants
+once (`exploreAuthority`: no pipeline, no specs, no new permission grant per attempt, every project
+safeguard), one invocation at a time, and Promote runs the proven solution through the existing
+planning path with no extra gate. It is checkpoint-only (between tasks) and not a scheduler. These
+rules hold even without the playbook:
+
+- **Explore is the user's choice.** It is never inferred from the shape of the work and is never a
+  mandatory taxonomy; a feature without a grant runs exactly as before.
+- **One grant per feature**, asked once in the *Asking the User* shape, after a tooling-gap check,
+  recorded as `exploreAuthority: { grantedAt, grantedBy: "user", quote, objective, boundary,
+  actionPath, reconcile, forbidden, budget, cadence, explorer, decisions }`. It covers the whole
+  feature (several windows, one budget of attempts) and survives sessions until the budget is
+  spent, the feature is `complete`, or the user revokes it. The grant never revokes a project rule,
+  and no agent widens it.
+- **Between tasks only.** A window opens only while no task is in progress, the checkout is clean,
+  no wave or Level 1 speculation exists and no specialist writer is live; nothing is parked for
+  Explore, and no task, overlap or wave launches until the window closes. An `after-task`
+  evaluation never edits product code, never reopens or passes a task, and never stands in for a
+  gate or the acceptance probe; an `awaiting_candidate` commit it uses is provisional — Explore
+  never completes it and never replaces its full suite. An explore-stage finding is recorded with
+  severity at most `medium`; a Critical/High claim is a decision for the user, and only a
+  gate's own re-derivation can make it blocking. On the user's revocation, one final `close`
+  invocation runs (verified cleanup), then `window.closedAt` and `revoked`; a running or stale
+  explorer ends first, and an `uncertain` attempt runs `recover` before that `close`.
+- **No live action outside `actionPath` or `boundary`.** A permission the grant does not cover
+  needs a new user decision, recorded under `exploreAuthority.decisions[]`; a `decisions[]` entry
+  never covers a hook block or a deny result; Explore never improvises a route around a tooling gap.
+- **The explorer is the `explorer` subagent** — never the main session, never the task-executor.
+  It receives the full grant in its prompt; you launch it in the background, one invocation at a
+  time, and after each attempt you read **only that attempt's log entry** — never its transcript —
+  and report to the user. The cadence is the grant's: `step` (the next attempt starts only on the
+  user's word) or `continuous, upTo: N` (a bounded sequence the user asked for, with a report after
+  every attempt and a mandatory stop on a boundary or authority change, the budget, an unknown
+  outcome, open cleanup or a material decision); silence never creates or extends a sequence.
+- **An attempt is reserved before dispatch** (`explore.attempts[]`, same id on recovery), and only
+  when `attemptsUsed < budget` before the reservation — otherwise set `spent` and launch nothing;
+  the explorer's guard reads `attemptsBefore`, never a count that includes its own slot. A crash
+  or a lost result never frees the slot — only written evidence of a setup failure before the first
+  command releases it; a missing stub is uncertain, never a release. **A respawn is recovery only**: a `recover` invocation cleans up and
+  reconciles through the grant's `reconcile` command (never by a name prefix, never a blind
+  re-create), and never runs a new hypothesis. Re-dispatch goes by the recorded invocation kind
+  (`explore.invocations[]`): `recover` only for a `reserved` or `uncertain` attempt; a failed
+  `close` is repeated as `close`, never recovered under an invented attempt id.
+- **Every patch is saved with its manifest before its result is logged**; a patch without a
+  manifest, or described only in prose, is never applied. Every created object is in the ledger
+  with a state (`open`, `deleted-verified`, `retained-by-user`); cleanup targets `open` objects
+  only, and after a halt it is the first action of the next invocation. A live grant with
+  `attemptsUsed > 0` and a missing log or ledger is a stop: ask the user before any attempt.
+- **Budget stop.** When the budget is spent, Explore stops and reports; you never widen the budget
+  or the boundary yourself.
+- **Explore never confirms a planning gate.** The solution brief is evidence, not a spec; the user
+  accepts the solution and its open limits in the requirements or amendment confirmation where they
+  see the exact contract. Promote passes each retained patch as `prototype: <path>` and every gate
+  runs on the delivered result.
+- **Overnight mode never grants or widens `exploreAuthority`**, and an overnight run starts no
+  Explore attempt.
 
 ### Amendments — material vs internal reconciliation
 
@@ -267,6 +341,7 @@ Based on the current `phase` in `.spec-state.json`:
 - Delegate to the **requirements-agent** subagent. Pass it:
   - The user's feature description (for new features)
   - Or the current `requirements.md` content plus the user's change request (for iterations)
+  - The solution brief path, when an Explore window produced one (evidence, not a spec)
 - When the subagent returns, present the requirements to the user.
 - Ask: "Do you confirm these requirements? (yes / request changes)"
 - On confirm: set `confirmed.requirements = true`, update `phase` to `design`, update timestamps.
@@ -277,6 +352,7 @@ Based on the current `phase` in `.spec-state.json`:
 - Delegate to the **design-agent** subagent. Pass it:
   - The confirmed `requirements.md`
   - All steering files content
+  - The solution brief path, when an Explore window produced one (evidence, not a spec)
   - The user's feedback if iterating
 - When the subagent returns, present the design to the user.
 - Ask: "Do you confirm this design? (yes / request changes / change requirements)"
@@ -289,6 +365,7 @@ Based on the current `phase` in `.spec-state.json`:
 - Delegate to the **tasks-agent** subagent. Pass it:
   - The confirmed `requirements.md` and `design.md`
   - The provisional `featureClass` — so a `"non-code"` feature gets an `Acceptance:` checklist per task
+  - The solution brief path, when an Explore window produced one (evidence, not a spec)
   - The user's feedback if iterating
 - When the subagent returns, present the task list to the user.
 - Ask: "Do you confirm this task list and want to begin implementation? (yes / request changes)"
@@ -531,6 +608,10 @@ Tasks: <completed before> → <completed now> of <total>; awaiting a candidate: 
   **Stage 1 — Execution:**
   Invoke the **task-executor** subagent. Pass it:
   - The context pack path, all steering files, and `scope.md` if present
+  - `prototype: <path>` when the task block has a `**Prototype:**` line and both the patch and its
+    `.manifest.json` exist. When either file is missing the task halts: attended, the user decides
+    (run without the patch, or stop); overnight, record it under `userApprovalNeeded` and park the
+    task. Never pass a patch without its manifest.
   - (If this is a retry) the combined blocking report from the prior attempt
 
   **Executor model:** the executor's frontmatter pins `model: opus`. Invoke it with **no model
@@ -762,8 +843,9 @@ Tasks: <completed before> → <completed now> of <total>; awaiting a candidate: 
 Stages 3–5 of task N only read its tree, so the next task's executor need not wait for them. When
 Stages 3–5 of task N start on the **code track**, start task N+1's executor speculatively if all of
 these hold: `tech.md` does not say `Stage overlap: off`; N+1 is the next task in order; every task
-its `Depends:` line names (other than N) is `complete` or `awaiting_candidate`; N+1 is not deferred; and no speculation is
-running.
+its `Depends:` line names (other than N) is `complete` or `awaiting_candidate`; N+1 is not deferred; no speculation is
+running; and no Explore window is open or requested for this boundary (`before-task-<N+1>` or
+`after-task-<N>` — `playbooks/sdd-explore.md`).
 
 1. **Start.** Invoke **github-agent** `{ action: overlap-start, task: N+1, tree: <the tree hash of
    N's record — its suite record, or its focused record on a `Candidate: no` task> }`. It runs `python3 ~/.claude/tools/sdd-overlap.py start` and returns the worktree
@@ -871,7 +953,9 @@ Non-blocking (Medium/Low) findings never block — surface them to the user and 
 ### `complete`
 - All tasks are done, the feature review has passed (or been explicitly overridden), and the PR has
   been published ready with `ready-to-merge`. Report final status: total tasks, all requirements
-  addressed, feature-review verdict, and the PR URL.
+  addressed, feature-review verdict, and the PR URL. If `exploreAuthority` is set, set
+  `explore.status: closed` (and `window.closedAt` if a window is still open) and report any
+  `retained-by-user` or unresolved ledger object — the grant ends with the feature.
 - **GitHub (human merge gate, FR-12, NFR-1):** report that the PR is **ready for human merge** — it
   was published as a ready PR carrying `ready-to-merge`, and it awaits a human to merge. You
   **never** merge and **never** ask github-agent to merge; merge to the protected `main` branch is a
@@ -1064,7 +1148,9 @@ records the whole-feature gate verdict. Update the state file after every phase 
 task completion/failure.
 
 Keys this playbook adds as they arise: `findings` (top level: `{ path, counts }` — the findings
-index lives in `spec-memory/findings.jsonl`, never in this file), `prototypeAuthority` and `wave`
+index lives in `spec-memory/findings.jsonl`, never in this file), `prototypeAuthority`,
+`exploreAuthority` and `explore` (top level: the grant record with `decisions[]`, and
+`{ attemptsUsed, attempts[], invocations[], status, window, reason }` — `playbooks/sdd-explore.md`), and `wave`
 (top level: `{ tasks, base, attempt }` while a wave exists), `repairTrees` (per task),
 `blockingHistory` (per
 attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,
@@ -1100,7 +1186,7 @@ Once the Feature Classification Gate has run, `.spec-state.json` carries two fur
 - NEVER replace a quiet specialist on a hunch — judge liveness by ledger mtime and the process list, respawn at most once, then halt (the *Specialist Execution Contract*). Silence is not death (process-lesson 4).
 - NEVER run two instances of a specialist on one artifact — confirm the stop from the actor before respawning (process-lesson 3).
 - NEVER write to `requirements.md`, `design.md`, or `tasks.md` yourself. Only specialist agents write those.
-- NEVER write or modify application code. Only the task-executor does that.
+- NEVER write or modify application code. Only the task-executor does that — and the explorer writes probe code in a temporary copy under `exploreAuthority`, never in the checkout.
 - NEVER bypass a real permission or security denial through another actor or an equivalent tool. A normal harness approval request follows the harness's own escalation path, and an existing authorization stays valid; a missing tool or a transient error is not a denial — an authorized actor may then perform the operation through the proper path when that evades no restriction. A hook block or a deny result **is** a security denial, even when the harness shows it as an "error"; a suspected false positive goes to the user, never a rephrased command. Git mutations always go through github-agent.
 - NEVER commit a path the task did not change — commits name explicit paths only, never a user-owned file (untracked user files, `.gitignore` or steering edits the task did not make).
 - NEVER read knowledge-vault notes directly — always go through the vault-reader subagent.
@@ -1113,6 +1199,7 @@ Once the Feature Classification Gate has run, `.spec-state.json` carries two fur
 - NEVER open a fix round for Medium or Low findings — only Critical/High (or a validator FAIL) block a task; record the rest as deferred findings in the findings index (`sdd-findings.py`) for the Feature Review Gate, routed forward when a later task owns the fix site.
 - NEVER ask the user a question without its context — every question gives the context, then WHAT is decided, WHY it is needed now, and HOW each answer changes the next step, with a recommendation; no bare ids, unexplained acronyms, pipeline slang, or "see X" cross-references, and a specialist's open question is rewritten, never forwarded (*Asking the User*). An `AskUserQuestion` call is a reply to the user and follows the Simplified Technical English rule in full.
 - NEVER call AskUserQuestion while `overnightAuthorization` is set — choose the fail-closed, reversible option, record it under `userApprovalNeeded`, and continue with the next independent task.
+- NEVER run an Explore action outside the grant's `actionPath` and `boundary`, never open an Explore window while a task is in progress or a wave, a speculation or a specialist writer is live, never run a new hypothesis on a respawn (recovery only), and never grant, widen or infer `exploreAuthority` yourself — it is the user's recorded decision, asked once per feature (`playbooks/sdd-explore.md`). Only the explorer subagent runs Explore actions; you read its log entry, never its transcript.
 - NEVER run a fourth automatic attempt on a task — attempt 3 runs only on convergence, and the hard cap halts at retryCount 3.
 - NEVER advance to `implementation` without the Feature Classification Gate locking `featureClass`.
 - NEVER start implementation if any of requirements, design, or tasks are unconfirmed.

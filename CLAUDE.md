@@ -38,6 +38,19 @@ Probes come in three tiers — read-only discovery (always), an isolated prototy
 authority the user grants once), and live mutation (project-level authority only). A retained
 prototype patch may be adopted after confirmation; every gate still runs on it.
 
+**Explore → Promote** (`playbooks/sdd-explore.md`). When the user chooses it — never inferred — the
+**explorer** subagent solves a hard problem inside `exploreAuthority`, a scope the user grants once
+per feature (objective, boundary, action path, forbidden routes, a budget of attempts, a cadence):
+no pipeline, no specs, no new permission grant per attempt, but every project safeguard, every
+patch saved with its manifest, and every created object deleted and verified or retained on the
+user's word. The authority is durable; execution advances one requested attempt, or one requested
+bounded sequence (`cadence: continuous, upTo: N`), at a time — silence never extends it. Explore is
+checkpoint-only: it runs between tasks — before a task to find how to build it, or after a task to
+evaluate it in simulation — one attempt per explorer invocation; the orchestrator reads only each
+attempt's log entry, a respawn is recovery only, and the user redirects between attempts. Promote
+then runs the proven solution through the existing planning path with no extra gate; a run is an
+observation, not an oracle. Overnight mode never grants or widens `exploreAuthority`.
+
 **Feature class — the user declares the track.** Right after the consistency check passes, the
 Classification Gate locks `featureClass`: `code` (the default) or `non-code`. It is a declared human
 decision, never inferred — a `non-code` feature ships no application code (a write-up, documentation,
@@ -114,6 +127,7 @@ work, not to the gates themselves. The orchestrator playbook therefore enforces:
 - tasks-agent: owns tasks.md exclusively; for a non-code feature, gives every task a finite `Acceptance:` checklist instead of a testing sub-task
 - spec-consistency-checker: read-only cross-document auditor; fires after tasks confirmed, before implementation; receives no planning context
 - task-executor: implements one task at a time in the shared feature-branch checkout (tasks run sequentially by default, so each executor inherits prior tasks' committed output; with `Task waves: 2` two independent tasks run in isolated worktrees and land as one combined candidate — `playbooks/sdd-waves.md`)
+- explorer: runs one Explore attempt per invocation under a user-granted `exploreAuthority` — probe code in a temporary copy, live actions only through the project's action path inside the boundary; writes the attempt log, the object ledger, each patch with its manifest, and the solution brief; never edits the checkout, never confirms a gate (`playbooks/sdd-explore.md`)
 - task-tester: writes tests for one task, never modifies implementation; **not invoked for a non-code task**
 - task-validator: validates against requirements, read-only, returns pass/fail; on a non-code task runs artifact-conformance mode (the `Acceptance:` checklist + render/lint + a closed coherence rubric)
 - code-reviewer: adversarial correctness/robustness/maintainability review, read-only, returns pass/fail; **per-task code-review is skipped on the non-code track**; at feature review a non-code feature gets one closed-rubric coherence pass

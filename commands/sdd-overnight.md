@@ -31,7 +31,8 @@ and a later task runs only when its `Depends:` line allows it — both per the p
    `confirmed.design`, and `confirmed.tasks` all true — each confirmed **by the user** — and
    `classification.decidedAt` set. (A `feature-review` phase whose findings re-opened tasks counts as
    `implementation`.) Overnight mode never confirms a planning gate. If a gate is open, stop and
-   name it.
+   name it. If `explore.status` is `idle` or `running` (an Explore window is open), stop and say
+   so: an overnight run starts no Explore attempt and never grants or widens `exploreAuthority`.
 2. **Preflight.** Run the playbook's **Preflight** in full (tools and repo setup, credentials by name
    only, inputs, permissions) and record `preflight: { ranAt, gaps: [...] }`. If a gap blocks a
    remaining task, list each gap with the exact fix (the command to run, the env var to export, the
