@@ -140,7 +140,9 @@ background, one invocation at a time, a fresh context each time. Each launch get
 **invocation number** (`invocations["explore-<window>/explorer"]`), which names its status file
 (`explore-<window>-explorer-a<n>.json`); the **attempt id** is a separate counter that lives only in
 the log heading and the summary. An `attempt`, a `recover`, a `close` and a respawn each take a new
-invocation number; a `recover` reuses the attempt id it settles.
+invocation number; a `recover` reuses the attempt id it settles. Each explorer launch is also
+recorded under `explore.invocations[]` as `{ n, kind, attemptId, window }`: `kind` is `attempt`,
+`recover` or `close`, and `attemptId` is set only when one exists — never for a `close`.
 
 **Cadence — chosen in the grant.**
 - `step` (default): after each invocation you read **only that attempt's log entry** (never the
@@ -154,9 +156,10 @@ invocation number; a `recover` reuses the attempt id it settles.
   boundary or authority change (an `EXPLORE REQUEST`), the budget or `upTo` reached, an unknown
   action outcome (a `recover` pending), open cleanup, or a material decision. Silence never creates
   or extends a continuous request; the next sequence is the user's word again. Overnight still
-  starts no attempt. There is no wall-clock cap in this release: each attempt is bounded by the
-  contract's grace window (stale → nudge → kill → `recover`), and the sequence by `upTo` and the
-  budget. In every cadence only you launch an explorer; the explorer never launches itself.
+  starts no attempt. There is no wall-clock cap in this release. The contract's grace window is a
+  liveness detector, not a deadline: an explorer with fresh status writes may run on past it, and
+  only `upTo` and the budget bound a sequence. In every cadence only you launch an explorer; the
+  explorer never launches itself.
 
 **Budget and reservation — attempts only.** An **attempt** is one explorer invocation that issues
 at least one `actionPath` command for a hypothesis. **Before** each `attempt` launch you reserve
@@ -172,8 +175,12 @@ its first command (`released: …` in its log stub) lets you mark the entry `rel
 outcome is uncertain is settled by a `recover` invocation under the same id before any new
 hypothesis.
 
-**Recovery is never exploration.** A respawn under the contract (step 4), an invocation after a
-status file that is not `done`, or an `uncertain` attempt runs a `recover` invocation: cleanup of
+**Recovery is never exploration.** Re-dispatch goes by the recorded kind: an `attempt` whose slot
+is `reserved` or `uncertain` (a respawn under the contract, step 4; a status file not `done`; a
+lost result) and an interrupted `recover` run a `recover` invocation under the same attempt id —
+`recover` runs only for such an attempt; a failed or killed `close` is repeated as `close` (a new
+invocation number, no budget charge, never an attempt id invented or borrowed). A `recover`
+invocation: cleanup of
 `open` objects, reconciliation of a lost result through the grant's `reconcile` command (an object
 created with a lost response is found by recorded ID or ownership — never by a name prefix, and a
 create with an unknown outcome is never re-issued), a log entry, no hypothesis. A missing stub, or
@@ -187,7 +194,8 @@ and no two explorer invocations run at once.
 
 **Killed before its entry.** When an explorer ends `failed`, is killed, or leaves a log stub without
 a result, you report from the stub (the reservation), the ledger and the status file's last `step`
-— never from its transcript — and the next invocation is a `recover`.
+— never from its transcript — and the next invocation goes by its kind: a `recover` for an
+`attempt`, a repeated `close` for a `close`.
 
 1. **Attempt log** — `spec-memory/explore/log.md`, append-only, one entry per invocation under
    `## <window> / attempt <id>`, opened as a reservation stub (`invocation`, `started`, `commands
@@ -221,7 +229,8 @@ a result, you report from the stub (the reservation), the ledger and the status 
    **retained** from **unresolved**; so does every progress line. An unresolved object stays a
    visible open item in the ledger and in the next progress line; it is never dropped. After a
    stop-rule halt, or a session that ended mid-attempt (an explorer status file not `done`),
-   cleanup is the **first action** of the next explorer invocation (a `recover`).
+   cleanup is the **first action** of the next explorer invocation (a `recover` for an attempt, a
+   repeated `close` for a close).
 7. **Missing evidence is a stop.** When the grant is live and `attemptsUsed > 0` but the log or
    the ledger file is missing (a fresh clone, lost gitignored files), a cleanup cannot be verified:
    stop, report, and start no attempt until the user re-provides the files or declares the boundary
@@ -287,11 +296,12 @@ a result, you report from the stub (the reservation), the ledger and the status 
 - **Resume.** The grant survives a session. On any resume, show the user the grant (objective,
   boundary, budget, cadence) and the attempts used **of** the budget (`attemptsUsed` includes
   `reserved` and `uncertain` entries — list each such entry by id; the next invocation is a
-  `recover`), list retained and open ledger items, then continue the feature.
+  `recover` under that id), list retained and open ledger items, then continue the feature.
   A new attempt starts only on the user's word (or an active continuous
   request stated again by the user — a sequence never survives a session by itself); an explorer
-  status file not `done`, or a `reserved`/`uncertain` attempt, means the next invocation is a
-  `recover`. A missing log or ledger with `attemptsUsed > 0` is the stop of §3.7.
+  status file not `done` is re-dispatched by its recorded kind — a `recover` for a
+  `reserved`/`uncertain` attempt, a repeated `close` for a `close`, never a `recover` with an
+  invented attempt id. A missing log or ledger with `attemptsUsed > 0` is the stop of §3.7.
 - **Status.** `explore.status` is `closed` | `idle` | `running` | `spent` | `revoked`. `closed`
   means no window is open (before the first window, between windows, and when the feature reaches
   `complete`); `idle` is the interval between invocations inside an open window; `running` while an

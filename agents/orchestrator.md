@@ -295,7 +295,9 @@ rules hold even without the playbook:
   or a lost result never frees the slot — only written evidence of a setup failure before the first
   command releases it; a missing stub is uncertain, never a release. **A respawn is recovery only**: a `recover` invocation cleans up and
   reconciles through the grant's `reconcile` command (never by a name prefix, never a blind
-  re-create), and never runs a new hypothesis.
+  re-create), and never runs a new hypothesis. Re-dispatch goes by the recorded invocation kind
+  (`explore.invocations[]`): `recover` only for a `reserved` or `uncertain` attempt; a failed
+  `close` is repeated as `close`, never recovered under an invented attempt id.
 - **Every patch is saved with its manifest before its result is logged**; a patch without a
   manifest, or described only in prose, is never applied. Every created object is in the ledger
   with a state (`open`, `deleted-verified`, `retained-by-user`); cleanup targets `open` objects
@@ -1148,7 +1150,7 @@ task completion/failure.
 Keys this playbook adds as they arise: `findings` (top level: `{ path, counts }` — the findings
 index lives in `spec-memory/findings.jsonl`, never in this file), `prototypeAuthority`,
 `exploreAuthority` and `explore` (top level: the grant record with `decisions[]`, and
-`{ attemptsUsed, attempts[], status, window, reason }` — `playbooks/sdd-explore.md`), and `wave`
+`{ attemptsUsed, attempts[], invocations[], status, window, reason }` — `playbooks/sdd-explore.md`), and `wave`
 (top level: `{ tasks, base, attempt }` while a wave exists), `repairTrees` (per task),
 `blockingHistory` (per
 attempt: the blocking count and the finding identities), `convergenceRetry`, `parkedRef`,

@@ -68,11 +68,16 @@ through the orchestrator; never assume a default for a missing key.
   and no `decisions[]` entry ever covers it.
 - **Probe code lives in a temporary copy, never in the checkout.** Export the base twice outside
   the checkout (`git archive HEAD | tar -x -C <dir>`; read-only git), a pristine and a working
-  copy. You run read-only git only.
+  copy. You edit only the working copy; the pristine copy is never written after export. You run
+  read-only git only.
 - **Closed write perimeter.** You write exactly these files and nothing else: the attempt log, the
   object ledger, patches and manifests under `spec-memory/prototypes/`, the brief, sanitized
-  evidence under `spec-memory/explore/` or `spec-memory/probes/`, and your status file with its
-  summary. Never the findings index (`spec-memory/findings.jsonl`), never the state file, never a
+  evidence under `spec-memory/explore/` or `spec-memory/probes/`, your status file with its
+  summary, and — for probe code — the bounded temporary **working copy** you exported, with the
+  generated inputs or outputs the attempt produces there. The pristine export stays immutable
+  after export; every main-checkout prohibition stays; this widens no live-action authority. A
+  `before-task-<N>` hypothesis that needs a code change edits a source file in the working copy —
+  that write is inside your perimeter. Never the findings index (`spec-memory/findings.jsonl`), never the state file, never a
   context pack or `spec-memory/decisions.md`, never a spec, never product code in the checkout.
 - **One invocation, then end.** Never start a second hypothesis in one invocation. Never ask the
   user; the orchestrator relays your log entry, and the user redirects you through the next prompt.
@@ -142,8 +147,9 @@ cleanup** the orchestrator reports; they are never silently dropped.
 
 ## A `recover` invocation — settle, never explore
 
-Run it under the **same attempt id** as the uncertain attempt (a killed or respawned explorer, a
-lost result). Read its stub. If it says `commands issued: none`, write `released: setup failure
+A `recover` runs only for a `reserved` or `uncertain` attempt; a failed `close` is not recovered —
+it is repeated as `close` (below). Run it under the **same attempt id** as the uncertain attempt
+(a killed or respawned explorer, a lost result). Read its stub. If it says `commands issued: none`, write `released: setup failure
 before the first command` and end — the orchestrator releases the slot. In every other case — the
 stub says `commands issued: yes`, or there is no stub at all, or the stub has no `commands issued`
 evidence either way — the outcome is uncertain, never a release: run `reconcile` to list the objects you own by recorded ID or ownership, add any object
@@ -166,7 +172,9 @@ commits the window used; the evidence paths. The brief is evidence, not a spec. 
 says the grant is revoked, write a **stub brief** instead, and only this: the window kind, `head`,
 `provisional`, the attempt ids with their results, the retained and unresolved objects,
 `reason: revoked` with the user's words, and the line `no mechanism claimed`. Write no new
-attempt.
+attempt. A `close` that failed or was killed is run again as a `close` — a new invocation number,
+no attempt id (never borrow or invent one), no budget charge; it re-checks the ledger and rewrites
+the brief or the stub brief.
 
 ## Stop rules — stop at once, clean up, report, wait
 

@@ -225,6 +225,8 @@ class PlaybookWindowTest(Base):
                   window=120)
         self.near(self.play, "each adds one", r"`attempt`, a `recover`, a `close` and a respawn each take a new\s+invocation number")
         self.near(self.play, "recover reuses", r"`recover` reuses the attempt id")
+        self.near(self.play, "record", r"`explore.invocations\[\]`", r"`kind`", r"`attemptId`", r"only when one exists",
+                  r"never for a `close`", window=200)
 
     def test_step_cadence_reads_only_the_log_entry(self):
         self.near(self.play, "step", r"`step` \(default\)", r"only that\s+attempt's log entry",
@@ -236,7 +238,10 @@ class PlaybookWindowTest(Base):
                   r"You launch the next\s+attempt", r"never past the budget", window=300)
         self.near(self.play, "only you launch", r"only you launch an explorer", r"explorer never launches itself")
         self.lacks(self.play, r"explorer launches the next attempt", "explorer self-launches")
-        self.near(self.play, "bounds", r"no wall-clock cap", r"grace window", r"`upTo` and the\s+budget", window=200)
+        self.near(self.play, "bounds", r"no wall-clock cap", r"grace window", r"liveness detector", r"not a deadline",
+                  r"only `upTo` and the budget bound a sequence", window=200)
+        self.lacks(self.play, r"grace window[^.]{0,60}(is the|as a|bounds)[^.]{0,20}deadline", "grace window as a deadline")
+        self.lacks(self.play, r"deadline for an attempt", "grace window as a deadline")
         self.near(self.play, "report", r"after every\s+attempt you still give the short report", r"steering")
         self.near(self.play, "stops", r"mandatory stop", r"waits for the user", window=80)
         for stop in (r"boundary or authority change", r"budget or `upTo` reached", r"unknown action outcome",
@@ -268,6 +273,12 @@ class PlaybookWindowTest(Base):
 
     def test_recovery_is_never_exploration(self):
         self.near(self.play, "recover", r"respawn", r"`recover` invocation", r"no hypothesis", window=600)
+        self.near(self.play, "by kind", r"Re-dispatch goes by the recorded kind", r"`reserved` or `uncertain`",
+                  r"`recover` runs only for such an attempt", window=400)
+        self.near(self.play, "close repeated", r"failed or killed `close` is (repeated|run again) as `close`",
+                  r"new\s+invocation number", r"no budget charge", r"never an attempt id invented or borrowed", window=200)
+        self.lacks(self.play, r"failed (or killed )?`close` (runs|gets|is recovered by) a `recover`", "failed close recovered")
+        self.lacks(self.play, r"borrowing the last attempt id", "close borrows an attempt id")
         self.near(self.play, "no stub", r"missing stub", r"uncertain", r"never a release", window=120)
         self.near(self.play, "reconcile", r"`reconcile` command", r"recorded ID or ownership", r"never by a name prefix",
                   r"unknown outcome is never re-issued", window=200)
@@ -282,8 +293,8 @@ class PlaybookWindowTest(Base):
 
     def test_killed_explorer_is_read_from_the_stub(self):
         self.near(self.play, "killed", r"report from the stub", r"ledger",
-                  r"status file's last `step`", r"never from its transcript", r"next invocation is a `recover`",
-                  window=300)
+                  r"status file's last `step`", r"never from its transcript", r"goes by its kind",
+                  r"`recover` for an\s+`attempt`", r"repeated `close` for a `close`", window=300)
 
     def test_attempt_log_is_append_only_with_a_stub(self):
         self.near(self.play, "log", r"Attempt log", r"`spec-memory/explore/log.md`", r"append-only",
@@ -417,8 +428,9 @@ class PlaybookSessionsStopMetricsTest(Base):
                   r"retained and open ledger items", r"continue", window=300)
         self.near(self.play, "word", r"new attempt starts only on the user's word")
         self.near(self.play, "sequence", r"sequence never survives a session by itself")
-        self.near(self.play, "recover", r"status file not `done`", r"`reserved`/`uncertain` attempt", r"`recover`",
-                  window=120)
+        self.near(self.play, "recover", r"status file not `done`", r"recorded kind",
+                  r"`recover` for a\s+`reserved`/`uncertain` attempt", r"repeated `close` for a `close`",
+                  r"never a `recover` with an\s+invented attempt id", window=200)
 
     def test_status_vocabulary_distinguishes_closed_window_from_idle(self):
         self.near(self.play, "status", r"`closed` \| `idle` \| `running` \| `spent` \| `revoked`")
@@ -512,6 +524,13 @@ class ExplorerAgentTest(Base):
                   r"`git archive HEAD", r"read-only git only", window=400)
         self.near(self.explorer, "perimeter", r"Closed write perimeter", r"write exactly these files and nothing else",
                   r"attempt log", r"object ledger", r"`spec-memory/prototypes/`", r"the brief", r"status file", window=400)
+        self.near(self.explorer, "working copy", r"Closed write perimeter", r"temporary \*\*working copy\*\*",
+                  r"generated inputs or outputs", r"pristine export stays immutable", r"main-checkout prohibition",
+                  r"widens no live-action authority", window=300)
+        self.near(self.explorer, "scenario", r"`before-task-<N>` hypothesis that needs a code change edits a source file in the working copy",
+                  r"inside your perimeter")
+        self.near(self.explorer, "pristine", r"edit only the working copy", r"pristine copy is never written after export")
+        self.lacks(self.explorer, r"pristine (export|copy) may be edited", "pristine copy editable")
         for never in (r"Never the findings index \(`spec-memory/findings.jsonl`\)", r"never the state file",
                       r"never a\s+context pack or `spec-memory/decisions.md`", r"never a spec",
                       r"never product code in the checkout"):
@@ -589,7 +608,10 @@ class ExplorerAgentTest(Base):
                   r"Failed attempts are kept", window=400)
 
     def test_recover_settles_and_never_explores(self):
-        self.near(self.explorer, "same id", r"`recover` invocation", r"same attempt id", r"uncertain attempt", window=120)
+        self.near(self.explorer, "by kind", r"`recover` runs only for a `reserved` or `uncertain` attempt",
+                  r"failed `close` is not recovered", r"(repeated|run again) as `close`", window=60)
+        self.lacks(self.explorer, r"failed `close` is recovered", "failed close recovered")
+        self.near(self.explorer, "same id", r"`recover` invocation", r"same attempt id", r"uncertain attempt", window=400)
         self.near(self.explorer, "released", r"`commands issued: none`", r"`released: setup failure", window=80)
         self.near(self.explorer, "no stub", r"no stub at all", r"no `commands issued`\s+evidence either way",
                   r"uncertain, never a release", window=120)
@@ -610,6 +632,10 @@ class ExplorerAgentTest(Base):
         self.near(self.explorer, "stub brief", r"grant is revoked", r"stub brief", r"`head`", r"`provisional`",
                   r"attempt ids", r"retained and unresolved objects", r"`reason: revoked`", r"`no mechanism claimed`",
                   window=200)
+        self.near(self.explorer, "close again", r"`close` that failed or was killed is (run again|repeated) as a `close`",
+                  r"new invocation number", r"no attempt id", r"never borrow or invent one", r"no budget charge",
+                  r"re-checks the ledger", window=200)
+        self.lacks(self.explorer, r"borrow the last", "close borrows an attempt id")
 
     def test_stop_rules_clean_up_and_block(self):
         self.near(self.explorer, "stop", r"Stop rules", r"clean up", r"report", r"wait", window=40)
@@ -711,6 +737,9 @@ class OrchestratorTest(Base):
                   r"only written evidence of a setup failure before the first\s+command releases it")
         self.near(self.orch, "recovery", r"respawn", r"recover", r"`recover` invocation", r"`reconcile` command",
                   r"never by a name prefix", r"never a blind\s+re-create", r"never runs a new hypothesis", window=300)
+        self.near(self.orch, "by kind", r"recorded invocation kind", r"`explore.invocations\[\]`",
+                  r"`recover` only for a `reserved` or `uncertain` attempt", r"failed\s+`close` is (repeated|run again) as `close`",
+                  r"never recovered under an invented attempt id", window=300)
 
     def test_patch_manifest_states_and_missing_ledger_bind(self):
         self.near(self.orch, "patch", r"Every patch is saved with its manifest before its result is logged",
@@ -753,7 +782,7 @@ class OrchestratorTest(Base):
 
     def test_state_keys_list_the_grant(self):
         self.near(self.orch, "keys", r"Keys this playbook adds", r"`exploreAuthority` and `explore`", r"`decisions\[\]`",
-                  r"attemptsUsed, attempts\[\], status, window, reason", window=300)
+                  r"attemptsUsed, attempts\[\], invocations\[\], status, window, reason", window=300)
 
     def test_critical_rules(self):
         self.near(self.orch, "code", r"NEVER write or modify application code",
@@ -828,8 +857,10 @@ class CommandsTest(Base):
                   r"`reserved` and `uncertain` entries", r"by id", r"`retained-by-user` and `open` item", window=400)
         self.near(self.resume, "missing", r"log or the ledger file is missing", r"cleanup cannot be verified",
                   r"stop and ask the user before any attempt", window=120)
-        self.near(self.resume, "recover", r"not `done`", r"`reserved`/`uncertain` attempt", r"`recover`", r"no hypothesis",
-                  window=200)
+        self.near(self.resume, "recover", r"not `done`", r"recorded kind", r"`reserved`/`uncertain` attempt gets a `recover`",
+                  r"same attempt id", r"no hypothesis", r"`close` is (repeated|run again) as `close`",
+                  r"no budget charge and no attempt id", window=200)
+        self.lacks(self.resume, r"`close` gets a `recover`", "failed close recovered on resume")
         self.near(self.resume, "word", r"Start no Explore attempt by yourself", r"only on the user's word",
                   r"continuous sequence never survives a session by itself", window=200)
         self.lacks(self.resume, r"exploreAuthority[^.]{0,80}is void", "grant voided on resume")
