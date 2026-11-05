@@ -253,8 +253,9 @@ explorer --task <task> --attempt <n> --state <state> --step "<step>"` (plus `--s
 write the same JSON with the Write tool. Never write another agent's status file. The status file is
 for liveness and recovery only; it never replaces your return summary. An agent without the Write
 tool writes the summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so
-no `$` or backtick in a finding is expanded. The summary path ends in `.md`, so the secret guard
-treats the body as data. If a hook blocks a command (the summary write too), follow the *Stop rules*
+no `$` or backtick in a finding is expanded. The summary path ends in `.md`, so the secret guard treats the body as data — but only
+in its own Bash call that holds the here-doc and then only `python3 ~/.claude/tools/sdd-status.py`
+calls; any other command in that call keeps the body checked. If a hook blocks a command (the summary write too), follow the *Stop rules*
 (delete your `open` objects, complete the log entry with `stopped: hook block`), then set
 `--state blocked --blocked-on "hook block"` with `sdd-status.py`, return the blocked command to your
 invoker as a possible false positive, and never reword the command to pass the hook.

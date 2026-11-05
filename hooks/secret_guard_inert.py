@@ -51,7 +51,9 @@ _PLAIN_WORD = (r"(?:[\w./:=@,+%-]|\$[A-Za-z_]\w*(?!\w)|\"(?:\$[A-Za-z_]\w*|[^\"$
 _HOME = re.escape(os.path.expanduser("~").rstrip("/") or "/nonexistent-home")
 _STATUS_CMD = re.compile(
     rf"[ \t]*python3?[ \t]+(?:~|\$HOME|\"\$HOME\"|{_HOME})"
-    rf"/\.claude/tools/sdd-status\.py(?:[ \t]+{_PLAIN_WORD})*[ \t]*")
+    rf"/\.claude/tools/sdd-status\.py(?:[ \t]+{_PLAIN_WORD})*"
+    # Output may be dropped (`>/dev/null`, `2>&1`): a redirect to /dev/null runs nothing.
+    r"(?:[ \t]*[12]?>[ \t]*(?:/dev/null|&[12]))*[ \t]*")
 # Before the cat/tee, the whole command may only set up: `cd <plain path>`, one plain
 # `NAME=value`, or a status command. Anything else (`trap ... EXIT`, `(...) &`, an earlier
 # script write) could run the written file later in the same command.
@@ -96,10 +98,10 @@ def _resolve_target(target: str, command: str, before: int):
 
 def _only_status_commands(tail: str, rest: str) -> bool:
     """True when nothing follows the operator on its line and every later command is a
-    plain `sdd-status.py` call (joined by newlines or `&&`)."""
+    plain `sdd-status.py` call (joined by newlines, `&&` or `;`)."""
     if tail.strip():
         return False
-    for segment in re.split(r"\n|&&", rest):
+    for segment in re.split(r"\n|&&|;", rest):
         if segment.strip() and not _STATUS_CMD.fullmatch(segment):
             return False
     return True

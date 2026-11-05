@@ -50,6 +50,13 @@ ALLOWED = {
         "python3 ~/.claude/tools/sdd-status.py set --feature-dir $W --agent security-reviewer "
         "--task 9 --attempt 1 --state done --step end --verdict PASS --summary-path \"$S\""
     ),
+    # 2026-11-05, pis43-final-pooling Task 4 tester: status output dropped, trailing `;`.
+    "summary then a status record with output dropped": (
+        "cd /repo && F=.specs/features/f && cat > $F/spec-memory/4-tester-summary.md <<'EOF'\n"
+        "tree 63e3700a5ffb4b0d93d4520f381a4b49a6a68e13; no .env file read; GH_TOKEN unset\nEOF\n"
+        "python3 ~/.claude/tools/sdd-status.py set --feature-dir $F --agent task-tester --task 4 "
+        "--state done --verdict PASS --summary-path $F/spec-memory/4-tester-summary.md >/dev/null;"
+    ),
     "summary then the status record that names it": (
         "cat > st/x-a1.md <<'EOF'\nno credentials file read\nEOF\n"
         "python3 ~/.claude/tools/sdd-status.py set --state done --summary-path st/x-a1.md"
@@ -196,6 +203,13 @@ BLOCKED = {
         "python3 ~/.claude/tools/sdd-status.py a.md"
     ),
     # Review round 5 (2026-11-05): non-blocking, fixed anyway.
+    "status output to a file, not /dev/null": (
+        "cat > a.md <<'EOF'\ncat .env\nEOF\n"
+        "python3 ~/.claude/tools/sdd-status.py set > /tmp/x.sh; bash /tmp/x.sh"
+    ),
+    "second command after a ;": (
+        "cat > a.md <<'EOF'\ncat .env\nEOF\npython3 ~/.claude/tools/sdd-status.py set; bash a.md"
+    ),
     "zsh path array": (
         "path=/tmp/x; cat > a.md <<'EOF'\ncat .env\nEOF\n"
         "python3 ~/.claude/tools/sdd-status.py set"
@@ -313,6 +327,8 @@ class BriefsPinTheHookBlockRule(unittest.TestCase):
             text = path.read_text()
             with self.subTest(path.name):
                 self.assertTrue(near(text, r"summary path ends in `\.md`", r"as data"))
+                self.assertTrue(near(text, r"its own Bash call", r"sdd-status\.py",
+                                     r"any other command in that call keeps the body checked"))
                 self.assertTrue(near(text, r"If a hook\s+blocks a command",
                                      r"--state blocked --blocked-on \"hook block\"",
                                      r"possible false positive"))
