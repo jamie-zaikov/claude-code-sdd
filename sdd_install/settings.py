@@ -19,6 +19,8 @@ GUARD = "secret-guard.py"
 REDACT = "secret-redact.py"
 # event -> managed hook script filename
 MANAGED_HOOKS = {"PreToolUse": GUARD, "PostToolUse": REDACT}
+# Modules a hook imports from its own folder; copied with the hooks, never registered.
+HOOK_SUPPORT = ("secret_guard_inert.py",)
 
 # Read deny rules. Gitignore-style paths; `~/` is home-relative on every platform and the harness
 # normalizes Windows paths to forward slashes, so these forms cover Windows too. The one

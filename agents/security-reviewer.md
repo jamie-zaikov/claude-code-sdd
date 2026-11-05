@@ -214,7 +214,11 @@ status file is for liveness and recovery only; it never replaces your return sum
 file and its summary `.md` are the **only** files this section lets you write, both under
 `spec-memory/status/` — never a code or spec change. An agent without the Write tool writes the
 summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so no `$` or
-backtick in a finding is expanded.
+backtick in a finding is expanded. The summary path ends in `.md`, so the secret guard treats the body as data. If a hook
+blocks a command (the summary write too), stop: set `--state blocked --blocked-on "hook block"`
+with `sdd-status.py`, return the blocked command to your invoker as a possible false positive
+(a verdict-returning agent returns no PASS for work a block cut short), and never reword the
+command to pass the hook.
 
 ## Secret Handling
 
@@ -226,6 +230,14 @@ value redacted** (`AKIA…[redacted]`, `[redacted 40-char token]`) — never rep
 `echo`/`print` a secret, run `env`/`printenv`, or use authenticated `curl -v`. If you need a
 credential to complete the review, halt and return `SECRET REQUEST: <need>` rather than reading a
 secret file.
+
+A word-list search for secret-shaped names (`secret|token|credentials|key`) is part of the review.
+Search only the diff or tracked files (`git diff ... | grep -iE '...'`, `git grep -n -iE '...'`):
+a recursive search of the working tree also reads untracked `.env` files and prints their
+`KEY=value` lines, and the guard cannot see that. Put the pattern first, before any file, or as an
+`-e` value placed before the first file — the guard skips a search pattern but checks every file
+the command reads. In a summary, name a sensitive file by its kind and `path:line`, never by its
+content.
 
 ## Rules
 
