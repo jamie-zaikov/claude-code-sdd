@@ -251,7 +251,13 @@ status file is for liveness and recovery only; it never replaces your return sum
 file and its summary `.md` are the **only** files this section lets you write, both under
 `spec-memory/status/` — never a code or spec change. An agent without the Write tool writes the
 summary through Bash with a **quoted** heredoc (`cat > <summaryPath> <<'EOF'`), so no `$` or
-backtick in a finding is expanded.
+backtick in a finding is expanded. The summary path ends in `.md`, so the secret guard treats the body as data — but only
+in its own Bash call that holds the here-doc and then only `python3 ~/.claude/tools/sdd-status.py`
+calls; any other command in that call keeps the body checked. If a hook
+blocks a command (the summary write too), stop: set `--state blocked --blocked-on "hook block"`
+with `sdd-status.py`, return the blocked command to your invoker as a possible false positive
+(a verdict-returning agent returns no PASS for work a block cut short), and never reword the
+command to pass the hook.
 
 ## Rules
 

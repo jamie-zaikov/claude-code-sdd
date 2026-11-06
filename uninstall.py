@@ -32,7 +32,7 @@ SOURCES = (
     ("commands", "commands", "*.md"),
     ("playbooks", "playbooks", "*.md"),
     ("tools", "tools", "*.py"),
-    ("hooks", "hooks", "secret-*.py"),
+    ("hooks", "hooks", "secret*.py"),  # secret-guard.py, secret-redact.py, secret_guard_inert.py
 )
 
 

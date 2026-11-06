@@ -157,6 +157,10 @@ class Installer:
             dest = hooks_dir / name
             copy_file(ROOT / "hooks" / name, dest, executable=True)
             self.record(dest)
+        for name in sdd_settings.HOOK_SUPPORT:
+            dest = hooks_dir / name
+            copy_file(ROOT / "hooks" / name, dest)
+            self.record(dest)
         ok(f"{len(sdd_settings.MANAGED_HOOKS)} hook script(s) copied to {hooks_dir}.")
         python = hook_python()
         # Prove the exact commands work BEFORE registering them, so a broken interpreter or

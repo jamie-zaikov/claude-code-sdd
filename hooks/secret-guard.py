@@ -25,6 +25,21 @@ Allows (does NOT block):
     `curl --cert key.pem`, `openssl ... key.pem` — the value never enters context.
   - Referencing a secret by env-var name: `curl -H "Authorization: Bearer $TOKEN"`,
     and in PowerShell `curl.exe -H "Authorization: Bearer $env:TOKEN"`.
+  - Inert text (every rule is checked on the command with this text removed):
+      * the body of a QUOTED here-doc (`<<'EOF'` / `<<"EOF"`) that `cat > FILE` or
+        `tee FILE` writes to a DATA file (.md .txt .json .jsonl .yaml .yml .csv .tsv .log)
+        — literal text, never a read of a secret store. An agent without the Write tool
+        writes its summary this way. A script body (.py, .sh, no extension) stays checked,
+        and so does any body followed by a command other than a plain `sdd-status.py` call.
+      * the search PATTERN of grep/egrep/fgrep/rg (the first operand, or each `-e`
+        value) — a pattern decides which lines print, never which files are read. The
+        files (operands, `--include` values, redirects) are still checked. Any option
+        this guard does not know, `-f`, or a `$`/backtick in the pattern keeps the
+        whole command checked.
+  - A tool name inside an option (`--head-sha` is not `head`).
+  The helpers are in secret_guard_inert.py (same folder). The option tables cover GNU grep,
+  BSD/macOS grep and ripgrep; a `grep` shell function that runs another tool (e.g. ugrep)
+  is not modelled — its GNU-compatible options parse the same way.
 
 Limits: a regex guard stops the common dump vectors, not every exfiltration (e.g. a
 script file that prints a variable, or an obfuscated command, is not detected).
@@ -33,6 +48,7 @@ On block: exits 0 with a deny decision + a reason that points the agent at the
 "use, don't read" pattern and the SECRET REQUEST escalation.
 """
 import json
+import os
 import re
 import sys
 
@@ -63,7 +79,9 @@ SECRET_PATH = re.compile(
 BARE_ENV_DUMP = re.compile(r"(?:^|[;&|]\s*)env\s*(?:\||>|;|&|$)")
 PRINTENV = re.compile(r"(?:^|[;&|]\s*)printenv\b")
 SET_TRACE = re.compile(r"(?:^|[;&|]\s*)set\s+(?:-x\b|-o\s+xtrace\b)")
-DUMP_OF_SECRET = re.compile(rf"\b{DUMP_TOOLS}\b[^;&|]*")
+# `(?<![\w-])`: a tool name right after `-` is part of an option (`--head-sha`), not a
+# command. The trailing `\b` stays: `git cat-file -p HEAD:.env` must still match `cat`.
+DUMP_OF_SECRET = re.compile(rf"(?<![\w-]){DUMP_TOOLS}\b[^;&|]*")
 
 # `gh auth token` (and its arg variants, e.g. `gh auth token --hostname github.com`)
 # — the canonical command that prints a GitHub token. The leading boundary also
@@ -161,6 +179,19 @@ def _powershell_blocked(command: str) -> bool:
     return False
 
 
+# Inert-text helpers live in a sibling module. If it is missing or broken, fail CLOSED:
+# nothing is treated as inert, so every rule sees the whole command (the old behaviour).
+sys.dont_write_bytecode = True  # no __pycache__ in ~/.claude/hooks (uninstall removes the folder)
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from secret_guard_inert import without_inert_text as _without_inert_text
+except Exception:  # noqa: BLE001 — any import failure keeps the strict check
+    def _without_inert_text(command: str) -> str:
+        return command
+finally:
+    sys.path.pop(0)
+
+
 DENY_REASON = (
     "Blocked: this command would print a secret into the transcript. "
     "Do not read secret material into context. Instead USE it without reading it: "
@@ -172,6 +203,16 @@ DENY_REASON = (
 
 
 def is_blocked(command: str) -> bool:
+    # Inert text (a cat/tee quoted here-doc body, a grep/rg search pattern) is data, not a
+    # command or a file read, so no rule sees it. If the helper fails, check the raw command.
+    try:
+        command = _without_inert_text(command)
+    except Exception:  # noqa: BLE001 — a helper crash must never open the guard
+        pass
+    return _rules_block(command)
+
+
+def _rules_block(command: str) -> bool:
     if PRINTENV.search(command) or BARE_ENV_DUMP.search(command) or SET_TRACE.search(command):
         return True
     # GitHub-token dump vectors (`gh auth token`, echo/printf of GH_TOKEN/GITHUB_TOKEN).
