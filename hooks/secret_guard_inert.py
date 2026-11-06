@@ -299,6 +299,9 @@ def _shell_words(text: str, pos: int):
 def _grep_pattern_spans(text: str, m: re.Match):
     """Character spans of the search pattern(s) of the grep/rg at `m`; [] on any doubt."""
     table = _RG if m.group(1) == "rg" else _GREP
+    is_git = re.match(r"[ \t]*git[ \t]", text[m.start():m.end()].lstrip(";&|(\n`")) is not None
+    if is_git and m.group(1) != "grep":
+        return []  # `git egrep` / `git rg` are user aliases, which can run anything
     words = _shell_words(text, m.end())
     if not words:
         return []
@@ -313,6 +316,11 @@ def _grep_pattern_spans(text: str, m: re.Match):
         if end_opts or w == "-" or not w.startswith("-"):
             kinds.append("operand")
             seen_operand = True
+        elif seen_operand and w == "--" and is_git:
+            # `git grep PAT <rev> -- <path>`: for git, `--` always ends the revisions, and
+            # POSIXLY_CORRECT does not apply. The paths after it stay operands (checked).
+            kinds.append("opt")
+            end_opts = True
         elif seen_operand:
             # GNU permutation may be off (POSIXLY_CORRECT), and then this is a file: doubt.
             return []

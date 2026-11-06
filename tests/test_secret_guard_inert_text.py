@@ -68,6 +68,10 @@ ALLOWED = {
     ),
     "pattern is an escaped .env": 'grep -n "\\.env" .gitignore',
     "rg pattern word": "rg -n -i 'credentials|kubeconfig' src/",
+    # 2026-11-06 nvr-tls-cert Task 1 validator: git grep with a revision and `--` paths.
+    "git grep pattern, revision, -- paths": (
+        'git grep -n "cd-services.auto.tfvars" d276117 -- .github | head -3'
+    ),
     # Positive controls for the PR #28 glob fix: quoted or escaped literals stay one word.
     "quoted glob pattern": "grep -v '.env*' notes.txt",
     "double-quoted brace pattern": 'grep -E ".env{1,2}" notes.txt',
@@ -220,6 +224,13 @@ BLOCKED = {
     "glob pattern word with a char class": "grep -v .env[.]local",
     "tilde pattern word": "grep -v ~/.aws/credentials",
     "glob after -e": "grep -v -e .env* notes.txt",
+    # git grep `--` (2026-11-06): the paths after `--` stay checked; only git gets this.
+    "git grep, store path after --": "git grep -n TOKEN HEAD -- .env",
+    "git grep, store path after -- and a revision": "git grep -n -e TOKEN HEAD~1 -- id_rsa",
+    "git grep, other option after an operand": "git grep -n TOKEN HEAD -i .env",
+    "plain grep, -- after an operand": "grep TOKEN notes.txt -- .env",
+    "git alias named like a grep": "git rg .env",
+    "git alias egrep": "git egrep -n ~/.aws/credentials",
     "zsh path array": (
         "path=/tmp/x; cat > a.md <<'EOF'\ncat .env\nEOF\n"
         "python3 ~/.claude/tools/sdd-status.py set"
