@@ -68,6 +68,10 @@ ALLOWED = {
     ),
     "pattern is an escaped .env": 'grep -n "\\.env" .gitignore',
     "rg pattern word": "rg -n -i 'credentials|kubeconfig' src/",
+    # Positive controls for the PR #28 glob fix: quoted or escaped literals stay one word.
+    "quoted glob pattern": "grep -v '.env*' notes.txt",
+    "double-quoted brace pattern": 'grep -E ".env{1,2}" notes.txt',
+    "escaped glob pattern": "grep -v .env\\* notes.txt",
     "option that contains a tool name": (
         "python3 tools/cd.py route --head-sha abc123 --tfvars-out /tmp/plan.auto.tfvars"
     ),
@@ -210,6 +214,12 @@ BLOCKED = {
     "second command after a ;": (
         "cat > a.md <<'EOF'\ncat .env\nEOF\npython3 ~/.claude/tools/sdd-status.py set; bash a.md"
     ),
+    # PR #28 Codex review (2026-11-05): an unquoted pattern word that expands into files.
+    "glob pattern word expands into a file": "grep -v .env*",
+    "brace pattern word expands into a file": "grep -v .env{,.local}",
+    "glob pattern word with a char class": "grep -v .env[.]local",
+    "tilde pattern word": "grep -v ~/.aws/credentials",
+    "glob after -e": "grep -v -e .env* notes.txt",
     "zsh path array": (
         "path=/tmp/x; cat > a.md <<'EOF'\ncat .env\nEOF\n"
         "python3 ~/.claude/tools/sdd-status.py set"

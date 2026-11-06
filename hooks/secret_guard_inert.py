@@ -379,8 +379,33 @@ def _grep_pattern_spans(text: str, m: re.Match):
         if kind == "pattern":
             if any(c in text[s:e] for c in "$`"):
                 return []
+            # An UNQUOTED glob or brace (`.env*`, `.env{,.local}`) or tilde can expand into
+            # several words: the first becomes the pattern, the rest become files that grep
+            # reads. Only a quoted or escaped literal is one word for sure.
+            if any(c in _unquoted(text[s:e]) for c in "*?[]{}~^#"):
+                return []
             spans.append((s, e))
     return spans
+
+
+def _unquoted(raw: str) -> str:
+    """The characters of a shell word that are outside quotes and not escaped."""
+    out, i, quote = [], 0, None
+    while i < len(raw):
+        c = raw[i]
+        if quote:
+            if c == quote:
+                quote = None
+            elif quote == '"' and c == "\\":
+                i += 1
+        elif c in "'\"":
+            quote = c
+        elif c == "\\":
+            i += 1
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _blank_grep_patterns(command: str) -> str:
