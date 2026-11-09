@@ -305,9 +305,10 @@ def _grep_pattern_spans(text: str, m: re.Match):
     words = _shell_words(text, m.end())
     if not words:
         return []
-    # Any `$` or backtick in the command (`$'a\'b'`, `$(...)`, `$VAR`) can change how Bash
-    # splits the words, so the parse above is not trusted: keep the full check.
-    if any(c in text[m.end():words[-1][1]] for c in "$`"):
+    # Any `$` or backtick that the shell expands (`$'a\'b'`, `$(...)`, `$VAR`, also inside
+    # "...") can change how Bash splits the words, so the parse above is not trusted: keep
+    # the full check. Inside '...' both are literal (`'credentials.*\.ts$'`).
+    if any(c in _expandable(text[m.end():words[-1][1]]) for c in "$`"):
         return []
     # Pass 1: options. `-e`/`--regexp` values are patterns; then every operand is a file.
     kinds, explicit, k, end_opts, seen_operand = [], False, 0, False, False
@@ -385,7 +386,7 @@ def _grep_pattern_spans(text: str, m: re.Match):
     spans = []
     for (s, e, w), kind in zip(words, kinds):
         if kind == "pattern":
-            if any(c in text[s:e] for c in "$`"):
+            if any(c in _expandable(text[s:e]) for c in "$`"):
                 return []
             # An UNQUOTED glob or brace (`.env*`, `.env{,.local}`) or tilde can expand into
             # several words: the first becomes the pattern, the rest become files that grep
@@ -394,6 +395,28 @@ def _grep_pattern_spans(text: str, m: re.Match):
                 return []
             spans.append((s, e))
     return spans
+
+
+def _expandable(raw: str) -> str:
+    """The characters the shell may expand: everything outside '...' and not escaped by a
+    backslash. (Inside "...", `$` and backticks still expand, so they are kept.)"""
+    out, i, quote = [], 0, None
+    while i < len(raw):
+        c = raw[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif c == "\\":
+            i += 1
+        else:
+            if c == '"':
+                quote = None if quote == '"' else '"'
+            elif c == "'" and quote is None:
+                quote = "'"
+            else:
+                out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _unquoted(raw: str) -> str:

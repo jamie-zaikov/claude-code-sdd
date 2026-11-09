@@ -68,6 +68,23 @@ ALLOWED = {
     ),
     "pattern is an escaped .env": 'grep -n "\\.env" .gitignore',
     "rg pattern word": "rg -n -i 'credentials|kubeconfig' src/",
+    # 2026-11-07 n8n-node-deploy: n8n keeps credential TYPES (source code) in credentials/.
+    "files inside a credentials folder": (
+        "grep -n 'name:' instruments/*/node/src/credentials/*.ts"
+    ),
+    "built files inside a credentials folder": (
+        "grep -o 'require(\"[^\"]*\")' instruments/*/node/dist/credentials/*.js"
+    ),
+    "test files named credentials.*": (
+        "sed -n 1,40p src/nodes/X/credentials.test.ts src/nodes/Y/credential-description.test.ts"
+    ),
+    "type declarations named credentials.*": "cat dist/credentials.d.ts dist/credentials.js.map",
+    "secret-shape scan over a credentials folder": (
+        "grep -n -E 'BEGIN [A-Z ]*PRIVATE|AKIA|ghp_' README.md dist/credentials/*.js"
+    ),
+    "dollar inside a single-quoted pattern": (
+        "git ls-tree -r --name-only HEAD | grep -iE 'credentials.*\\.ts$'"
+    ),
     # 2026-11-06 nvr-tls-cert Task 1 validator: git grep with a revision and `--` paths.
     "git grep pattern, revision, -- paths": (
         'git grep -n "cd-services.auto.tfvars" d276117 -- .github | head -3'
@@ -230,6 +247,23 @@ BLOCKED = {
     "git grep, other option after an operand": "git grep -n TOKEN HEAD -i .env",
     "plain grep, -- after an operand": "grep TOKEN notes.txt -- .env",
     "git alias named like a grep": "git rg .env",
+    # The credentials narrowing (2026-11-07) keeps every FILE named credentials(.*) blocked.
+    "file named credentials": "cat credentials",
+    "aws credentials file": "head -3 ~/.aws/credentials",
+    "credentials.json": "cat secrets/credentials.json",
+    "terraform credentials file": "cat ~/.terraform.d/credentials.tfrc.json",
+    "credentials.csv download": "cut -d, -f2 Downloads/credentials.csv",
+    "source extension then a backup": "cat src/credentials.ts.bak",
+    # Review round 7 (2026-11-08): each was old True / new False before its fix.
+    "credentials.py with literal keys": "cat config/credentials.py",
+    "credentials.js with literal keys": "cat src/credentials.js",
+    "upper-case Credentials.JS": "cat Credentials.JS",
+    "systemd credentials folder": "cat /run/credentials/app.service/token",
+    "Rails credentials folder": "cat config/credentials/production.yml.enc",
+    "git credential store": "cat ~/.git-credentials",
+    "a path that ends in credentials (file or folder)": "grep -rn TOKEN src/credentials",
+    "dollar expands inside double quotes": 'grep "x$(cat .env)" notes.txt',
+    "ANSI-C dollar quote in the pattern": "grep $'\\x41' ~/.aws/credentials",
     "git alias egrep": "git egrep -n ~/.aws/credentials",
     "zsh path array": (
         "path=/tmp/x; cat > a.md <<'EOF'\ncat .env\nEOF\n"
