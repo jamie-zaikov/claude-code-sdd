@@ -64,7 +64,16 @@ SECRET_PATH = re.compile(
     (?:
         \.env(?:\.[\w.-]+)?\b      # .env, .env.local, .env.production
       | id_rsa\b | id_ed25519\b
-      | [/\\]credentials\b | (?<![\w.])credentials\b
+      # A FILE named credentials or credentials.* (~/.aws/credentials, credentials.json,
+      # credentials.tfrc.json, credentials.py), like the deny rule `Read(**/credentials)`.
+      # Not a folder segment (`src/credentials/Foo.ts`: n8n keeps credential TYPES there),
+      # and not a test, type-declaration, doc or source-map file (credentials.test.ts).
+      | (?<![\w.])credentials\b (?![/\\])
+        (?![\w.-]*\.(?:(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py)|d\.ts|md|map)(?![\w.]))
+      # Known secret stores that ARE folders named credentials.
+      | (?<![\w.])run[/\\]credentials[/\\]          # systemd $CREDENTIALS_DIRECTORY
+      | (?<![\w.])config[/\\]credentials[/\\]       # Rails per-environment credentials
+      | \.git-credentials\b
       | [\w.-]*\.pem\b | [\w.-]*\.key\b | [\w.-]*\.p12\b | [\w.-]*\.pfx\b
       | service-account[\w.-]*\.json\b
       | [\w.-]*\.tfvars\b
